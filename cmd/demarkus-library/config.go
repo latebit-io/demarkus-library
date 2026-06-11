@@ -46,6 +46,16 @@ type AppConfig struct {
 // Phase 0/1a demo path working: direct QUIC against a dev/soul world. Broker
 // mode validates its required settings loudly at startup.
 func NewAppConfig() (*AppConfig, error) {
+	sessionTTL, err := getEnvAsDuration("DEMARKUS_SESSION_TTL", 720*time.Hour)
+	if err != nil {
+		return nil, err
+	}
+	if sessionTTL <= 0 {
+		// A non-positive TTL would mint sessions that expire on arrival —
+		// a confusing login loop instead of a clear startup failure.
+		return nil, fmt.Errorf("DEMARKUS_SESSION_TTL must be positive, got %s", sessionTTL)
+	}
+
 	cfg := &AppConfig{
 		Port:      getEnvAsInt("PORT", 8080),
 		Transport: getEnv("DEMARKUS_TRANSPORT", TransportQUIC),
@@ -61,7 +71,7 @@ func NewAppConfig() (*AppConfig, error) {
 		RedirectURI:  getEnv("DEMARKUS_REDIRECT_URI", ""),
 		World:        getEnv("DEMARKUS_WORLD", ""),
 		Scopes:       strings.Fields(getEnv("DEMARKUS_SCOPES", "mark.read")),
-		SessionTTL:   getEnvAsDuration("DEMARKUS_SESSION_TTL", 720*time.Hour),
+		SessionTTL:   sessionTTL,
 		CookieSecure: getEnvAsBool("DEMARKUS_COOKIE_SECURE", true),
 	}
 
@@ -77,7 +87,9 @@ func NewAppConfig() (*AppConfig, error) {
 			{"DEMARKUS_REDIRECT_URI", cfg.RedirectURI},
 			{"DEMARKUS_WORLD", cfg.World},
 		} {
-			if kv.val == "" {
+			// Whitespace-only counts as missing — it would pass here
+			// only to fail opaquely in the OAuth dance later.
+			if strings.TrimSpace(kv.val) == "" {
 				missing = append(missing, kv.key)
 			}
 		}
@@ -116,11 +128,17 @@ func getEnvAsBool(key string, fallback bool) bool {
 	return fallback
 }
 
-func getEnvAsDuration(key string, fallback time.Duration) time.Duration {
-	if v, ok := os.LookupEnv(key); ok {
-		if d, err := time.ParseDuration(v); err == nil {
-			return d
-		}
+// getEnvAsDuration parses key as a Go duration. Unlike the int/bool helpers
+// it surfaces a parse error rather than silently falling back: a mistyped
+// session TTL must stop startup, not quietly become 720h.
+func getEnvAsDuration(key string, fallback time.Duration) (time.Duration, error) {
+	v, ok := os.LookupEnv(key)
+	if !ok {
+		return fallback, nil
 	}
-	return fallback
+	d, err := time.ParseDuration(v)
+	if err != nil {
+		return 0, fmt.Errorf("%s: invalid duration %q: %w", key, v, err)
+	}
+	return d, nil
 }
