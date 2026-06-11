@@ -1,4 +1,4 @@
-<!doctype html>
+{{define "page"}}<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -7,25 +7,35 @@
   <script src="/static/htmx.min.js"></script>
   <style>
     :root { color-scheme: light dark; }
-    body { max-width: 46rem; margin: 0 auto; padding: 2rem 1.25rem;
+    body { max-width: 48rem; margin: 0 auto; padding: 1.5rem 1.25rem;
            font: 16px/1.6 system-ui, sans-serif; }
-    header { border-bottom: 1px solid #8884; margin-bottom: 1.5rem;
-             padding-bottom: .5rem; }
-    header .meta { font-size: .8rem; opacity: .65; }
+    nav { display: flex; gap: 1rem; align-items: center; margin-bottom: 1.5rem;
+          padding-bottom: .75rem; border-bottom: 1px solid #8884; }
+    nav a.brand { font-weight: 600; text-decoration: none; white-space: nowrap; }
+    nav input[type=search] { flex: 1; padding: .4rem .6rem; border: 1px solid #8886;
+          border-radius: 6px; background: transparent; color: inherit; font: inherit; }
+    header.doc .meta { font-size: .8rem; opacity: .65; }
+    header.doc .meta a { color: inherit; }
     pre { background: #8881; padding: .75rem; overflow-x: auto; border-radius: 6px; }
     code { font-family: ui-monospace, monospace; }
+    table { border-collapse: collapse; }
+    th, td { text-align: left; padding: .3rem .6rem; border-bottom: 1px solid #8883; }
     a { text-underline-offset: 2px; }
+    .htmx-request#main { opacity: .55; transition: opacity .15s; }
   </style>
 </head>
-<!-- hx-boost: in-app navigation swaps the body without a full reload; the
-     server still renders every page, so links work with JS off too. -->
+<!-- hx-boost: in-app navigation swaps without a full reload; the server still
+     renders every page, so links work with JS off too. -->
 <body hx-boost="true">
-  <header>
-    <div class="meta">demarkus Library · reading room · <code>{{ .Host }}{{ .Path }}</code></div>
-    <h1>{{ .Title }}</h1>
-  </header>
-  <main class="reading-room">
-    {{ .Content }}
+  <nav>
+    <a class="brand" href="/">demarkus Library</a>
+    <input type="search" name="q" value="{{ .Query }}" placeholder="search the catalog…"
+           autocomplete="off"
+           hx-get="/search" hx-trigger="input changed delay:300ms, search"
+           hx-target="#main" hx-push-url="true">
+  </nav>
+  <main id="main">
+    {{ template "content" . }}
   </main>
 </body>
-</html>
+</html>{{end}}

@@ -22,6 +22,9 @@ import (
 // interface keeps the adapter unit-testable without a live world.
 type fetchClient interface {
 	Fetch(host, path, token string) (fetch.Result, error)
+	List(host, path, token string) (fetch.Result, error)
+	Versions(host, path, token string) (fetch.Result, error)
+	Lookup(host, scope, query, token string, opts fetch.LookupOptions) (fetch.Result, error)
 }
 
 // Gateway adapts a demarkus world (one host) to the WorldGateway port.
@@ -43,6 +46,31 @@ func NewGateway(client fetchClient, host, token string) *Gateway {
 // Fetch reads a document and maps demarkus status to domain errors.
 func (g *Gateway) Fetch(path string) (domain.RawDocument, error) {
 	res, err := g.client.Fetch(g.host, path, g.token)
+	return g.toRawDocument(res, path, err)
+}
+
+// List reads a directory listing (the stacks) at path.
+func (g *Gateway) List(path string) (domain.RawDocument, error) {
+	res, err := g.client.List(g.host, path, g.token)
+	return g.toRawDocument(res, path, err)
+}
+
+// Versions reads the edition history of the document at path.
+func (g *Gateway) Versions(path string) (domain.RawDocument, error) {
+	res, err := g.client.Versions(g.host, path, g.token)
+	return g.toRawDocument(res, path, err)
+}
+
+// Lookup queries the world's catalog for query under scope.
+func (g *Gateway) Lookup(scope, query string) (domain.RawDocument, error) {
+	res, err := g.client.Lookup(g.host, scope, query, g.token, fetch.LookupOptions{})
+	return g.toRawDocument(res, scope, err)
+}
+
+// toRawDocument maps a fetch result + transport error into a domain RawDocument,
+// translating demarkus status into domain errors. This is the single place
+// protocol status crosses into the domain.
+func (g *Gateway) toRawDocument(res fetch.Result, path string, err error) (domain.RawDocument, error) {
 	if err != nil {
 		return domain.RawDocument{}, err
 	}

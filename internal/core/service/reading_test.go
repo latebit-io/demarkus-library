@@ -14,7 +14,12 @@ type fakeGateway struct {
 	err error
 }
 
-func (f fakeGateway) Fetch(string) (domain.RawDocument, error) { return f.raw, f.err }
+func (f fakeGateway) Fetch(string) (domain.RawDocument, error)    { return f.raw, f.err }
+func (f fakeGateway) List(string) (domain.RawDocument, error)     { return f.raw, f.err }
+func (f fakeGateway) Versions(string) (domain.RawDocument, error) { return f.raw, f.err }
+func (f fakeGateway) Lookup(_, _ string) (domain.RawDocument, error) {
+	return f.raw, f.err
+}
 
 type fakeRenderer struct {
 	html string
@@ -46,6 +51,33 @@ func TestReadRendersAndPopulatesDocument(t *testing.T) {
 	}
 	if doc.HTML != "<h1>Hi</h1>" {
 		t.Errorf("html = %q", doc.HTML)
+	}
+}
+
+func TestBrowseHistorySearchRenderWithTitles(t *testing.T) {
+	raw := domain.RawDocument{Source: "world:6309", Path: "/plans/", Body: "- a\n- b"}
+	svc := NewReadingService(fakeGateway{raw: raw}, fakeRenderer{html: "<ul></ul>"})
+
+	cases := []struct {
+		name      string
+		call      func() (domain.Document, error)
+		wantTitle string
+	}{
+		{"Browse", func() (domain.Document, error) { return svc.Browse("/plans/") }, "Index of /plans/"},
+		{"History", func() (domain.Document, error) { return svc.History("/x.md") }, "Editions of /x.md"},
+		{"Search", func() (domain.Document, error) { return svc.Search("/", "hex") }, "Catalog: hex"},
+	}
+	for _, tc := range cases {
+		doc, err := tc.call()
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if doc.Title != tc.wantTitle {
+			t.Errorf("%s title = %q, want %q", tc.name, doc.Title, tc.wantTitle)
+		}
+		if doc.HTML != "<ul></ul>" {
+			t.Errorf("%s html = %q", tc.name, doc.HTML)
+		}
 	}
 }
 
