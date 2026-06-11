@@ -14,7 +14,12 @@ type fakeClient struct {
 	err error
 }
 
-func (f fakeClient) Fetch(string, string, string) (fetch.Result, error) { return f.res, f.err }
+func (f fakeClient) Fetch(string, string, string) (fetch.Result, error)    { return f.res, f.err }
+func (f fakeClient) List(string, string, string) (fetch.Result, error)     { return f.res, f.err }
+func (f fakeClient) Versions(string, string, string) (fetch.Result, error) { return f.res, f.err }
+func (f fakeClient) Lookup(_, _, _, _ string, _ fetch.LookupOptions) (fetch.Result, error) {
+	return f.res, f.err
+}
 
 func newGateway(status, body string, meta map[string]string) *Gateway {
 	return NewGateway(fakeClient{res: fetch.Result{Response: protocol.Response{

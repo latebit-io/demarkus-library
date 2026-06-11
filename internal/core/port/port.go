@@ -11,12 +11,23 @@ import "github.com/latebit/demarkus-library/internal/core/domain"
 type ReadingService interface {
 	// Read fetches and renders the document at path into a display-ready form.
 	Read(path string) (domain.Document, error)
+	// Browse renders a directory listing (the stacks) at path.
+	Browse(path string) (domain.Document, error)
+	// History renders the edition history of the document at path.
+	History(path string) (domain.Document, error)
+	// Search renders the card catalog (LOOKUP) results for query under scope.
+	Search(scope, query string) (domain.Document, error)
 }
 
-// WorldGateway is an outbound (driven) port — fetch a raw document from a
-// demarkus world. The adapter translates transport status into domain errors.
+// WorldGateway is an outbound (driven) port — read from a demarkus world. The
+// adapter translates transport status into domain errors and returns markdown
+// bodies for the core to render. Phase 1 implements this over the direct QUIC
+// fetch client; a later adapter implements it over the broker MCP gateway.
 type WorldGateway interface {
 	Fetch(path string) (domain.RawDocument, error)
+	List(path string) (domain.RawDocument, error)
+	Versions(path string) (domain.RawDocument, error)
+	Lookup(scope, query string) (domain.RawDocument, error)
 }
 
 // Renderer is an outbound (driven) port — markdown to sanitized HTML.

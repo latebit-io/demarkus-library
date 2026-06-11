@@ -8,13 +8,28 @@ import (
 	"github.com/latebit/demarkus-library/internal/core/domain"
 )
 
-// fakeGateway and fakeRenderer stand in for the outbound adapters.
+// fakeGateway and fakeRenderer stand in for the outbound adapters. When called
+// is non-nil each method records its own name, so tests can assert that a service
+// method routes to the right gateway verb.
 type fakeGateway struct {
-	raw domain.RawDocument
-	err error
+	raw    domain.RawDocument
+	err    error
+	called *string
 }
 
-func (f fakeGateway) Fetch(string) (domain.RawDocument, error) { return f.raw, f.err }
+func (f fakeGateway) record(name string) {
+	if f.called != nil {
+		*f.called = name
+	}
+}
+
+func (f fakeGateway) Fetch(string) (domain.RawDocument, error)    { f.record("Fetch"); return f.raw, f.err }
+func (f fakeGateway) List(string) (domain.RawDocument, error)     { f.record("List"); return f.raw, f.err }
+func (f fakeGateway) Versions(string) (domain.RawDocument, error) { f.record("Versions"); return f.raw, f.err }
+func (f fakeGateway) Lookup(_, _ string) (domain.RawDocument, error) {
+	f.record("Lookup")
+	return f.raw, f.err
+}
 
 type fakeRenderer struct {
 	html string
@@ -46,6 +61,39 @@ func TestReadRendersAndPopulatesDocument(t *testing.T) {
 	}
 	if doc.HTML != "<h1>Hi</h1>" {
 		t.Errorf("html = %q", doc.HTML)
+	}
+}
+
+func TestBrowseHistorySearchRouteAndRender(t *testing.T) {
+	raw := domain.RawDocument{Source: "world:6309", Path: "/plans/", Body: "- a\n- b"}
+
+	cases := []struct {
+		name       string
+		call       func(*ReadingService) (domain.Document, error)
+		wantTitle  string
+		wantMethod string // gateway verb the service must route to
+	}{
+		{"Browse", func(s *ReadingService) (domain.Document, error) { return s.Browse("/plans/") }, "Index of /plans/", "List"},
+		{"History", func(s *ReadingService) (domain.Document, error) { return s.History("/x.md") }, "Editions of /x.md", "Versions"},
+		{"Search", func(s *ReadingService) (domain.Document, error) { return s.Search("/", "hex") }, "Catalog: hex", "Lookup"},
+	}
+	for _, tc := range cases {
+		var called string
+		svc := NewReadingService(fakeGateway{raw: raw, called: &called}, fakeRenderer{html: "<ul></ul>"})
+
+		doc, err := tc.call(svc)
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if called != tc.wantMethod {
+			t.Errorf("%s routed to gateway.%s, want gateway.%s", tc.name, called, tc.wantMethod)
+		}
+		if doc.Title != tc.wantTitle {
+			t.Errorf("%s title = %q, want %q", tc.name, doc.Title, tc.wantTitle)
+		}
+		if doc.HTML != "<ul></ul>" {
+			t.Errorf("%s html = %q", tc.name, doc.HTML)
+		}
 	}
 }
 

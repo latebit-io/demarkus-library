@@ -31,14 +31,44 @@ func (s *ReadingService) Read(path string) (domain.Document, error) {
 	if err != nil {
 		return domain.Document{}, err
 	}
+	return s.render(raw, titleFor(raw.Path, raw.Metadata))
+}
 
+// Browse renders a directory listing (the stacks) at path.
+func (s *ReadingService) Browse(path string) (domain.Document, error) {
+	raw, err := s.world.List(path)
+	if err != nil {
+		return domain.Document{}, err
+	}
+	return s.render(raw, "Index of "+path)
+}
+
+// History renders the edition history of the document at path.
+func (s *ReadingService) History(path string) (domain.Document, error) {
+	raw, err := s.world.Versions(path)
+	if err != nil {
+		return domain.Document{}, err
+	}
+	return s.render(raw, "Editions of "+path)
+}
+
+// Search renders the card catalog (LOOKUP) results for query under scope.
+func (s *ReadingService) Search(scope, query string) (domain.Document, error) {
+	raw, err := s.world.Lookup(scope, query)
+	if err != nil {
+		return domain.Document{}, err
+	}
+	return s.render(raw, "Catalog: "+query)
+}
+
+// render turns a raw markdown document into a display-ready Document.
+func (s *ReadingService) render(raw domain.RawDocument, title string) (domain.Document, error) {
 	html, err := s.renderer.Render(raw.Body)
 	if err != nil {
 		return domain.Document{}, err
 	}
-
 	return domain.Document{
-		Title:  titleFor(raw.Path, raw.Metadata),
+		Title:  title,
 		Source: raw.Source,
 		Path:   raw.Path,
 		HTML:   html,
