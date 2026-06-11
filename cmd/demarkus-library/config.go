@@ -67,8 +67,10 @@ func NewAppConfig() (*AppConfig, error) {
 		Port:      getEnvAsInt("PORT", 8080),
 		Transport: getEnv("DEMARKUS_TRANSPORT", TransportQUIC),
 
-		TLSCert: getEnv("DEMARKUS_TLS_CERT", ""),
-		TLSKey:  getEnv("DEMARKUS_TLS_KEY", ""),
+		// Trimmed so whitespace-only values stay unset instead of
+		// flipping the server into TLS mode and failing on file open.
+		TLSCert: strings.TrimSpace(getEnv("DEMARKUS_TLS_CERT", "")),
+		TLSKey:  strings.TrimSpace(getEnv("DEMARKUS_TLS_KEY", "")),
 
 		Host:       getEnv("DEMARKUS_HOST", "soul.demarkus.io"),
 		ReadToken:  getEnv("DEMARKUS_AUTH", ""),
