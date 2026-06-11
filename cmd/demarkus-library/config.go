@@ -24,6 +24,13 @@ type AppConfig struct {
 	Port      int    // HTTP listen port
 	Transport string // "quic" (direct world) or "broker" (MCP gateway + login)
 
+	// TLS serves the library itself over HTTPS when both are set. In the
+	// cluster the ingress terminates TLS and these stay empty; locally they
+	// let the broker's https-only redirect rule be satisfied without a
+	// reverse proxy (mkcert + an /etc/hosts name — see the deploy notes).
+	TLSCert string // path to the certificate (PEM)
+	TLSKey  string // path to the private key (PEM)
+
 	// Direct-QUIC mode (Phase 0/1a).
 	Host       string // demarkus world host (host[:port])
 	ReadToken  string // read token for private paths (empty for public worlds)
@@ -60,6 +67,11 @@ func NewAppConfig() (*AppConfig, error) {
 		Port:      getEnvAsInt("PORT", 8080),
 		Transport: getEnv("DEMARKUS_TRANSPORT", TransportQUIC),
 
+		// Trimmed so whitespace-only values stay unset instead of
+		// flipping the server into TLS mode and failing on file open.
+		TLSCert: strings.TrimSpace(getEnv("DEMARKUS_TLS_CERT", "")),
+		TLSKey:  strings.TrimSpace(getEnv("DEMARKUS_TLS_KEY", "")),
+
 		Host:       getEnv("DEMARKUS_HOST", "soul.demarkus.io"),
 		ReadToken:  getEnv("DEMARKUS_AUTH", ""),
 		Insecure:   getEnvAsBool("DEMARKUS_INSECURE", true),
@@ -73,6 +85,10 @@ func NewAppConfig() (*AppConfig, error) {
 		Scopes:       strings.Fields(getEnv("DEMARKUS_SCOPES", "mark.read")),
 		SessionTTL:   sessionTTL,
 		CookieSecure: getEnvAsBool("DEMARKUS_COOKIE_SECURE", true),
+	}
+
+	if (cfg.TLSCert == "") != (cfg.TLSKey == "") {
+		return nil, fmt.Errorf("DEMARKUS_TLS_CERT and DEMARKUS_TLS_KEY must be set together")
 	}
 
 	switch cfg.Transport {

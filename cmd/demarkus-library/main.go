@@ -20,12 +20,15 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/labstack/echo/v5"
@@ -119,15 +122,39 @@ func main() {
 		"port", config.Port, "transport", config.Transport,
 		"world", worldLabel(config), "default_doc", config.DefaultDoc)
 
-	// Echo v5's Start handles SIGINT/SIGTERM internally: it drains in-flight
-	// requests with a 10s graceful timeout and then returns. Transport
+	// Echo v5's Start/StartTLS handle SIGINT/SIGTERM: they drain in-flight
+	// requests with a 10s graceful timeout and then return. Transport
 	// cleanup runs afterwards (not via defer, which os.Exit would skip).
-	err = app.Start(fmt.Sprintf(":%d", config.Port))
+	err = serve(app, config)
 	shutdown()
 	if err != nil && !errors.Is(err, http.ErrServerClosed) {
 		logger.Error("server stopped", "err", err)
 		os.Exit(1)
 	}
+}
+
+// serve starts the HTTP server, over TLS when a cert/key pair is configured
+// (local dev against the broker's https-only redirect rule; in the cluster
+// the ingress terminates TLS instead). Cert and key are read here and passed
+// as contents — StartTLS's path form reads through fs.FS rooted at ".",
+// which rejects absolute paths.
+func serve(app *echo.Echo, config *AppConfig) error {
+	addr := fmt.Sprintf(":%d", config.Port)
+	if config.TLSCert == "" {
+		return app.Start(addr)
+	}
+	cert, err := os.ReadFile(config.TLSCert)
+	if err != nil {
+		return fmt.Errorf("read DEMARKUS_TLS_CERT: %w", err)
+	}
+	key, err := os.ReadFile(config.TLSKey)
+	if err != nil {
+		return fmt.Errorf("read DEMARKUS_TLS_KEY: %w", err)
+	}
+	// Mirror Echo.Start's signal handling (echo.go) for the TLS path.
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+	return echo.StartConfig{Address: addr}.StartTLS(ctx, app, cert, key)
 }
 
 // startSweeper collects expired sessions and abandoned pending logins on a
