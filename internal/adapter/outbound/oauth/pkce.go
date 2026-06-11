@@ -28,10 +28,13 @@ func GenerateState() string {
 }
 
 // randomToken returns n CSPRNG bytes base64url-encoded without padding.
-// crypto/rand.Read never fails on supported platforms (it panics internally
-// on a broken entropy source rather than returning).
+// crypto/rand.Read is documented (Go ≥1.24) to never return an error; the
+// check still panics explicitly so a hypothetical entropy failure can never
+// silently yield a predictable verifier or state.
 func randomToken(n int) string {
 	b := make([]byte, n)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		panic("oauth: entropy source unavailable: " + err.Error())
+	}
 	return base64.RawURLEncoding.EncodeToString(b)
 }

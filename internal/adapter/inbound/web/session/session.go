@@ -130,9 +130,13 @@ func (m *MemoryStore) expired(s Session) bool {
 }
 
 // NewID returns a fresh opaque session id: 32 CSPRNG bytes, base64url, no
-// padding. crypto/rand never returns an error on supported platforms.
+// padding. crypto/rand.Read is documented (Go ≥1.24) to never return an
+// error; the check still panics explicitly so a hypothetical entropy failure
+// can never silently yield a predictable session id.
 func NewID() string {
 	b := make([]byte, 32)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		panic("session: entropy source unavailable: " + err.Error())
+	}
 	return base64.RawURLEncoding.EncodeToString(b)
 }
