@@ -33,12 +33,13 @@ func NewReadingHandler(reading port.ReadingService, defaultDoc string) ReadingHa
 
 // page is the view model shared by the "page" layout and the "content" partial.
 type page struct {
-	Title       string
-	Host        string
-	Path        string
-	Content     template.HTML // sanitized by the markdown adapter, links rewritten here
-	Query       string        // current catalog query (keeps the search box populated)
-	ShowHistory bool          // show the "editions" affordance (documents only)
+	Title         string
+	Host          string
+	Path          string
+	Content       template.HTML // sanitized by the markdown adapter, links rewritten here
+	Query         string        // current catalog query (keeps the search box populated)
+	ShowHistory   bool          // show the "editions" affordance (documents only)
+	Authenticated bool          // behind the turnstile (broker mode) — shows sign-out
 }
 
 // viewOpts carries per-view presentation choices into present.
@@ -94,12 +95,13 @@ func (h *ReadingHandler) present(c *echo.Context, doc domain.Document, err error
 			content = linkifyCatalogPaths(content)
 		}
 		vm := page{
-			Title:       doc.Title,
-			Host:        doc.Source,
-			Path:        doc.Path,
-			Content:     template.HTML(content), //nolint:gosec // sanitized in the markdown adapter; rewriteLinks/linkify only edit links
-			Query:       opts.query,
-			ShowHistory: opts.showHistory,
+			Title:         doc.Title,
+			Host:          doc.Source,
+			Path:          doc.Path,
+			Content:       template.HTML(content), //nolint:gosec // sanitized in the markdown adapter; rewriteLinks/linkify only edit links
+			Query:         opts.query,
+			ShowHistory:   opts.showHistory,
+			Authenticated: c.Get(authedKey) != nil, // set by RequireSession in broker mode
 		}
 		return c.Render(http.StatusOK, h.templateFor(c), vm)
 	case errors.Is(err, domain.ErrNotFound):
