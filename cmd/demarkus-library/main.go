@@ -2,14 +2,21 @@
 // demarkus universe: a server-rendered reading room over a knowledge system.
 //
 // This is the composition root of a hexagonal (ports & adapters) architecture:
-// it constructs the outbound adapters (a demarkus world gateway over QUIC, a
-// goldmark renderer), injects them into the application core, and exposes the
-// core through the inbound web adapter (Echo).
+// it constructs the outbound adapters (a world gateway, a goldmark renderer),
+// injects them into the application core, and exposes the core through the
+// inbound web adapter (Echo).
 //
-// Phase 0 (foundation spike): FETCH a demarkus document and render it
-// server-side, served as HTML. It reads a world directly over QUIC, staying
-// auth-free against a dev/soul world — the broker MCP gateway adapter and org
-// OAuth land in Phase 1. Plan: mark://soul.demarkus.io/plans/universe-library.md.
+// Two transports, selected by DEMARKUS_TRANSPORT (config.go):
+//
+//   - quic: the Phase 0/1a demo path — one world read directly over the
+//     demarkus QUIC fetch client, no login.
+//   - broker: the Phase 1b library card (ADR 0004) — reads go through the
+//     broker's MCP gateway with the reader's bearer; the reading room sits
+//     behind the org-login turnstile (OAuth code + PKCE as a registered
+//     confidential web client, tokens server-side, opaque session cookie).
+//
+// The core and the reading-room web handlers are identical in both modes —
+// only the adapters wired here change.
 package main
 
 import (
@@ -19,21 +26,31 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/labstack/echo/v5"
 	"github.com/labstack/echo/v5/middleware"
 	"github.com/latebit/demarkus-library/internal/adapter/inbound/web"
+	"github.com/latebit/demarkus-library/internal/adapter/inbound/web/session"
+	"github.com/latebit/demarkus-library/internal/adapter/outbound/broker"
 	"github.com/latebit/demarkus-library/internal/adapter/outbound/markdown"
+	"github.com/latebit/demarkus-library/internal/adapter/outbound/oauth"
 	"github.com/latebit/demarkus-library/internal/adapter/outbound/world"
+	"github.com/latebit/demarkus-library/internal/core/port"
 	"github.com/latebit/demarkus-library/internal/core/service"
 	"github.com/latebit/demarkus/client/fetch"
 )
+
+// sweepInterval is how often expired sessions and abandoned logins are
+// collected in broker mode. Lazy expiry keeps correctness regardless; the
+// sweep just bounds memory.
+const sweepInterval = time.Hour
 
 func main() {
 	versionFlag := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
 	if *versionFlag {
-		fmt.Println("demarkus-library (phase 0)")
+		fmt.Println("demarkus-library (phase 1b)")
 		os.Exit(0)
 	}
 
@@ -41,17 +58,9 @@ func main() {
 
 	config, err := NewAppConfig()
 	if err != nil {
-		panic(err)
+		logger.Error("configuration invalid", "err", err)
+		os.Exit(1)
 	}
-
-	// Outbound adapters (driven). Phase 1 swaps the world gateway for an MCP
-	// client over the broker; the core and inbound adapter are unaffected.
-	client := fetch.NewClient(fetch.Options{Insecure: config.Insecure})
-	gateway := world.NewGateway(client, config.Host, config.ReadToken)
-	renderer := markdown.NewRenderer()
-
-	// Application core (the hexagon).
-	reading := service.NewReadingService(gateway, renderer)
 
 	// Inbound adapter (driving): Echo.
 	app := echo.New()
@@ -64,20 +73,89 @@ func main() {
 	app.Renderer = view
 
 	web.StaticRoutes(app)
-	web.ReadingRoutes(app, web.NewReadingHandler(reading, config.DefaultDoc))
 	web.HealthRoutes(app, web.NewHealthHandler())
 
+	// Outbound adapters (driven) — the transport decides the world gateway
+	// and whether the reading room sits behind the turnstile.
+	renderer := markdown.NewRenderer()
+	var gateway port.WorldGateway
+	var turnstile []echo.MiddlewareFunc
+	var shutdown func()
+
+	switch config.Transport {
+	case TransportQUIC:
+		client := fetch.NewClient(fetch.Options{Insecure: config.Insecure})
+		gateway = world.NewGateway(client, config.Host, config.ReadToken)
+		shutdown = client.Close
+
+	case TransportBroker:
+		auth := brokerAuth{client: oauth.NewClient(oauth.Config{
+			BrokerURL:    config.BrokerURL,
+			ClientID:     config.ClientID,
+			ClientSecret: config.ClientSecret,
+			RedirectURI:  config.RedirectURI,
+			Scopes:       config.Scopes,
+		}, nil)}
+
+		store := session.NewMemoryStore(config.SessionTTL)
+		pending := session.NewPendingStore()
+		sessions := session.NewManager(store, auth, 0)
+
+		web.AuthRoutes(app, web.NewAuthHandler(auth, sessions, pending, web.CookieConfig{
+			Secure: config.CookieSecure,
+			TTL:    config.SessionTTL,
+		}))
+		turnstile = append(turnstile, web.RequireSession(sessions))
+
+		gateway = broker.NewGateway(config.BrokerURL, config.World, nil)
+		shutdown = startSweeper(store, pending)
+	}
+
+	// Application core (the hexagon) + the reading room, same in both modes.
+	reading := service.NewReadingService(gateway, renderer)
+	web.ReadingRoutes(app, web.NewReadingHandler(reading, config.DefaultDoc), turnstile...)
+
 	logger.Info("demarkus Library reading room starting",
-		"port", config.Port, "world", config.Host, "default_doc", config.DefaultDoc)
+		"port", config.Port, "transport", config.Transport,
+		"world", worldLabel(config), "default_doc", config.DefaultDoc)
 
 	// Echo v5's Start handles SIGINT/SIGTERM internally: it drains in-flight
-	// requests with a 10s graceful timeout and then returns. We close the QUIC
-	// client afterwards (not via defer, which os.Exit would skip) so it shuts
-	// down only once the HTTP server has stopped using it.
+	// requests with a 10s graceful timeout and then returns. Transport
+	// cleanup runs afterwards (not via defer, which os.Exit would skip).
 	err = app.Start(fmt.Sprintf(":%d", config.Port))
-	client.Close()
+	shutdown()
 	if err != nil && !errors.Is(err, http.ErrServerClosed) {
 		logger.Error("server stopped", "err", err)
 		os.Exit(1)
 	}
+}
+
+// startSweeper collects expired sessions and abandoned pending logins on a
+// ticker; the returned stop function halts it on shutdown.
+func startSweeper(store *session.MemoryStore, pending *session.PendingStore) func() {
+	ticker := time.NewTicker(sweepInterval)
+	done := make(chan struct{})
+	go func() {
+		for {
+			select {
+			case <-ticker.C:
+				store.Sweep()
+				pending.Sweep()
+			case <-done:
+				return
+			}
+		}
+	}()
+	return func() {
+		ticker.Stop()
+		close(done)
+	}
+}
+
+// worldLabel names the world being served for the startup log line.
+func worldLabel(config *AppConfig) string {
+	if config.Transport == TransportBroker {
+		return config.World + " via " + config.BrokerURL
+	}
+	return config.Host
 }

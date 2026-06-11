@@ -15,6 +15,11 @@
     nav form[role=search] { flex: 1; margin: 0; }
     nav input[type=search] { width: 100%; padding: .4rem .6rem; border: 1px solid #8886;
           border-radius: 6px; background: transparent; color: inherit; font: inherit; }
+    nav form:not([role=search]) { margin: 0; }
+    button.signout { font: inherit; font-size: .85rem; padding: .35rem .7rem;
+          border: 1px solid #8886; border-radius: 6px; background: transparent;
+          color: inherit; cursor: pointer; white-space: nowrap; }
+    button.signout:hover { background: #8881; }
     header.doc .meta { font-size: .8rem; opacity: .65; }
     header.doc .meta a { color: inherit; }
     pre { background: #8881; padding: .75rem; overflow-x: auto; border-radius: 6px; }
@@ -39,6 +44,13 @@
              hx-get="/search" hx-trigger="input changed delay:300ms, search"
              hx-target="#main" hx-push-url="true">
     </form>
+    {{- if .Authenticated }}
+    <!-- Real form, POST: logout is a state change and works without JS.
+         hx-boost off so the redirect to /login is a full page load. -->
+    <form method="post" action="/logout" hx-boost="false">
+      <button type="submit" class="signout">sign out</button>
+    </form>
+    {{- end }}
   </nav>
   <main id="main">
     {{ template "content" . }}

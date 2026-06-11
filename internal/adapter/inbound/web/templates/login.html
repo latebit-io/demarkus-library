@@ -1,0 +1,30 @@
+{{define "login"}}<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign in — demarkus Library</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { max-width: 26rem; margin: 0 auto; padding: 4rem 1.25rem;
+           font: 16px/1.6 system-ui, sans-serif; text-align: center; }
+    h1 { font-size: 1.4rem; }
+    p.error { color: #c0392b; }
+    button { font: inherit; padding: .55rem 1.4rem; border-radius: 8px;
+             border: 1px solid #8886; background: transparent; color: inherit;
+             cursor: pointer; }
+    button:hover { background: #8881; }
+  </style>
+</head>
+<!-- No htmx on this page: the turnstile is a plain form so signing in works
+     identically with or without JS (ADR 0003). -->
+<body>
+  <h1>demarkus Library</h1>
+  <p>Sign in with your organization to enter the reading room.</p>
+  {{ if .Error }}<p class="error">{{ .Error }}</p>{{ end }}
+  <form method="post" action="/login/start">
+    <input type="hidden" name="return_to" value="{{ .ReturnTo }}">
+    <button type="submit">Sign in</button>
+  </form>
+</body>
+</html>{{end}}
