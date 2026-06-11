@@ -1,11 +1,10 @@
 # yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
 language: en-US
 tone_instructions: >
-  Be direct and technical. No pleasantries. Focus on correctness, simplicity, and
-  hexagonal-architecture discipline. The dependency rule is the law: dependencies
-  point inward (adapters → ports → core), never outward. Flag any leak of
-  framework, transport, or rendering concerns into the core, and any silent error
-  path or unbounded operation.
+  Be direct and technical. Enforce hexagonal discipline: dependencies point
+  inward (adapters to ports to core), never outward. Flag transport, framework,
+  or render leaks into the core, JSON responses, silent error paths, and
+  unbounded operations.
 early_access: true
 
 reviews:
