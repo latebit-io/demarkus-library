@@ -4,6 +4,7 @@
 package service
 
 import (
+	"context"
 	"strings"
 
 	"github.com/latebit/demarkus-library/internal/core/domain"
@@ -26,8 +27,8 @@ func NewReadingService(world port.WorldGateway, renderer port.Renderer) *Reading
 }
 
 // Read fetches a document from the world and renders it to sanitized HTML.
-func (s *ReadingService) Read(path string) (domain.Document, error) {
-	raw, err := s.world.Fetch(path)
+func (s *ReadingService) Read(ctx context.Context, path string) (domain.Document, error) {
+	raw, err := s.world.Fetch(ctx, path)
 	if err != nil {
 		return domain.Document{}, err
 	}
@@ -35,8 +36,8 @@ func (s *ReadingService) Read(path string) (domain.Document, error) {
 }
 
 // Browse renders a directory listing (the stacks) at path.
-func (s *ReadingService) Browse(path string) (domain.Document, error) {
-	raw, err := s.world.List(path)
+func (s *ReadingService) Browse(ctx context.Context, path string) (domain.Document, error) {
+	raw, err := s.world.List(ctx, path)
 	if err != nil {
 		return domain.Document{}, err
 	}
@@ -44,8 +45,8 @@ func (s *ReadingService) Browse(path string) (domain.Document, error) {
 }
 
 // History renders the edition history of the document at path.
-func (s *ReadingService) History(path string) (domain.Document, error) {
-	raw, err := s.world.Versions(path)
+func (s *ReadingService) History(ctx context.Context, path string) (domain.Document, error) {
+	raw, err := s.world.Versions(ctx, path)
 	if err != nil {
 		return domain.Document{}, err
 	}
@@ -53,8 +54,8 @@ func (s *ReadingService) History(path string) (domain.Document, error) {
 }
 
 // Search renders the card catalog (LOOKUP) results for query under scope.
-func (s *ReadingService) Search(scope, query string) (domain.Document, error) {
-	raw, err := s.world.Lookup(scope, query)
+func (s *ReadingService) Search(ctx context.Context, scope, query string) (domain.Document, error) {
+	raw, err := s.world.Lookup(ctx, scope, query)
 	if err != nil {
 		return domain.Document{}, err
 	}

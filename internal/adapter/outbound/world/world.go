@@ -8,6 +8,7 @@
 package world
 
 import (
+	"context"
 	"errors"
 	"net"
 	"strconv"
@@ -44,25 +45,25 @@ func NewGateway(client fetchClient, host, token string) *Gateway {
 }
 
 // Fetch reads a document and maps demarkus status to domain errors.
-func (g *Gateway) Fetch(path string) (domain.RawDocument, error) {
+func (g *Gateway) Fetch(_ context.Context, path string) (domain.RawDocument, error) {
 	res, err := g.client.Fetch(g.host, path, g.token)
 	return g.toRawDocument(res, path, err)
 }
 
 // List reads a directory listing (the stacks) at path.
-func (g *Gateway) List(path string) (domain.RawDocument, error) {
+func (g *Gateway) List(_ context.Context, path string) (domain.RawDocument, error) {
 	res, err := g.client.List(g.host, path, g.token)
 	return g.toRawDocument(res, path, err)
 }
 
 // Versions reads the edition history of the document at path.
-func (g *Gateway) Versions(path string) (domain.RawDocument, error) {
+func (g *Gateway) Versions(_ context.Context, path string) (domain.RawDocument, error) {
 	res, err := g.client.Versions(g.host, path, g.token)
 	return g.toRawDocument(res, path, err)
 }
 
 // Lookup queries the world's catalog for query under scope.
-func (g *Gateway) Lookup(scope, query string) (domain.RawDocument, error) {
+func (g *Gateway) Lookup(_ context.Context, scope, query string) (domain.RawDocument, error) {
 	res, err := g.client.Lookup(g.host, scope, query, g.token, fetch.LookupOptions{})
 	return g.toRawDocument(res, scope, err)
 }
