@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -23,10 +24,10 @@ func (f fakeGateway) record(name string) {
 	}
 }
 
-func (f fakeGateway) Fetch(string) (domain.RawDocument, error)    { f.record("Fetch"); return f.raw, f.err }
-func (f fakeGateway) List(string) (domain.RawDocument, error)     { f.record("List"); return f.raw, f.err }
-func (f fakeGateway) Versions(string) (domain.RawDocument, error) { f.record("Versions"); return f.raw, f.err }
-func (f fakeGateway) Lookup(_, _ string) (domain.RawDocument, error) {
+func (f fakeGateway) Fetch(context.Context, string) (domain.RawDocument, error)    { f.record("Fetch"); return f.raw, f.err }
+func (f fakeGateway) List(context.Context, string) (domain.RawDocument, error)     { f.record("List"); return f.raw, f.err }
+func (f fakeGateway) Versions(context.Context, string) (domain.RawDocument, error) { f.record("Versions"); return f.raw, f.err }
+func (f fakeGateway) Lookup(_ context.Context, _, _ string) (domain.RawDocument, error) {
 	f.record("Lookup")
 	return f.raw, f.err
 }
@@ -49,7 +50,7 @@ func TestReadRendersAndPopulatesDocument(t *testing.T) {
 		fakeRenderer{html: "<h1>Hi</h1>"},
 	)
 
-	doc, err := svc.Read("/greeting.md")
+	doc, err := svc.Read(t.Context(), "/greeting.md")
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
@@ -73,9 +74,9 @@ func TestBrowseHistorySearchRouteAndRender(t *testing.T) {
 		wantTitle  string
 		wantMethod string // gateway verb the service must route to
 	}{
-		{"Browse", func(s *ReadingService) (domain.Document, error) { return s.Browse("/plans/") }, "Index of /plans/", "List"},
-		{"History", func(s *ReadingService) (domain.Document, error) { return s.History("/x.md") }, "Editions of /x.md", "Versions"},
-		{"Search", func(s *ReadingService) (domain.Document, error) { return s.Search("/", "hex") }, "Catalog: hex", "Lookup"},
+		{"Browse", func(s *ReadingService) (domain.Document, error) { return s.Browse(t.Context(), "/plans/") }, "Index of /plans/", "List"},
+		{"History", func(s *ReadingService) (domain.Document, error) { return s.History(t.Context(), "/x.md") }, "Editions of /x.md", "Versions"},
+		{"Search", func(s *ReadingService) (domain.Document, error) { return s.Search(t.Context(), "/", "hex") }, "Catalog: hex", "Lookup"},
 	}
 	for _, tc := range cases {
 		var called string
@@ -100,7 +101,7 @@ func TestBrowseHistorySearchRouteAndRender(t *testing.T) {
 func TestReadPropagatesGatewayError(t *testing.T) {
 	for _, want := range []error{domain.ErrNotFound, domain.ErrUnauthorized} {
 		svc := NewReadingService(fakeGateway{err: want}, fakeRenderer{})
-		if _, err := svc.Read("/x.md"); !errors.Is(err, want) {
+		if _, err := svc.Read(t.Context(), "/x.md"); !errors.Is(err, want) {
 			t.Errorf("err = %v, want %v", err, want)
 		}
 	}
@@ -112,7 +113,7 @@ func TestReadPropagatesRenderError(t *testing.T) {
 		fakeGateway{raw: domain.RawDocument{Body: "x"}},
 		fakeRenderer{err: boom},
 	)
-	if _, err := svc.Read("/x.md"); !errors.Is(err, boom) {
+	if _, err := svc.Read(t.Context(), "/x.md"); !errors.Is(err, boom) {
 		t.Errorf("err = %v, want %v", err, boom)
 	}
 }
@@ -122,7 +123,7 @@ func TestTitleFallsBackToBasename(t *testing.T) {
 		fakeGateway{raw: domain.RawDocument{Path: "/notes/deploy.md"}},
 		fakeRenderer{html: ""},
 	)
-	doc, err := svc.Read("/notes/deploy.md")
+	doc, err := svc.Read(t.Context(), "/notes/deploy.md")
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}

@@ -31,7 +31,7 @@ func newGateway(status, body string, meta map[string]string) *Gateway {
 
 func TestFetchOKReturnsRawDocument(t *testing.T) {
 	g := newGateway(protocol.StatusOK, "# body", map[string]string{"title": "T"})
-	raw, err := g.Fetch("/x.md")
+	raw, err := g.Fetch(t.Context(), "/x.md")
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
@@ -55,7 +55,7 @@ func TestFetchStatusMapping(t *testing.T) {
 	}
 	for _, tc := range cases {
 		g := newGateway(tc.status, "", nil)
-		if _, err := g.Fetch("/x.md"); !errors.Is(err, tc.want) {
+		if _, err := g.Fetch(t.Context(), "/x.md"); !errors.Is(err, tc.want) {
 			t.Errorf("status %s: err = %v, want %v", tc.status, err, tc.want)
 		}
 	}
@@ -64,7 +64,7 @@ func TestFetchStatusMapping(t *testing.T) {
 func TestFetchPropagatesTransportError(t *testing.T) {
 	boom := errors.New("dial failed")
 	g := NewGateway(fakeClient{err: boom}, "host", "")
-	if _, err := g.Fetch("/x.md"); !errors.Is(err, boom) {
+	if _, err := g.Fetch(t.Context(), "/x.md"); !errors.Is(err, boom) {
 		t.Errorf("err = %v, want %v", err, boom)
 	}
 }

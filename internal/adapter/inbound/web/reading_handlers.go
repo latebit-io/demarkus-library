@@ -51,7 +51,7 @@ type viewOpts struct {
 
 // Root renders the configured default document.
 func (h *ReadingHandler) Root(c *echo.Context) error {
-	doc, err := h.reading.Read(h.defaultDoc)
+	doc, err := h.reading.Read(c.Request().Context(), h.defaultDoc)
 	return h.present(c, doc, err, viewOpts{path: h.defaultDoc, showHistory: true})
 }
 
@@ -60,10 +60,10 @@ func (h *ReadingHandler) Root(c *echo.Context) error {
 func (h *ReadingHandler) Doc(c *echo.Context) error {
 	p := "/" + c.Param("*")
 	if strings.HasSuffix(p, "/") {
-		doc, err := h.reading.Browse(p)
+		doc, err := h.reading.Browse(c.Request().Context(), p)
 		return h.present(c, doc, err, viewOpts{path: p})
 	}
-	doc, err := h.reading.Read(p)
+	doc, err := h.reading.Read(c.Request().Context(), p)
 	return h.present(c, doc, err, viewOpts{path: p, showHistory: true})
 }
 
@@ -72,17 +72,17 @@ func (h *ReadingHandler) Doc(c *echo.Context) error {
 func (h *ReadingHandler) Search(c *echo.Context) error {
 	q := strings.TrimSpace(c.QueryParam("q"))
 	if q == "" {
-		doc, err := h.reading.Read(h.defaultDoc)
+		doc, err := h.reading.Read(c.Request().Context(), h.defaultDoc)
 		return h.present(c, doc, err, viewOpts{path: h.defaultDoc, showHistory: true})
 	}
-	doc, err := h.reading.Search("/", q)
+	doc, err := h.reading.Search(c.Request().Context(), "/", q)
 	return h.present(c, doc, err, viewOpts{path: "/search", query: q, catalog: true})
 }
 
 // History renders the edition history of a document. /versions/<path>.
 func (h *ReadingHandler) History(c *echo.Context) error {
 	p := "/" + c.Param("*")
-	doc, err := h.reading.History(p)
+	doc, err := h.reading.History(c.Request().Context(), p)
 	return h.present(c, doc, err, viewOpts{path: p})
 }
 
