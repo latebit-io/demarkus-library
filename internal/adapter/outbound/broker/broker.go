@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	mcpclient "github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
@@ -53,8 +54,14 @@ var _ port.WorldGateway = (*Gateway)(nil)
 
 // NewGateway builds the production gateway: brokerURL is the broker origin
 // (https://broker.example.org), world the demarkus world name documents are
-// read from. A nil httpClient uses http.DefaultClient.
+// read from. A nil httpClient gets a 15-second-timeout default — safe to
+// bound at the client level because the stateless-per-call model never holds
+// a long-lived SSE stream open; without it a wedged broker would pin request
+// handlers indefinitely.
 func NewGateway(brokerURL, world string, httpClient *http.Client) *Gateway {
+	if httpClient == nil {
+		httpClient = &http.Client{Timeout: 15 * time.Second}
+	}
 	return &Gateway{
 		caller: &mcpCaller{
 			mcpURL: strings.TrimRight(brokerURL, "/") + "/mcp",
