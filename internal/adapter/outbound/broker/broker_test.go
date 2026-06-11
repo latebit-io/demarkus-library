@@ -3,10 +3,12 @@ package broker
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
@@ -159,15 +161,18 @@ func TestToolErrorMapping(t *testing.T) {
 }
 
 func TestTransportAuthRejection(t *testing.T) {
-	// gatewayAuth 401s surface from the transport as opaque errors; they
-	// must become ErrUnauthorized (login redirect), not a 502.
-	fc := &fakeCaller{err: errors.New("initialize: request failed: 401 Unauthorized")}
+	// gatewayAuth 401s surface from mcp-go as the typed
+	// transport.ErrUnauthorized sentinel (possibly wrapped); they must
+	// become ErrUnauthorized (login redirect), not a 502.
+	fc := &fakeCaller{err: fmt.Errorf("initialize: %w", transport.ErrUnauthorized)}
 	g := &Gateway{caller: fc, world: "soul"}
 	if _, err := g.Fetch(authedCtx(t), "/x.md"); !errors.Is(err, domain.ErrUnauthorized) {
 		t.Errorf("err = %v, want ErrUnauthorized", err)
 	}
 
-	fc = &fakeCaller{err: errors.New("dial tcp: connection refused")}
+	// A non-auth transport failure must NOT redirect to login — including
+	// messages that merely contain 401-ish substrings (e.g. port 4010).
+	fc = &fakeCaller{err: errors.New("dial tcp 10.0.0.1:4010: connection refused")}
 	g = &Gateway{caller: fc, world: "soul"}
 	if _, err := g.Fetch(authedCtx(t), "/x.md"); errors.Is(err, domain.ErrUnauthorized) {
 		t.Error("transport failure misread as auth rejection")

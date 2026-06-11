@@ -106,10 +106,11 @@ func (g *Gateway) read(ctx context.Context, tool, path string, args map[string]a
 
 	text, isToolError, err := g.caller.callTool(ctx, token, tool, args)
 	if err != nil {
-		if isAuthRejection(err) {
+		if errors.Is(err, transport.ErrUnauthorized) {
 			// The broker's gatewayAuth refused the bearer (expired or
-			// revoked between refresh and use). Surface as the domain's
-			// auth error so the web layer re-runs login.
+			// revoked between refresh and use). mcp-go surfaces HTTP
+			// 401 as this typed sentinel; map it to the domain's auth
+			// error so the web layer re-runs login.
 			return domain.RawDocument{}, domain.ErrUnauthorized
 		}
 		return domain.RawDocument{}, fmt.Errorf("broker: %s: %w", tool, err)
@@ -133,16 +134,6 @@ func mapToolError(text string) error {
 		return domain.ErrUnauthorized
 	}
 	return errors.New("broker tool error: " + text)
-}
-
-// isAuthRejection detects the broker's HTTP 401 surface. The mcp-go transport
-// folds non-200 responses into opaque errors, so the status code is matched
-// in the message — narrow enough ("401" plus the word Unauthorized appears in
-// the broker's RFC 6750 challenge) and worth it: an expired bearer must
-// become a login redirect, not a 502.
-func isAuthRejection(err error) bool {
-	msg := err.Error()
-	return strings.Contains(msg, "401") || strings.Contains(msg, "Unauthorized")
 }
 
 // parseToolResult decodes the broker's text tool payload (formatToolResult):
