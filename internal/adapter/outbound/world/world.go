@@ -9,8 +9,8 @@ package world
 
 import (
 	"errors"
+	"net"
 	"strconv"
-	"strings"
 
 	"github.com/latebit/demarkus-library/internal/core/domain"
 	"github.com/latebit/demarkus-library/internal/core/port"
@@ -68,9 +68,15 @@ func (g *Gateway) Fetch(path string) (domain.RawDocument, error) {
 
 // withDefaultPort appends the protocol port when the host omits one. The fetch
 // client dials host:port directly (only ParseMarkURL fills the default).
+// net.SplitHostPort distinguishes a real host:port from a bare IPv6 literal
+// (e.g. 2001:db8::1), which a naive ":" check would misclassify; net.JoinHostPort
+// brackets IPv6 hosts correctly.
 func withDefaultPort(host string) string {
-	if host == "" || strings.Contains(host, ":") {
+	if host == "" {
 		return host
 	}
-	return host + ":" + strconv.Itoa(protocol.DefaultPort)
+	if _, _, err := net.SplitHostPort(host); err == nil {
+		return host // already has a port
+	}
+	return net.JoinHostPort(host, strconv.Itoa(protocol.DefaultPort))
 }

@@ -65,10 +65,16 @@ func TestFetchPropagatesTransportError(t *testing.T) {
 }
 
 func TestWithDefaultPort(t *testing.T) {
-	if got := withDefaultPort("soul.demarkus.io"); got != "soul.demarkus.io:6309" {
-		t.Errorf("got %q, want soul.demarkus.io:6309", got)
+	cases := []struct{ in, want string }{
+		{"soul.demarkus.io", "soul.demarkus.io:6309"}, // bare host → default port
+		{"host:1234", "host:1234"},                    // explicit port preserved
+		{"2001:db8::1", "[2001:db8::1]:6309"},          // bare IPv6 → bracketed + default port
+		{"[2001:db8::1]:80", "[2001:db8::1]:80"},       // bracketed IPv6 with port preserved
+		{"", ""},                                       // empty unchanged
 	}
-	if got := withDefaultPort("host:1234"); got != "host:1234" {
-		t.Errorf("explicit port should be preserved, got %q", got)
+	for _, tc := range cases {
+		if got := withDefaultPort(tc.in); got != tc.want {
+			t.Errorf("withDefaultPort(%q) = %q, want %q", tc.in, got, tc.want)
+		}
 	}
 }

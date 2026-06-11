@@ -47,7 +47,6 @@ func main() {
 	// Outbound adapters (driven). Phase 1 swaps the world gateway for an MCP
 	// client over the broker; the core and inbound adapter are unaffected.
 	client := fetch.NewClient(fetch.Options{Insecure: config.Insecure})
-	defer client.Close()
 	gateway := world.NewGateway(client, config.Host, config.ReadToken)
 	renderer := markdown.NewRenderer()
 
@@ -71,8 +70,14 @@ func main() {
 	logger.Info("demarkus Library reading room starting",
 		"port", config.Port, "world", config.Host, "default_doc", config.DefaultDoc)
 
-	if err := app.Start(fmt.Sprintf(":%d", config.Port)); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		logger.Error(err.Error())
+	// Echo v5's Start handles SIGINT/SIGTERM internally: it drains in-flight
+	// requests with a 10s graceful timeout and then returns. We close the QUIC
+	// client afterwards (not via defer, which os.Exit would skip) so it shuts
+	// down only once the HTTP server has stopped using it.
+	err = app.Start(fmt.Sprintf(":%d", config.Port))
+	client.Close()
+	if err != nil && !errors.Is(err, http.ErrServerClosed) {
+		logger.Error("server stopped", "err", err)
 		os.Exit(1)
 	}
 }

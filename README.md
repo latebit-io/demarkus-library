@@ -20,7 +20,7 @@ no SPA. **Hexagonal (ports & adapters)** — dependencies point inward (adapters
 ports → core); the core knows nothing of Echo, QUIC, or goldmark. Echo idioms and
 file naming follow `latebit-io/bulwarkauth`.
 
-```
+```text
 cmd/demarkus-library/        composition root — wires adapters into the core
 internal/core/
   domain/                    entities + domain errors (no external deps)
