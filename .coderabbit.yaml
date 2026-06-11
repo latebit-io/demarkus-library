@@ -1,0 +1,199 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: en-US
+tone_instructions: >
+  Be direct and technical. Enforce hexagonal discipline: dependencies point
+  inward (adapters to ports to core), never outward. Flag transport, framework,
+  or render leaks into the core, JSON responses, silent error paths, and
+  unbounded operations.
+early_access: true
+
+reviews:
+  profile: assertive
+  request_changes_workflow: true
+  high_level_summary: true
+  high_level_summary_placeholder: "@coderabbitai summary"
+  auto_title_placeholder: "@coderabbitai"
+  review_status: true
+  collapse_walkthrough: false
+  sequence_diagrams: true
+  poem: false
+  changed_files_summary: true
+  labeling_instructions: []
+  path_filters:
+    - "!**/bin/**"
+  path_instructions:
+    - path: "internal/core/domain/**"
+      instructions: >
+        The center of the hexagon. Entities and domain errors only.
+
+        Hard rules:
+        - ZERO imports of Echo, the demarkus client/protocol, html/template,
+          goldmark/bluemonday, or any other framework/transport/rendering
+          package. The only allowed imports are the standard library and other
+          core packages.
+        - Domain types carry no presentation concerns (no template.HTML, no HTTP
+          status). Document.HTML is a plain sanitized string; marking it safe is
+          the web adapter's job.
+        - Errors are sentinel values compared with errors.Is by callers.
+
+    - path: "internal/core/port/**"
+      instructions: >
+        The hexagon's boundary: inbound (driving) and outbound (driven) port
+        interfaces.
+
+        Check for:
+        - Ports speak in domain types only — never protocol.Response, fetch.Result,
+          echo.Context, or template.HTML.
+        - Interfaces stay minimal (only what the core needs). Widening a port to
+          suit one adapter is a smell.
+        - Adapters depend on these interfaces; the core depends on nothing below.
+
+    - path: "internal/core/service/**"
+      instructions: >
+        The application core. Implements inbound ports using only outbound ports.
+
+        Check for:
+        - No infrastructure imports (no Echo, demarkus client, goldmark). If a
+          change needs one, it belongs in an adapter behind a port.
+        - A compile-time `var _ port.X = (*T)(nil)` assertion accompanies each
+          implementation.
+        - All errors from outbound ports are propagated, not swallowed; the
+          librarian intelligence (title derivation, orchestration) lives here.
+
+    - path: "internal/adapter/inbound/web/**"
+      instructions: >
+        Driving adapter: Echo HTTP surface. Depends on the inbound port
+        (port.ReadingService), never on the concrete service or any outbound
+        adapter.
+
+        SSR-first, htmx-hard, no JSON (ADR 0003 — enforce strictly):
+        - NO JSON responses. Flag any `c.JSON(`, `json.Marshal` for a response
+          body, or any serialized data crossing the wire. Responses are HTML
+          (full page or fragment) via c.Render/c.HTML. The only non-HTML response
+          allowed is the plain-text health check.
+        - NO client-side framework or client state. Flag React/Vue/Alpine/Stimulus,
+          a JS bundler/Node build, or client-side routing/stores.
+        - NO CDN asset references in templates. htmx (pinned, currently 2.0.10)
+          and any future asset are vendored under web/static/ and served from the
+          binary. Flag unpkg/jsdelivr/cdnjs/googleapis script or link tags.
+        - NO bespoke JS island without an ADR 0003 concession line. htmx
+          attributes (and official htmx extensions / a tiny _hyperscript snippet)
+          are the interaction layer; custom <script> logic needs justification.
+        - Fragments and full pages share one handler + one template; flag a
+          duplicate render path for the htmx vs full-load case.
+        - Every interaction must degrade without JS (server renders the full route);
+          flag anything reachable ONLY via htmx.
+
+        Echo v5 specifics (NOT v4):
+        - Handlers are `func(c *echo.Context) error` (Context is a struct).
+        - echo.Renderer signature is `Render(c *echo.Context, w io.Writer, name
+          string, data any) error` (context first).
+        - `c.Logger()` returns *slog.Logger — structured `Error("msg", k, v)`, no
+          Errorf.
+
+        Check for:
+        - Domain errors mapped to HTTP status via errors.Is (ErrNotFound→404,
+          ErrUnauthorized→401), with a generic 502 fallback.
+        - template.HTML is applied only to strings already sanitized by the
+          markdown adapter; never mark raw fetched content safe here.
+        - Handlers stay thin: translate request → port call → view model. No
+          business logic.
+
+    - path: "internal/adapter/outbound/world/**"
+      instructions: >
+        Driven adapter: the demarkus world gateway over the QUIC fetch client.
+        Implements port.WorldGateway.
+
+        Check for:
+        - This is the ONLY place protocol/fetch types appear on the read path.
+          Transport status is translated to domain errors here (not-found/archived
+          → ErrNotFound, unauthorized/not-permitted → ErrUnauthorized); the core
+          must never see a protocol.Status string.
+        - Host normalization: the fetch client dials host:port verbatim, so the
+          default port (protocol.DefaultPort, 6309) is applied here.
+        - The fetch dependency is taken as a narrow interface for testability.
+
+    - path: "internal/adapter/outbound/markdown/**"
+      instructions: >
+        Driven adapter: goldmark + bluemonday. Implements port.Renderer.
+
+        Check for:
+        - Sanitization (bluemonday) ALWAYS runs after goldmark render — rendering
+          org-authored markdown to HTML is an XSS path. Never return unsanitized
+          HTML.
+        - Renderer returns a plain string; wrapping as template.HTML is the web
+          adapter's responsibility.
+
+    - path: "cmd/demarkus-library/**"
+      instructions: >
+        Composition root. The only place concrete adapters are constructed and
+        injected into the core. This is where the dependency graph is assembled
+        and where future adapters (a broker MCP gateway, OAuth session) are swapped
+        in without touching the core.
+
+        Check for:
+        - Wiring only — no business logic.
+        - Config is read from the environment (AppConfig); secrets (tokens) never
+          hardcoded.
+        - Resources closed (fetch client) and startup failures fail loudly.
+
+    - path: "**/*.html"
+      instructions: >
+        html/template + htmx (ADR 0003). Server-rendered; htmx attributes only
+        where earned (hx-boost for navigation now). No client-side framework, no
+        JSON fetch. Assets are self-hosted from /static/ — flag any CDN script/link
+        tag (unpkg/jsdelivr/cdnjs/etc.). Any interpolated document content must
+        already be sanitized server-side.
+
+  auto_review:
+    enabled: true
+    drafts: false
+    ignore_title_keywords:
+      - "WIP"
+      - "DO NOT MERGE"
+
+  tools:
+    golangci-lint:
+      enabled: true
+    gitleaks:
+      enabled: true
+    markdownlint:
+      enabled: true
+    yamllint:
+      enabled: true
+    actionlint:
+      enabled: true
+    shellcheck:
+      enabled: true
+    # Off — languages/tooling we don't use
+    eslint:
+      enabled: false
+    biome:
+      enabled: false
+    hadolint:
+      enabled: false
+    phpstan:
+      enabled: false
+
+  pre_merge_checks:
+    title:
+      mode: error
+      requirements: >
+        Title must follow Conventional Commits format:
+        type(scope): description. Valid types: feat, fix, docs, style,
+        refactor, perf, test, build, ci, chore, revert.
+        Valid scopes (hexagonal layers + housekeeping): domain, port, service,
+        web, world, markdown, cmd, view, deps, ci.
+
+chat:
+  auto_reply: true
+
+knowledge_base:
+  learnings:
+    scope: auto
+  issues:
+    scope: auto
+  jira:
+    project_keys: []
+  linear:
+    team_keys: []

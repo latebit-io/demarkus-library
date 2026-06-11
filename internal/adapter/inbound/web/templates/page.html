@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ .Title }} — demarkus Library</title>
+  <script src="/static/htmx.min.js"></script>
+  <style>
+    :root { color-scheme: light dark; }
+    body { max-width: 46rem; margin: 0 auto; padding: 2rem 1.25rem;
+           font: 16px/1.6 system-ui, sans-serif; }
+    header { border-bottom: 1px solid #8884; margin-bottom: 1.5rem;
+             padding-bottom: .5rem; }
+    header .meta { font-size: .8rem; opacity: .65; }
+    pre { background: #8881; padding: .75rem; overflow-x: auto; border-radius: 6px; }
+    code { font-family: ui-monospace, monospace; }
+    a { text-underline-offset: 2px; }
+  </style>
+</head>
+<!-- hx-boost: in-app navigation swaps the body without a full reload; the
+     server still renders every page, so links work with JS off too. -->
+<body hx-boost="true">
+  <header>
+    <div class="meta">demarkus Library · reading room · <code>{{ .Host }}{{ .Path }}</code></div>
+    <h1>{{ .Title }}</h1>
+  </header>
+  <main class="reading-room">
+    {{ .Content }}
+  </main>
+</body>
+</html>
