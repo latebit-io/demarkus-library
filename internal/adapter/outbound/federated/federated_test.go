@@ -80,6 +80,7 @@ func TestIsHostShaped(t *testing.T) {
 		{"soul.demarkus.io", true},
 		{"soul.demarkus.io:6309", true},
 		{"localhost:6309", true},
+		{"localhost", true},
 		{"2001:db8::1", true},
 	}
 	for _, tc := range cases {

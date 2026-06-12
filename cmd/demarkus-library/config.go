@@ -63,6 +63,15 @@ func NewAppConfig() (*AppConfig, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Federation defaults ON — following links across the distributed graph
+	// is the product, and federated reads are anonymous and tokenless (the
+	// browser-following-links posture). The parse is strict so a mistyped
+	// value stops startup rather than silently picking either side of a
+	// security-relevant switch. Operators who want fail-closed set false.
+	federation, err := getEnvAsBoolStrict("DEMARKUS_FEDERATION", true)
+	if err != nil {
+		return nil, err
+	}
 	if sessionTTL <= 0 {
 		// A non-positive TTL would mint sessions that expire on arrival —
 		// a confusing login loop instead of a clear startup failure.
@@ -72,7 +81,7 @@ func NewAppConfig() (*AppConfig, error) {
 	cfg := &AppConfig{
 		Port:       getEnvAsInt("PORT", 8080),
 		Transport:  getEnv("DEMARKUS_TRANSPORT", TransportQUIC),
-		Federation: getEnvAsBool("DEMARKUS_FEDERATION", true),
+		Federation: federation,
 
 		// Trimmed so whitespace-only values stay unset instead of
 		// flipping the server into TLS mode and failing on file open.
@@ -149,6 +158,21 @@ func getEnvAsBool(key string, fallback bool) bool {
 		}
 	}
 	return fallback
+}
+
+// getEnvAsBoolStrict surfaces a parse error instead of silently falling
+// back — for switches where either silent direction is wrong (federation
+// gates server-side outbound dials).
+func getEnvAsBoolStrict(key string, fallback bool) (bool, error) {
+	v, ok := os.LookupEnv(key)
+	if !ok {
+		return fallback, nil
+	}
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		return false, fmt.Errorf("%s: invalid bool %q: %w", key, v, err)
+	}
+	return b, nil
 }
 
 // getEnvAsDuration parses key as a Go duration. Unlike the int/bool helpers

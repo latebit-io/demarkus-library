@@ -107,8 +107,9 @@ func (g *Gateway) route(w string) (port.WorldGateway, error) {
 // IsHostShaped reports whether a world identifier addresses a server directly
 // (host or host:port) rather than naming a knowledge-system world. Dots and
 // colons never appear in broker world names; they are how hosts spell
-// themselves. Exported because the web adapter applies the same test when
-// rewriting mark:// links.
+// themselves — plus bare "localhost", the one portless dotless host the
+// stack accepts elsewhere. Exported because the web adapter applies the same
+// test when rewriting mark:// links.
 func IsHostShaped(w string) bool {
-	return strings.ContainsAny(w, ".:")
+	return w == "localhost" || strings.ContainsAny(w, ".:")
 }
