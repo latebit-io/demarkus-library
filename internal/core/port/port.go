@@ -6,7 +6,7 @@ package port
 import (
 	"context"
 
-	"github.com/latebit/demarkus-library/internal/core/domain"
+	"github.com/latebit-io/demarkus-library/internal/core/domain"
 )
 
 // ReadingService is the inbound (driving) port — the use cases the reading room

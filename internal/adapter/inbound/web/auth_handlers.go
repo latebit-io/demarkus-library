@@ -5,7 +5,7 @@ import (
 	"net/url"
 
 	"github.com/labstack/echo/v5"
-	"github.com/latebit/demarkus-library/internal/adapter/inbound/web/session"
+	"github.com/latebit-io/demarkus-library/internal/adapter/inbound/web/session"
 )
 
 // loginErrors maps the err query code to a fixed, server-chosen message —

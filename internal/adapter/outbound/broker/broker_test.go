@@ -16,8 +16,8 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
-	"github.com/latebit/demarkus-library/internal/adapter/bearer"
-	"github.com/latebit/demarkus-library/internal/core/domain"
+	"github.com/latebit-io/demarkus-library/internal/adapter/bearer"
+	"github.com/latebit-io/demarkus-library/internal/core/domain"
 )
 
 // fakeCaller scripts one tool response and records what the gateway sent.

@@ -5,9 +5,9 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/latebit/demarkus-library/internal/adapter/inbound/web"
-	"github.com/latebit/demarkus-library/internal/adapter/inbound/web/session"
-	"github.com/latebit/demarkus-library/internal/adapter/outbound/oauth"
+	"github.com/latebit-io/demarkus-library/internal/adapter/inbound/web"
+	"github.com/latebit-io/demarkus-library/internal/adapter/inbound/web/session"
+	"github.com/latebit-io/demarkus-library/internal/adapter/outbound/oauth"
 )
 
 // brokerAuth adapts the outbound oauth client to the two small interfaces the

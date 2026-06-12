@@ -8,7 +8,7 @@ import (
 	"bytes"
 	"strings"
 
-	"github.com/latebit/demarkus-library/internal/core/port"
+	"github.com/latebit-io/demarkus-library/internal/core/port"
 	"github.com/microcosm-cc/bluemonday"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/extension"

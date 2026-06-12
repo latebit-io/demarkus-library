@@ -181,6 +181,14 @@ tests:
       - failedTemplate:
           errorMessage: library.broker.world is required when library.transport is "broker"
 
+  - it: treats whitespace-only values as missing (matches NewAppConfig's trim)
+    template: deployment.yaml
+    set:
+      library.broker.url: "   "
+    asserts:
+      - failedTemplate:
+          errorMessage: library.broker.url is required when library.transport is "broker"
+
   - it: fails render when both clientSecret modes are set
     template: deployment.yaml
     set:

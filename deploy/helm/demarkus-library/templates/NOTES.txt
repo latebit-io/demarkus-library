@@ -45,7 +45,10 @@ demarkus-library installed as release {{ .Release.Name | quote }} in namespace {
   NOTE: quic transport has NO login turnstile — the reading room is open to
   anything that can reach the Service. Dev/demo posture only.
 {{- end }}
-{{- if .Values.library.insecure }}
+{{- /* Only meaningful when direct QUIC dials actually happen: the quic
+       transport's home world, or broker-mode federation link-following.
+       Broker mode with federation off makes no QUIC dial at all. */}}
+{{- if and .Values.library.insecure (or (eq .Values.library.transport "quic") .Values.library.federation) }}
 - library.insecure=true: direct QUIC dials skip TLS verification (self-signed
   world certs). The wire stays encrypted; peer identity is unverified. Flip to
   false once a shared CA signs your world certs.

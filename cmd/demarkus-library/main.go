@@ -33,16 +33,16 @@ import (
 
 	"github.com/labstack/echo/v5"
 	"github.com/labstack/echo/v5/middleware"
-	"github.com/latebit/demarkus-library/internal/adapter/inbound/web"
-	"github.com/latebit/demarkus-library/internal/adapter/inbound/web/session"
-	"github.com/latebit/demarkus-library/internal/adapter/outbound/broker"
-	"github.com/latebit/demarkus-library/internal/adapter/outbound/federated"
-	"github.com/latebit/demarkus-library/internal/adapter/outbound/markdown"
-	"github.com/latebit/demarkus-library/internal/adapter/outbound/oauth"
-	"github.com/latebit/demarkus-library/internal/adapter/outbound/world"
-	"github.com/latebit/demarkus-library/internal/core/port"
-	"github.com/latebit/demarkus-library/internal/core/service"
-	"github.com/latebit/demarkus/client/fetch"
+	"github.com/latebit-io/demarkus-library/internal/adapter/inbound/web"
+	"github.com/latebit-io/demarkus-library/internal/adapter/inbound/web/session"
+	"github.com/latebit-io/demarkus-library/internal/adapter/outbound/broker"
+	"github.com/latebit-io/demarkus-library/internal/adapter/outbound/federated"
+	"github.com/latebit-io/demarkus-library/internal/adapter/outbound/markdown"
+	"github.com/latebit-io/demarkus-library/internal/adapter/outbound/oauth"
+	"github.com/latebit-io/demarkus-library/internal/adapter/outbound/world"
+	"github.com/latebit-io/demarkus-library/internal/core/port"
+	"github.com/latebit-io/demarkus-library/internal/core/service"
+	"github.com/latebit-io/demarkus/client/fetch"
 )
 
 // sweepInterval is how often expired sessions and abandoned logins are

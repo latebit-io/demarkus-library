@@ -1,11 +1,9 @@
-module github.com/latebit/demarkus-library
+module github.com/latebit-io/demarkus-library
 
 go 1.26.4
 
 require (
 	github.com/labstack/echo/v5 v5.1.1
-	github.com/latebit/demarkus/client v0.0.0
-	github.com/latebit/demarkus/protocol v0.0.0
 	github.com/mark3labs/mcp-go v0.44.0
 	github.com/microcosm-cc/bluemonday v1.0.27
 	github.com/yuin/goldmark v1.7.8
@@ -20,6 +18,8 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/css v1.0.1 // indirect
 	github.com/invopop/jsonschema v0.13.0 // indirect
+	github.com/latebit-io/demarkus/client v0.12.40
+	github.com/latebit-io/demarkus/protocol v0.7.13
 	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/quic-go/quic-go v0.59.1 // indirect
 	github.com/spf13/cast v1.7.1 // indirect
@@ -30,9 +30,3 @@ require (
 	golang.org/x/time v0.15.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
-
-// Phase 0 spike: point the transport at the local demarkus source tree.
-// Replace with tagged versions once the client/protocol modules are published.
-replace github.com/latebit/demarkus/client => ../demarkus/client
-
-replace github.com/latebit/demarkus/protocol => ../demarkus/protocol

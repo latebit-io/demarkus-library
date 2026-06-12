@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v5"
-	"github.com/latebit/demarkus-library/internal/adapter/bearer"
-	"github.com/latebit/demarkus-library/internal/adapter/inbound/web/session"
+	"github.com/latebit-io/demarkus-library/internal/adapter/bearer"
+	"github.com/latebit-io/demarkus-library/internal/adapter/inbound/web/session"
 )
 
 // fakeAuthority satisfies session.Authority for manager construction; the

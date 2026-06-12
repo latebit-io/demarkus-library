@@ -32,10 +32,10 @@ import (
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
 
-	"github.com/latebit/demarkus-library/internal/adapter/bearer"
-	"github.com/latebit/demarkus-library/internal/core/domain"
-	"github.com/latebit/demarkus-library/internal/core/port"
-	"github.com/latebit/demarkus/protocol"
+	"github.com/latebit-io/demarkus-library/internal/adapter/bearer"
+	"github.com/latebit-io/demarkus-library/internal/core/domain"
+	"github.com/latebit-io/demarkus-library/internal/core/port"
+	"github.com/latebit-io/demarkus/protocol"
 )
 
 // toolCaller is the slice of MCP the gateway needs: call one tool with one

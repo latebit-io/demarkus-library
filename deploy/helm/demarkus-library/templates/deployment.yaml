@@ -33,7 +33,7 @@ spec:
                explicit checksum to trigger a roll. Only rendered in
                cleartext-secret mode — existingSecretRef rotations are
                operator-driven (bounce the deployment). */}}
-        {{- if and (eq .Values.library.transport "broker") .Values.library.broker.clientSecret }}
+        {{- if include "demarkus-library.cleartextSecret" . }}
         checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
         {{- end }}
         {{- with .Values.podAnnotations }}
@@ -41,6 +41,10 @@ spec:
         {{- end }}
     spec:
       serviceAccountName: {{ include "demarkus-library.serviceAccountName" . }}
+      # The library never talks to the kube-apiserver. Set on the pod —
+      # not only the chart-managed ServiceAccount — so the posture holds
+      # when serviceAccount.create=false binds an existing/default SA.
+      automountServiceAccountToken: false
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
@@ -76,7 +80,7 @@ spec:
             - name: DEMARKUS_CLIENT_SECRET
               valueFrom:
                 secretKeyRef:
-                  {{- if .Values.library.broker.existingSecretRef.name }}
+                  {{- if trim .Values.library.broker.existingSecretRef.name }}
                   name: {{ .Values.library.broker.existingSecretRef.name | quote }}
                   key: {{ .Values.library.broker.existingSecretRef.key | quote }}
                   {{- else }}

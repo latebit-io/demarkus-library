@@ -14,10 +14,10 @@ import (
 	"net"
 	"strconv"
 
-	"github.com/latebit/demarkus-library/internal/core/domain"
-	"github.com/latebit/demarkus-library/internal/core/port"
-	"github.com/latebit/demarkus/client/fetch"
-	"github.com/latebit/demarkus/protocol"
+	"github.com/latebit-io/demarkus-library/internal/core/domain"
+	"github.com/latebit-io/demarkus-library/internal/core/port"
+	"github.com/latebit-io/demarkus/client/fetch"
+	"github.com/latebit-io/demarkus/protocol"
 )
 
 // fetchClient is the slice of the demarkus client this adapter needs. An

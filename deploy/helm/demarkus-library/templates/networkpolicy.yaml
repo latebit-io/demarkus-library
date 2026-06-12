@@ -32,6 +32,12 @@ spec:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: {{ .Values.networkPolicy.ingressFromNamespace | quote }}
+        {{- /* Same-namespace callers stay admitted regardless of the
+               ingress posture — the chart default is ingress.enabled
+               false, and without this selector a default install would
+               be unreachable by every in-cluster consumer outside the
+               ingress-controller namespace. */}}
+        - podSelector: {}
       ports:
         - protocol: TCP
           port: {{ .Values.library.port }}
