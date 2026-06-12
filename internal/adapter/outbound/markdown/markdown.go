@@ -6,6 +6,7 @@ package markdown
 
 import (
 	"bytes"
+	"strings"
 
 	"github.com/latebit/demarkus-library/internal/core/port"
 	"github.com/microcosm-cc/bluemonday"
@@ -32,10 +33,43 @@ func NewRenderer() *Renderer {
 
 // Render renders markdown then sanitizes the result. Sanitize always runs after
 // render — never trust the HTML goldmark emits from untrusted source.
+//
+// A leading YAML frontmatter block is stripped first: demarkus carries
+// metadata out of band, but worlds contain bodies that open with a ---…---
+// metadata fence anyway (publishers that hand-wrote frontmatter, or
+// republished a fetched document verbatim, header included). goldmark would
+// render that fence as garbled text; to a reader it is metadata, not
+// content.
 func (r *Renderer) Render(markdown string) (string, error) {
 	var buf bytes.Buffer
-	if err := r.md.Convert([]byte(markdown), &buf); err != nil {
+	if err := r.md.Convert([]byte(stripFrontmatter(markdown)), &buf); err != nil {
 		return "", err
 	}
 	return r.policy.Sanitize(buf.String()), nil
+}
+
+// stripFrontmatter drops a leading YAML frontmatter block: a first line of
+// exactly "---", closed by a line of exactly "---" or "...". Anything that
+// does not match precisely (no opener, no closer, content before the fence)
+// is returned unchanged — a thematic break mid-document is content, and an
+// unclosed fence is safer rendered than silently swallowing the whole body.
+func stripFrontmatter(markdown string) string {
+	rest, ok := strings.CutPrefix(markdown, "---\n")
+	if !ok {
+		if rest, ok = strings.CutPrefix(markdown, "---\r\n"); !ok {
+			return markdown
+		}
+	}
+	for off := 0; off < len(rest); {
+		lineEnd := strings.IndexByte(rest[off:], '\n')
+		if lineEnd < 0 {
+			break // unclosed fence — leave the document alone
+		}
+		line := strings.TrimSuffix(rest[off:off+lineEnd], "\r")
+		if line == "---" || line == "..." {
+			return rest[off+lineEnd+1:]
+		}
+		off += lineEnd + 1
+	}
+	return markdown
 }
