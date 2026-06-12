@@ -79,7 +79,10 @@ jobs:
 
   release:
     needs: semver
-    if: needs.semver.outputs.should_release == 'true'
+    # The ref guard covers workflow_dispatch: without it, a manual run
+    # from a feature branch would tag that branch's HEAD and publish the
+    # image/chart from unmerged code.
+    if: github.ref == 'refs/heads/main' && needs.semver.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     # The only job that publishes: contents:write to create the tag and
     # the GitHub Release, packages:write to push the image + chart to ghcr.
@@ -128,7 +131,9 @@ jobs:
       - uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6
         with:
           distribution: goreleaser-pro
-          version: latest
+          # Bounded range, not `latest` — keeps the binary from drifting
+          # majors while still picking up v2 patch releases.
+          version: "~> v2"
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

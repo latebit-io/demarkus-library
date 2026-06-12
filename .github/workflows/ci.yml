@@ -61,7 +61,9 @@ jobs:
         uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6
         with:
           distribution: goreleaser-pro
-          version: latest
+          # Bounded range, not `latest` — keeps the binary from drifting
+          # majors while still picking up v2 patch releases.
+          version: "~> v2"
           args: check
         env:
           GORELEASER_KEY: ${{ secrets.GORELEASER_KEY }}
