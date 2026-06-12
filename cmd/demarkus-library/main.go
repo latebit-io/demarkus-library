@@ -110,8 +110,13 @@ func main() {
 		}))
 		turnstile = append(turnstile, web.RequireSession(sessions))
 
-		gateway = broker.NewGateway(config.BrokerURL, config.World, nil)
-		shutdown = startSweeper(store, pending)
+		bg := broker.NewGateway(config.BrokerURL, config.World, nil)
+		gateway = bg
+		stopSweeper := startSweeper(store, pending)
+		shutdown = func() {
+			stopSweeper()
+			bg.Close()
+		}
 	}
 
 	// Application core (the hexagon) + the reading room, same in both modes.
