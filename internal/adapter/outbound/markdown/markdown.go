@@ -12,6 +12,7 @@ import (
 
 	"github.com/alecthomas/chroma/v2"
 	chromahtml "github.com/alecthomas/chroma/v2/formatters/html"
+	"github.com/gohugoio/hugo-goldmark-extensions/passthrough"
 	"github.com/latebit-io/demarkus-library/internal/core/port"
 	"github.com/microcosm-cc/bluemonday"
 	"github.com/yuin/goldmark"
@@ -101,6 +102,12 @@ func NewRenderer() *Renderer {
 	// GFM alert structure (div wrapper + title/body divs, classed title
 	// paragraph). data-callout is NOT admitted — CSS keys on the classes.
 	policy.AllowAttrs("class").Matching(calloutClasses).OnElements("div", "p")
+	// Mermaid fences: chroma has no mermaid lexer, so the block falls
+	// through to goldmark's plain renderer carrying language-mermaid —
+	// the marker the mermaid island keys on (islands.js). Exactly this
+	// one language class; other unlexed languages don't need a client
+	// hook and stay classless.
+	policy.AllowAttrs("class").Matching(regexp.MustCompile(`^language-mermaid$`)).OnElements("code")
 	return &Renderer{
 		md: goldmark.New(goldmark.WithExtensions(
 			extension.GFM,
@@ -112,6 +119,19 @@ func NewRenderer() *Renderer {
 			// :shortcode: emoji → unicode characters (plain text, nothing
 			// for the sanitizer to strip).
 			emoji.Emoji,
+			// Math passthrough: protect TeX between the delimiters from
+			// markdown processing (underscores, backslashes) and emit it
+			// verbatim — the KaTeX island (islands.js) renders it
+			// client-side and the raw TeX is the no-JS degradation.
+			// Single-$ inline math is deliberately absent: "$5 and $10"
+			// false-positives; authors write \( … \) for inline.
+			passthrough.New(passthrough.Config{
+				InlineDelimiters: []passthrough.Delimiters{{Open: `\(`, Close: `\)`}},
+				BlockDelimiters: []passthrough.Delimiters{
+					{Open: "$$", Close: "$$"},
+					{Open: `\[`, Close: `\]`},
+				},
+			}),
 		)),
 		policy: policy,
 	}

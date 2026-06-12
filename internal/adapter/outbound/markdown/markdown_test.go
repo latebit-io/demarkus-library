@@ -155,3 +155,63 @@ func TestRenderPlainBlockquoteUntouched(t *testing.T) {
 		t.Errorf("plain blockquote must not become an alert: %q", html)
 	}
 }
+
+func TestRenderMermaidBlockKeepsSourceAndClass(t *testing.T) {
+	html, err := NewRenderer().Render("```mermaid\ngraph TD; A-->B;\n```")
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	// The island (islands.js) keys on language-mermaid; the source must
+	// stay a readable, unhighlighted code block (the no-JS degradation).
+	if !strings.Contains(html, `<code class="language-mermaid">`) {
+		t.Errorf("language-mermaid class missing: %q", html)
+	}
+	if !strings.Contains(html, "graph TD; A--&gt;B;") {
+		t.Errorf("mermaid source mangled: %q", html)
+	}
+	if strings.Contains(html, "chroma") {
+		t.Errorf("mermaid block must not be syntax-highlighted: %q", html)
+	}
+}
+
+func TestRenderMathPassthrough(t *testing.T) {
+	cases := []struct{ name, in, want string }{
+		// Underscores inside math must not become <em> — the passthrough
+		// extension shields TeX from markdown processing.
+		{"inline", `inline \(a_1 + b_2\) math`, `\(a_1 + b_2\)`},
+		{"display dollars", "$$\nE = mc^2\n$$", "E = mc^2"},
+		{"display brackets", `\[x^2\]`, `\[x^2\]`},
+	}
+	for _, c := range cases {
+		html, err := NewRenderer().Render(c.in)
+		if err != nil {
+			t.Fatalf("%s: Render: %v", c.name, err)
+		}
+		if !strings.Contains(html, c.want) {
+			t.Errorf("%s: want %q in %q", c.name, c.want, html)
+		}
+		if strings.Contains(html, "<em>") {
+			t.Errorf("%s: math fell through to markdown emphasis: %q", c.name, html)
+		}
+	}
+}
+
+func TestRenderMathSanitized(t *testing.T) {
+	html, err := NewRenderer().Render(`evil \(<script>alert(1)</script>\)`)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if strings.Contains(html, "<script>") {
+		t.Errorf("passthrough content must still be sanitized: %q", html)
+	}
+}
+
+func TestRenderDollarAmountsUntouched(t *testing.T) {
+	html, err := NewRenderer().Render("price is $5 and $10 total")
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(html, "$5 and $10") {
+		t.Errorf("dollar amounts must not be eaten as math: %q", html)
+	}
+}
