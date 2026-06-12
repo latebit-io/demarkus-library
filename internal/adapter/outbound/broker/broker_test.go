@@ -43,9 +43,9 @@ func authedCtx(t *testing.T) context.Context {
 
 func TestFetchParsesResult(t *testing.T) {
 	fc := &fakeCaller{text: "status: ok\nversion: 3\ntitle: Hello\n\n# Hello\n\nbody text"}
-	g := &Gateway{caller: fc, world: "soul"}
+	g := &Gateway{caller: fc}
 
-	raw, err := g.Fetch(authedCtx(t), "/index.md")
+	raw, err := g.Fetch(authedCtx(t), "soul", "/index.md")
 	if err != nil {
 		t.Fatalf("Fetch: %v", err)
 	}
@@ -77,17 +77,17 @@ func TestVerbsAndArgs(t *testing.T) {
 		wantTool string
 		wantURL  string
 	}{
-		{"List", func(g *Gateway, ctx context.Context) (domain.RawDocument, error) { return g.List(ctx, "/plans/") },
+		{"List", func(g *Gateway, ctx context.Context) (domain.RawDocument, error) { return g.List(ctx, "soul", "/plans/") },
 			"mark_list", "mark://soul/plans/"},
-		{"Versions", func(g *Gateway, ctx context.Context) (domain.RawDocument, error) { return g.Versions(ctx, "/x.md") },
+		{"Versions", func(g *Gateway, ctx context.Context) (domain.RawDocument, error) { return g.Versions(ctx, "soul", "/x.md") },
 			"mark_versions", "mark://soul/x.md"},
-		{"Lookup", func(g *Gateway, ctx context.Context) (domain.RawDocument, error) { return g.Lookup(ctx, "/", "hex") },
+		{"Lookup", func(g *Gateway, ctx context.Context) (domain.RawDocument, error) { return g.Lookup(ctx, "soul", "/", "hex") },
 			"mark_lookup", "mark://soul/"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			fc := &fakeCaller{text: "status: ok\n\nbody"}
-			g := &Gateway{caller: fc, world: "soul"}
+			g := &Gateway{caller: fc}
 			if _, err := tc.call(g, authedCtx(t)); err != nil {
 				t.Fatalf("%s: %v", tc.name, err)
 			}
@@ -102,8 +102,8 @@ func TestVerbsAndArgs(t *testing.T) {
 
 	// Lookup carries the query argument too.
 	fc := &fakeCaller{text: "status: ok\n\nbody"}
-	g := &Gateway{caller: fc, world: "soul"}
-	if _, err := g.Lookup(authedCtx(t), "/", "hexagonal"); err != nil {
+	g := &Gateway{caller: fc}
+	if _, err := g.Lookup(authedCtx(t), "soul", "/", "hexagonal"); err != nil {
 		t.Fatalf("Lookup: %v", err)
 	}
 	if got := fc.gotArgs["query"]; got != "hexagonal" {
@@ -123,24 +123,24 @@ func TestStatusMapping(t *testing.T) {
 	}
 	for _, tc := range cases {
 		fc := &fakeCaller{text: "status: " + tc.status + "\n"}
-		g := &Gateway{caller: fc, world: "soul"}
-		if _, err := g.Fetch(authedCtx(t), "/x.md"); !errors.Is(err, tc.want) {
+		g := &Gateway{caller: fc}
+		if _, err := g.Fetch(authedCtx(t), "soul", "/x.md"); !errors.Is(err, tc.want) {
 			t.Errorf("status %s: err = %v, want %v", tc.status, err, tc.want)
 		}
 	}
 
 	// Unknown status is an explicit failure, not a silent empty document.
 	fc := &fakeCaller{text: "status: weird\n"}
-	g := &Gateway{caller: fc, world: "soul"}
-	if _, err := g.Fetch(authedCtx(t), "/x.md"); err == nil {
+	g := &Gateway{caller: fc}
+	if _, err := g.Fetch(authedCtx(t), "soul", "/x.md"); err == nil {
 		t.Error("unknown status accepted")
 	}
 }
 
 func TestNoBearerIsUnauthorized(t *testing.T) {
 	fc := &fakeCaller{}
-	g := &Gateway{caller: fc, world: "soul"}
-	if _, err := g.Fetch(t.Context(), "/x.md"); !errors.Is(err, domain.ErrUnauthorized) {
+	g := &Gateway{caller: fc}
+	if _, err := g.Fetch(t.Context(), "soul", "/x.md"); !errors.Is(err, domain.ErrUnauthorized) {
 		t.Errorf("err = %v, want ErrUnauthorized", err)
 	}
 	if fc.gotTool != "" {
@@ -151,14 +151,14 @@ func TestNoBearerIsUnauthorized(t *testing.T) {
 func TestToolErrorMapping(t *testing.T) {
 	// Broker-level isError payloads (toolErrorFor).
 	fc := &fakeCaller{text: `not authorized for world "soul"`, isToolErr: true}
-	g := &Gateway{caller: fc, world: "soul"}
-	if _, err := g.Fetch(authedCtx(t), "/x.md"); !errors.Is(err, domain.ErrUnauthorized) {
+	g := &Gateway{caller: fc}
+	if _, err := g.Fetch(authedCtx(t), "soul", "/x.md"); !errors.Is(err, domain.ErrUnauthorized) {
 		t.Errorf("err = %v, want ErrUnauthorized", err)
 	}
 
 	fc = &fakeCaller{text: "fetch failed: world dial timeout", isToolErr: true}
-	g = &Gateway{caller: fc, world: "soul"}
-	_, err := g.Fetch(authedCtx(t), "/x.md")
+	g = &Gateway{caller: fc}
+	_, err := g.Fetch(authedCtx(t), "soul", "/x.md")
 	if err == nil || errors.Is(err, domain.ErrUnauthorized) || errors.Is(err, domain.ErrNotFound) {
 		t.Errorf("err = %v, want generic broker error", err)
 	}
@@ -169,16 +169,16 @@ func TestTransportAuthRejection(t *testing.T) {
 	// transport.ErrUnauthorized sentinel (possibly wrapped); they must
 	// become ErrUnauthorized (login redirect), not a 502.
 	fc := &fakeCaller{err: fmt.Errorf("initialize: %w", transport.ErrUnauthorized)}
-	g := &Gateway{caller: fc, world: "soul"}
-	if _, err := g.Fetch(authedCtx(t), "/x.md"); !errors.Is(err, domain.ErrUnauthorized) {
+	g := &Gateway{caller: fc}
+	if _, err := g.Fetch(authedCtx(t), "soul", "/x.md"); !errors.Is(err, domain.ErrUnauthorized) {
 		t.Errorf("err = %v, want ErrUnauthorized", err)
 	}
 
 	// A non-auth transport failure must NOT redirect to login — including
 	// messages that merely contain 401-ish substrings (e.g. port 4010).
 	fc = &fakeCaller{err: errors.New("dial tcp 10.0.0.1:4010: connection refused")}
-	g = &Gateway{caller: fc, world: "soul"}
-	if _, err := g.Fetch(authedCtx(t), "/x.md"); errors.Is(err, domain.ErrUnauthorized) {
+	g = &Gateway{caller: fc}
+	if _, err := g.Fetch(authedCtx(t), "soul", "/x.md"); errors.Is(err, domain.ErrUnauthorized) {
 		t.Error("transport failure misread as auth rejection")
 	}
 }
@@ -259,7 +259,6 @@ func (m *mcpTestServer) initializeCount() int {
 func (m *mcpTestServer) gateway() *Gateway {
 	return &Gateway{
 		caller: &mcpCaller{mcpURL: m.ts.URL, now: time.Now, pool: make(map[string]*pooledEntry)},
-		world:  "soul",
 	}
 }
 
@@ -272,7 +271,7 @@ func TestEndToEndSessionReuse(t *testing.T) {
 	ctx := bearer.WithToken(t.Context(), "good-token")
 
 	for range 5 {
-		raw, err := g.Fetch(ctx, "/index.md")
+		raw, err := g.Fetch(ctx, "soul", "/index.md")
 		if err != nil {
 			t.Fatalf("Fetch: %v", err)
 		}
@@ -285,7 +284,7 @@ func TestEndToEndSessionReuse(t *testing.T) {
 	}
 
 	// A rejected bearer maps to ErrUnauthorized through the real transport.
-	if _, err := g.Fetch(bearer.WithToken(t.Context(), "bad-token"), "/index.md"); !errors.Is(err, domain.ErrUnauthorized) {
+	if _, err := g.Fetch(bearer.WithToken(t.Context(), "bad-token"), "soul", "/index.md"); !errors.Is(err, domain.ErrUnauthorized) {
 		t.Errorf("bad bearer: err = %v, want ErrUnauthorized", err)
 	}
 }
@@ -304,14 +303,14 @@ func TestEndToEndSessionLost(t *testing.T) {
 	defer g.Close()
 	ctx := bearer.WithToken(t.Context(), "good-token")
 
-	if _, err := g.Fetch(ctx, "/index.md"); err != nil {
+	if _, err := g.Fetch(ctx, "soul", "/index.md"); err != nil {
 		t.Fatalf("first Fetch: %v", err)
 	}
 	srv.mu.Lock()
 	srv.failNext = true
 	srv.mu.Unlock()
 
-	raw, err := g.Fetch(ctx, "/index.md")
+	raw, err := g.Fetch(ctx, "soul", "/index.md")
 	if err != nil {
 		t.Fatalf("Fetch after session loss: %v", err)
 	}
@@ -336,7 +335,7 @@ func TestEndToEndConcurrentSingleInitialize(t *testing.T) {
 	errs := make([]error, readers)
 	for i := range readers {
 		wg.Go(func() {
-			_, errs[i] = g.Fetch(ctx, "/index.md")
+			_, errs[i] = g.Fetch(ctx, "soul", "/index.md")
 		})
 	}
 	wg.Wait()

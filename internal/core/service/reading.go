@@ -27,8 +27,8 @@ func NewReadingService(world port.WorldGateway, renderer port.Renderer) *Reading
 }
 
 // Read fetches a document from the world and renders it to sanitized HTML.
-func (s *ReadingService) Read(ctx context.Context, path string) (domain.Document, error) {
-	raw, err := s.world.Fetch(ctx, path)
+func (s *ReadingService) Read(ctx context.Context, world, path string) (domain.Document, error) {
+	raw, err := s.world.Fetch(ctx, world, path)
 	if err != nil {
 		return domain.Document{}, err
 	}
@@ -36,8 +36,8 @@ func (s *ReadingService) Read(ctx context.Context, path string) (domain.Document
 }
 
 // Browse renders a directory listing (the stacks) at path.
-func (s *ReadingService) Browse(ctx context.Context, path string) (domain.Document, error) {
-	raw, err := s.world.List(ctx, path)
+func (s *ReadingService) Browse(ctx context.Context, world, path string) (domain.Document, error) {
+	raw, err := s.world.List(ctx, world, path)
 	if err != nil {
 		return domain.Document{}, err
 	}
@@ -45,8 +45,8 @@ func (s *ReadingService) Browse(ctx context.Context, path string) (domain.Docume
 }
 
 // History renders the edition history of the document at path.
-func (s *ReadingService) History(ctx context.Context, path string) (domain.Document, error) {
-	raw, err := s.world.Versions(ctx, path)
+func (s *ReadingService) History(ctx context.Context, world, path string) (domain.Document, error) {
+	raw, err := s.world.Versions(ctx, world, path)
 	if err != nil {
 		return domain.Document{}, err
 	}
@@ -54,8 +54,8 @@ func (s *ReadingService) History(ctx context.Context, path string) (domain.Docum
 }
 
 // Search renders the card catalog (LOOKUP) results for query under scope.
-func (s *ReadingService) Search(ctx context.Context, scope, query string) (domain.Document, error) {
-	raw, err := s.world.Lookup(ctx, scope, query)
+func (s *ReadingService) Search(ctx context.Context, world, scope, query string) (domain.Document, error) {
+	raw, err := s.world.Lookup(ctx, world, scope, query)
 	if err != nil {
 		return domain.Document{}, err
 	}

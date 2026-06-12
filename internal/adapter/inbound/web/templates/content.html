@@ -1,8 +1,8 @@
 {{define "content"}}<header class="doc">
   <div class="meta">
     <code>{{ .Host }}{{ .Path }}</code>
-    {{- if .ShowHistory }} · <a href="/versions{{ .Path }}"
-        hx-get="/versions{{ .Path }}" hx-target="#main" hx-push-url="true">editions</a>{{ end }}
+    {{- if .ShowHistory }} · <a href="/w/{{ .WorldPath }}/versions{{ .Path }}"
+        hx-get="/w/{{ .WorldPath }}/versions{{ .Path }}" hx-target="#main" hx-push-url="true">editions</a>{{ end }}
   </div>
   <h1>{{ .Title }}</h1>
 </header>

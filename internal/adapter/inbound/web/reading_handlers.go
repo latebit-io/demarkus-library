@@ -6,12 +6,20 @@
 // HTML. A boosted navigation gets the full "page"; a targeted htmx swap (e.g. the
 // search box → #main) gets the "content" fragment. One handler, one template —
 // no duplicate render path — and everything degrades without JS.
+//
+// URL scheme: a document's address is (world, path) — /w/<world>/d/<path>,
+// /w/<world>/search, /w/<world>/versions/<path>. The world segment is a
+// knowledge-system name or a demarkus host[:port]; following mark:// links
+// across worlds is how the distributed knowledge graph is traversed. / serves
+// the default world's default document; the world-less 1a routes redirect to
+// their world-scoped homes.
 package web
 
 import (
 	"errors"
 	"html/template"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -22,13 +30,15 @@ import (
 // ReadingHandler serves rendered demarkus documents, listings, catalog searches,
 // and edition histories. It depends on the inbound port, not the concrete service.
 type ReadingHandler struct {
-	reading    port.ReadingService
-	defaultDoc string
+	reading      port.ReadingService
+	defaultWorld string
+	defaultDoc   string
 }
 
-// NewReadingHandler binds the reading service and the document shown at /.
-func NewReadingHandler(reading port.ReadingService, defaultDoc string) ReadingHandler {
-	return ReadingHandler{reading: reading, defaultDoc: defaultDoc}
+// NewReadingHandler binds the reading service, the world served at /, and the
+// document shown there.
+func NewReadingHandler(reading port.ReadingService, defaultWorld, defaultDoc string) ReadingHandler {
+	return ReadingHandler{reading: reading, defaultWorld: defaultWorld, defaultDoc: defaultDoc}
 }
 
 // page is the view model shared by the "page" layout and the "content" partial.
@@ -37,6 +47,8 @@ type page struct {
 	Host          string
 	Path          string
 	Content       template.HTML // sanitized by the markdown adapter, links rewritten here
+	World         string        // current world (display)
+	WorldPath     string        // current world, path-escaped for URL building
 	Query         string        // current catalog query (keeps the search box populated)
 	ShowHistory   bool          // show the "editions" affordance (documents only)
 	Authenticated bool          // behind the turnstile (broker mode) — shows sign-out
@@ -44,61 +56,92 @@ type page struct {
 
 // viewOpts carries per-view presentation choices into present.
 type viewOpts struct {
+	world       string // world the view belongs to
 	path        string // path for error messages (the requested resource)
 	query       string // current catalog query (keeps the search box populated)
 	showHistory bool   // show the "editions" affordance (documents only)
 	catalog     bool   // linkify the LOOKUP catalog table's Path column
 }
 
-// Root renders the configured default document.
+// Root renders the configured default document of the default world.
 func (h *ReadingHandler) Root(c *echo.Context) error {
-	doc, err := h.reading.Read(c.Request().Context(), h.defaultDoc)
-	return h.present(c, doc, err, viewOpts{path: h.defaultDoc, showHistory: true})
+	doc, err := h.reading.Read(c.Request().Context(), h.defaultWorld, h.defaultDoc)
+	return h.present(c, doc, err, viewOpts{world: h.defaultWorld, path: h.defaultDoc, showHistory: true})
 }
 
-// Doc renders a document, or a directory listing (the stacks) when the path ends
-// in a slash. /d/<path>.
+// Doc renders a document, or a directory listing (the stacks) when the path
+// ends in a slash. /w/<world>/d/<path>.
 func (h *ReadingHandler) Doc(c *echo.Context) error {
+	world := c.Param("world")
 	p := "/" + c.Param("*")
 	if strings.HasSuffix(p, "/") {
-		doc, err := h.reading.Browse(c.Request().Context(), p)
-		return h.present(c, doc, err, viewOpts{path: p})
+		doc, err := h.reading.Browse(c.Request().Context(), world, p)
+		return h.present(c, doc, err, viewOpts{world: world, path: p})
 	}
-	doc, err := h.reading.Read(c.Request().Context(), p)
-	return h.present(c, doc, err, viewOpts{path: p, showHistory: true})
+	doc, err := h.reading.Read(c.Request().Context(), world, p)
+	return h.present(c, doc, err, viewOpts{world: world, path: p, showHistory: true})
 }
 
-// Search renders the card catalog (LOOKUP) for the q query. An empty query falls
-// back to the default document so the box clearing returns you home.
+// Search renders the card catalog (LOOKUP) for the q query in the route's
+// world. An empty query falls back to the world's index so clearing the box
+// returns you somewhere sensible.
 func (h *ReadingHandler) Search(c *echo.Context) error {
+	world := c.Param("world")
 	q := strings.TrimSpace(c.QueryParam("q"))
 	if q == "" {
-		doc, err := h.reading.Read(c.Request().Context(), h.defaultDoc)
-		return h.present(c, doc, err, viewOpts{path: h.defaultDoc, showHistory: true})
+		doc, err := h.reading.Read(c.Request().Context(), world, h.defaultDoc)
+		return h.present(c, doc, err, viewOpts{world: world, path: h.defaultDoc, showHistory: true})
 	}
-	doc, err := h.reading.Search(c.Request().Context(), "/", q)
-	return h.present(c, doc, err, viewOpts{path: "/search", query: q, catalog: true})
+	doc, err := h.reading.Search(c.Request().Context(), world, "/", q)
+	return h.present(c, doc, err, viewOpts{world: world, path: "/search", query: q, catalog: true})
 }
 
-// History renders the edition history of a document. /versions/<path>.
+// History renders the edition history of a document. /w/<world>/versions/<path>.
 func (h *ReadingHandler) History(c *echo.Context) error {
+	world := c.Param("world")
 	p := "/" + c.Param("*")
-	doc, err := h.reading.History(c.Request().Context(), p)
-	return h.present(c, doc, err, viewOpts{path: p})
+	doc, err := h.reading.History(c.Request().Context(), world, p)
+	return h.present(c, doc, err, viewOpts{world: world, path: p})
+}
+
+// LegacyDoc 301s the world-less 1a routes to their world-scoped homes so old
+// bookmarks keep working.
+func (h *ReadingHandler) LegacyDoc(c *echo.Context) error {
+	return h.legacyRedirect(c, "/d/"+c.Param("*"))
+}
+
+// LegacySearch redirects /search to the default world's catalog.
+func (h *ReadingHandler) LegacySearch(c *echo.Context) error {
+	target := "/search"
+	if q := c.QueryParam("q"); q != "" {
+		target += "?q=" + url.QueryEscape(q)
+	}
+	return h.legacyRedirect(c, target)
+}
+
+// LegacyHistory redirects /versions/<path> to the default world's editions.
+func (h *ReadingHandler) LegacyHistory(c *echo.Context) error {
+	return h.legacyRedirect(c, "/versions/"+c.Param("*"))
+}
+
+func (h *ReadingHandler) legacyRedirect(c *echo.Context, suffix string) error {
+	return c.Redirect(http.StatusMovedPermanently, "/w/"+url.PathEscape(h.defaultWorld)+suffix)
 }
 
 func (h *ReadingHandler) present(c *echo.Context, doc domain.Document, err error, opts viewOpts) error {
 	switch {
 	case err == nil:
-		content := rewriteLinks(doc.HTML, doc.Path)
+		content := rewriteLinks(doc.HTML, opts.world, doc.Path)
 		if opts.catalog {
-			content = linkifyCatalogPaths(content)
+			content = linkifyCatalogPaths(content, opts.world)
 		}
 		vm := page{
 			Title:         doc.Title,
 			Host:          doc.Source,
 			Path:          doc.Path,
 			Content:       template.HTML(content), //nolint:gosec // sanitized in the markdown adapter; rewriteLinks/linkify only edit links
+			World:         opts.world,
+			WorldPath:     url.PathEscape(opts.world),
 			Query:         opts.query,
 			ShowHistory:   opts.showHistory,
 			Authenticated: c.Get(authedKey) != nil, // set by RequireSession in broker mode
@@ -109,7 +152,7 @@ func (h *ReadingHandler) present(c *echo.Context, doc domain.Document, err error
 	case errors.Is(err, domain.ErrUnauthorized):
 		return echo.NewHTTPError(http.StatusUnauthorized, opts.path+": not authorized")
 	default:
-		c.Logger().Error("read failed", "path", opts.path, "err", err)
+		c.Logger().Error("read failed", "world", opts.world, "path", opts.path, "err", err)
 		return echo.NewHTTPError(http.StatusBadGateway, "reading room is unreachable")
 	}
 }

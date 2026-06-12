@@ -38,10 +38,10 @@
     <!-- The form makes the catalog work without JS: Enter submits GET /search?q=…
          and the server renders the full page. htmx enhances it with live,
          debounced, in-place results (ADR 0003: degrade without JS). -->
-    <form action="/search" method="get" role="search">
-      <input type="search" name="q" value="{{ .Query }}" placeholder="search the catalog…"
+    <form action="/w/{{ .WorldPath }}/search" method="get" role="search">
+      <input type="search" name="q" value="{{ .Query }}" placeholder="search {{ .World }}…"
              aria-label="Search the catalog" autocomplete="off"
-             hx-get="/search" hx-trigger="input changed delay:300ms, search"
+             hx-get="/w/{{ .WorldPath }}/search" hx-trigger="input changed delay:300ms, search"
              hx-target="#main" hx-push-url="true">
     </form>
     {{- if .Authenticated }}
