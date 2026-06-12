@@ -48,23 +48,22 @@ type toolCaller interface {
 	callTool(ctx context.Context, token, tool string, args map[string]any) (text string, isToolError bool, err error)
 }
 
-// Gateway adapts the broker MCP gateway to the WorldGateway port for one
-// world. The reader's bearer rides in on the request context.
+// Gateway adapts the broker MCP gateway to the WorldGateway port. The world
+// is a knowledge-system world name, per call; the reader's bearer rides in on
+// the request context.
 type Gateway struct {
 	caller toolCaller
-	world  string
 }
 
 // compile-time check that Gateway satisfies the outbound port.
 var _ port.WorldGateway = (*Gateway)(nil)
 
 // NewGateway builds the production gateway: brokerURL is the broker origin
-// (https://broker.example.org), world the demarkus world name documents are
-// read from. A nil httpClient gets a 15-second-timeout default — safe to
-// bound at the client level because the stateless-per-call model never holds
-// a long-lived SSE stream open; without it a wedged broker would pin request
-// handlers indefinitely.
-func NewGateway(brokerURL, world string, httpClient *http.Client) *Gateway {
+// (https://broker.example.org). A nil httpClient gets a 15-second-timeout
+// default — safe to bound at the client level because no long-lived SSE
+// stream is held open; without it a wedged broker would pin request handlers
+// indefinitely.
+func NewGateway(brokerURL string, httpClient *http.Client) *Gateway {
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 15 * time.Second}
 	}
@@ -75,7 +74,6 @@ func NewGateway(brokerURL, world string, httpClient *http.Client) *Gateway {
 			now:    time.Now,
 			pool:   make(map[string]*pooledEntry),
 		},
-		world: world,
 	}
 }
 
@@ -87,30 +85,30 @@ func (g *Gateway) Close() {
 }
 
 // Fetch reads a document through mark_fetch.
-func (g *Gateway) Fetch(ctx context.Context, path string) (domain.RawDocument, error) {
-	return g.read(ctx, "mark_fetch", path, map[string]any{"url": g.markURL(path)})
+func (g *Gateway) Fetch(ctx context.Context, world, path string) (domain.RawDocument, error) {
+	return g.read(ctx, "mark_fetch", world, path, map[string]any{"url": markURL(world, path)})
 }
 
 // List reads a directory listing (the stacks) through mark_list.
-func (g *Gateway) List(ctx context.Context, path string) (domain.RawDocument, error) {
-	return g.read(ctx, "mark_list", path, map[string]any{"url": g.markURL(path)})
+func (g *Gateway) List(ctx context.Context, world, path string) (domain.RawDocument, error) {
+	return g.read(ctx, "mark_list", world, path, map[string]any{"url": markURL(world, path)})
 }
 
 // Versions reads the edition history through mark_versions.
-func (g *Gateway) Versions(ctx context.Context, path string) (domain.RawDocument, error) {
-	return g.read(ctx, "mark_versions", path, map[string]any{"url": g.markURL(path)})
+func (g *Gateway) Versions(ctx context.Context, world, path string) (domain.RawDocument, error) {
+	return g.read(ctx, "mark_versions", world, path, map[string]any{"url": markURL(world, path)})
 }
 
 // Lookup queries the catalog under scope through mark_lookup.
-func (g *Gateway) Lookup(ctx context.Context, scope, query string) (domain.RawDocument, error) {
-	return g.read(ctx, "mark_lookup", scope, map[string]any{
-		"url":   g.markURL(scope),
+func (g *Gateway) Lookup(ctx context.Context, world, scope, query string) (domain.RawDocument, error) {
+	return g.read(ctx, "mark_lookup", world, scope, map[string]any{
+		"url":   markURL(world, scope),
 		"query": query,
 	})
 }
 
 // read runs one tool call and maps the outcome into the domain.
-func (g *Gateway) read(ctx context.Context, tool, path string, args map[string]any) (domain.RawDocument, error) {
+func (g *Gateway) read(ctx context.Context, tool, world, path string, args map[string]any) (domain.RawDocument, error) {
 	token := bearer.FromContext(ctx)
 	if token == "" {
 		// No identity on the request: in broker mode every read sits
@@ -133,13 +131,13 @@ func (g *Gateway) read(ctx context.Context, tool, path string, args map[string]a
 	if isToolError {
 		return domain.RawDocument{}, mapToolError(text)
 	}
-	return parseToolResult(g.world, path, text)
+	return parseToolResult(world, path, text)
 }
 
 // markURL builds the mark://<world><path> tool argument. path always starts
 // with / on this port.
-func (g *Gateway) markURL(path string) string {
-	return "mark://" + g.world + path
+func markURL(world, path string) string {
+	return "mark://" + world + path
 }
 
 // mapToolError translates the broker's isError text payloads (mcp_tools_read

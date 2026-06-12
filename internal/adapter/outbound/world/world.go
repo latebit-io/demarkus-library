@@ -2,9 +2,10 @@
 // the demarkus QUIC fetch client. It translates transport-level status into
 // domain errors so the core never sees protocol details.
 //
-// Phase 0 reads one world directly over QUIC. Phase 1 adds a sibling adapter
-// that speaks MCP to the broker, swapped in at the composition root — the core
-// is unaffected.
+// The world identifier on this adapter is a demarkus host[:port], dialed
+// directly. A configured read token is attached ONLY when dialing the home
+// host — following a link into the distributed graph must never leak the home
+// world's credential to whatever server the link points at.
 package world
 
 import (
@@ -28,50 +29,64 @@ type fetchClient interface {
 	Lookup(host, scope, query, token string, opts fetch.LookupOptions) (fetch.Result, error)
 }
 
-// Gateway adapts a demarkus world (one host) to the WorldGateway port.
+// Gateway adapts demarkus worlds (addressed by host) to the WorldGateway port.
 type Gateway struct {
 	client fetchClient
-	host   string
+	home   string // normalized host:port whose reads carry the token; "" = none
 	token  string
 }
 
 // compile-time check that Gateway satisfies the outbound port.
 var _ port.WorldGateway = (*Gateway)(nil)
 
-// NewGateway binds a fetch client to a world host and read token. The host is
-// normalized to host:port because the fetch client dials it verbatim.
-func NewGateway(client fetchClient, host, token string) *Gateway {
-	return &Gateway{client: client, host: withDefaultPort(host), token: token}
+// NewGateway binds a fetch client to an optional home host and its read
+// token. home may be empty (federation duty in broker mode): every dial is
+// then tokenless.
+func NewGateway(client fetchClient, home, token string) *Gateway {
+	return &Gateway{client: client, home: NormalizeHost(home), token: token}
 }
 
 // Fetch reads a document and maps demarkus status to domain errors.
-func (g *Gateway) Fetch(_ context.Context, path string) (domain.RawDocument, error) {
-	res, err := g.client.Fetch(g.host, path, g.token)
-	return g.toRawDocument(res, path, err)
+func (g *Gateway) Fetch(_ context.Context, world, path string) (domain.RawDocument, error) {
+	host := NormalizeHost(world)
+	res, err := g.client.Fetch(host, path, g.tokenFor(host))
+	return g.toRawDocument(res, host, path, err)
 }
 
 // List reads a directory listing (the stacks) at path.
-func (g *Gateway) List(_ context.Context, path string) (domain.RawDocument, error) {
-	res, err := g.client.List(g.host, path, g.token)
-	return g.toRawDocument(res, path, err)
+func (g *Gateway) List(_ context.Context, world, path string) (domain.RawDocument, error) {
+	host := NormalizeHost(world)
+	res, err := g.client.List(host, path, g.tokenFor(host))
+	return g.toRawDocument(res, host, path, err)
 }
 
 // Versions reads the edition history of the document at path.
-func (g *Gateway) Versions(_ context.Context, path string) (domain.RawDocument, error) {
-	res, err := g.client.Versions(g.host, path, g.token)
-	return g.toRawDocument(res, path, err)
+func (g *Gateway) Versions(_ context.Context, world, path string) (domain.RawDocument, error) {
+	host := NormalizeHost(world)
+	res, err := g.client.Versions(host, path, g.tokenFor(host))
+	return g.toRawDocument(res, host, path, err)
 }
 
 // Lookup queries the world's catalog for query under scope.
-func (g *Gateway) Lookup(_ context.Context, scope, query string) (domain.RawDocument, error) {
-	res, err := g.client.Lookup(g.host, scope, query, g.token, fetch.LookupOptions{})
-	return g.toRawDocument(res, scope, err)
+func (g *Gateway) Lookup(_ context.Context, world, scope, query string) (domain.RawDocument, error) {
+	host := NormalizeHost(world)
+	res, err := g.client.Lookup(host, scope, query, g.tokenFor(host), fetch.LookupOptions{})
+	return g.toRawDocument(res, host, scope, err)
+}
+
+// tokenFor scopes the read token to the home host. Any other host in the
+// distributed graph gets an anonymous read — public documents only.
+func (g *Gateway) tokenFor(host string) string {
+	if g.home != "" && host == g.home {
+		return g.token
+	}
+	return ""
 }
 
 // toRawDocument maps a fetch result + transport error into a domain RawDocument,
 // translating demarkus status into domain errors. This is the single place
 // protocol status crosses into the domain.
-func (g *Gateway) toRawDocument(res fetch.Result, path string, err error) (domain.RawDocument, error) {
+func (g *Gateway) toRawDocument(res fetch.Result, host, path string, err error) (domain.RawDocument, error) {
 	if err != nil {
 		return domain.RawDocument{}, err
 	}
@@ -88,19 +103,19 @@ func (g *Gateway) toRawDocument(res fetch.Result, path string, err error) (domai
 	}
 
 	return domain.RawDocument{
-		Source:   g.host,
+		Source:   host,
 		Path:     path,
 		Body:     res.Response.Body,
 		Metadata: res.Response.Metadata,
 	}, nil
 }
 
-// withDefaultPort appends the protocol port when the host omits one. The fetch
-// client dials host:port directly (only ParseMarkURL fills the default).
-// net.SplitHostPort distinguishes a real host:port from a bare IPv6 literal
-// (e.g. 2001:db8::1), which a naive ":" check would misclassify; net.JoinHostPort
-// brackets IPv6 hosts correctly.
-func withDefaultPort(host string) string {
+// NormalizeHost appends the protocol port when the host omits one. The fetch
+// client dials host:port verbatim (only ParseMarkURL fills the default), and
+// token scoping compares normalized forms. net.SplitHostPort distinguishes a
+// real host:port from a bare IPv6 literal (e.g. 2001:db8::1), which a naive
+// ":" check would misclassify; net.JoinHostPort brackets IPv6 hosts correctly.
+func NormalizeHost(host string) string {
 	if host == "" {
 		return host
 	}

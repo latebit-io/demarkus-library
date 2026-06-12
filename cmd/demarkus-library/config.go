@@ -24,6 +24,12 @@ type AppConfig struct {
 	Port      int    // HTTP listen port
 	Transport string // "quic" (direct world) or "broker" (MCP gateway + login)
 
+	// Federation allows following mark:// links to demarkus servers outside
+	// the home world / knowledge system — direct, tokenless QUIC reads of
+	// whatever host the link names. This is the distributed knowledge graph
+	// working as intended; turn it off to pin readers to the home worlds.
+	Federation bool
+
 	// TLS serves the library itself over HTTPS when both are set. In the
 	// cluster the ingress terminates TLS and these stay empty; locally they
 	// let the broker's https-only redirect rule be satisfied without a
@@ -64,8 +70,9 @@ func NewAppConfig() (*AppConfig, error) {
 	}
 
 	cfg := &AppConfig{
-		Port:      getEnvAsInt("PORT", 8080),
-		Transport: getEnv("DEMARKUS_TRANSPORT", TransportQUIC),
+		Port:       getEnvAsInt("PORT", 8080),
+		Transport:  getEnv("DEMARKUS_TRANSPORT", TransportQUIC),
+		Federation: getEnvAsBool("DEMARKUS_FEDERATION", true),
 
 		// Trimmed so whitespace-only values stay unset instead of
 		// flipping the server into TLS mode and failing on file open.

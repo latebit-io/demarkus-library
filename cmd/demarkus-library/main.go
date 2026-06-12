@@ -36,6 +36,7 @@ import (
 	"github.com/latebit/demarkus-library/internal/adapter/inbound/web"
 	"github.com/latebit/demarkus-library/internal/adapter/inbound/web/session"
 	"github.com/latebit/demarkus-library/internal/adapter/outbound/broker"
+	"github.com/latebit/demarkus-library/internal/adapter/outbound/federated"
 	"github.com/latebit/demarkus-library/internal/adapter/outbound/markdown"
 	"github.com/latebit/demarkus-library/internal/adapter/outbound/oauth"
 	"github.com/latebit/demarkus-library/internal/adapter/outbound/world"
@@ -79,16 +80,25 @@ func main() {
 	web.HealthRoutes(app, web.NewHealthHandler())
 
 	// Outbound adapters (driven) — the transport decides the world gateway
-	// and whether the reading room sits behind the turnstile.
+	// and whether the reading room sits behind the turnstile. Both modes
+	// wrap their transports in the federated router so mark:// links across
+	// the distributed graph resolve (host-shaped worlds dial direct,
+	// knowledge-system names go through the broker).
 	renderer := markdown.NewRenderer()
 	var gateway port.WorldGateway
+	var defaultWorld string
 	var turnstile []echo.MiddlewareFunc
 	var shutdown func()
 
 	switch config.Transport {
 	case TransportQUIC:
 		client := fetch.NewClient(fetch.Options{Insecure: config.Insecure})
-		gateway = world.NewGateway(client, config.Host, config.ReadToken)
+		defaultWorld = world.NormalizeHost(config.Host)
+		gateway = federated.New(federated.Config{
+			Hosts:         world.NewGateway(client, config.Host, config.ReadToken),
+			HomeHost:      config.Host,
+			AllowExternal: config.Federation,
+		})
 		shutdown = client.Close
 
 	case TransportBroker:
@@ -110,18 +120,30 @@ func main() {
 		}))
 		turnstile = append(turnstile, web.RequireSession(sessions))
 
-		bg := broker.NewGateway(config.BrokerURL, config.World, nil)
-		gateway = bg
+		bg := broker.NewGateway(config.BrokerURL, nil)
+		fcfg := federated.Config{Names: bg, AllowExternal: config.Federation}
+		var fclient *fetch.Client
+		if config.Federation {
+			// Federation reads are tokenless and anonymous: external
+			// hosts get no home credential and no bearer.
+			fclient = fetch.NewClient(fetch.Options{Insecure: config.Insecure})
+			fcfg.Hosts = world.NewGateway(fclient, "", "")
+		}
+		defaultWorld = config.World
+		gateway = federated.New(fcfg)
 		stopSweeper := startSweeper(store, pending)
 		shutdown = func() {
 			stopSweeper()
 			bg.Close()
+			if fclient != nil {
+				fclient.Close()
+			}
 		}
 	}
 
 	// Application core (the hexagon) + the reading room, same in both modes.
 	reading := service.NewReadingService(gateway, renderer)
-	web.ReadingRoutes(app, web.NewReadingHandler(reading, config.DefaultDoc), turnstile...)
+	web.ReadingRoutes(app, web.NewReadingHandler(reading, defaultWorld, config.DefaultDoc), turnstile...)
 
 	logger.Info("demarkus Library reading room starting",
 		"port", config.Port, "transport", config.Transport,
