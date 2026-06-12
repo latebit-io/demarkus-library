@@ -99,12 +99,17 @@ func (g *Gateway) Versions(ctx context.Context, world, path string) (domain.RawD
 	return g.read(ctx, "mark_versions", world, path, map[string]any{"url": markURL(world, path)})
 }
 
-// Lookup queries the catalog under scope through mark_lookup.
-func (g *Gateway) Lookup(ctx context.Context, world, scope, query string) (domain.RawDocument, error) {
-	return g.read(ctx, "mark_lookup", world, scope, map[string]any{
+// Lookup queries the catalog under scope through mark_lookup. A non-empty
+// filter rides along as the tool's comma-separated key=value predicate.
+func (g *Gateway) Lookup(ctx context.Context, world, scope, query, filter string) (domain.RawDocument, error) {
+	args := map[string]any{
 		"url":   markURL(world, scope),
 		"query": query,
-	})
+	}
+	if filter != "" {
+		args["filter"] = filter
+	}
+	return g.read(ctx, "mark_lookup", world, scope, args)
 }
 
 // read runs one tool call and maps the outcome into the domain.

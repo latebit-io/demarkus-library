@@ -77,11 +77,17 @@ func TestVerbsAndArgs(t *testing.T) {
 		wantTool string
 		wantURL  string
 	}{
-		{"List", func(g *Gateway, ctx context.Context) (domain.RawDocument, error) { return g.List(ctx, "soul", "/plans/") },
+		{"List", func(g *Gateway, ctx context.Context) (domain.RawDocument, error) {
+			return g.List(ctx, "soul", "/plans/")
+		},
 			"mark_list", "mark://soul/plans/"},
-		{"Versions", func(g *Gateway, ctx context.Context) (domain.RawDocument, error) { return g.Versions(ctx, "soul", "/x.md") },
+		{"Versions", func(g *Gateway, ctx context.Context) (domain.RawDocument, error) {
+			return g.Versions(ctx, "soul", "/x.md")
+		},
 			"mark_versions", "mark://soul/x.md"},
-		{"Lookup", func(g *Gateway, ctx context.Context) (domain.RawDocument, error) { return g.Lookup(ctx, "soul", "/", "hex") },
+		{"Lookup", func(g *Gateway, ctx context.Context) (domain.RawDocument, error) {
+			return g.Lookup(ctx, "soul", "/", "hex", "")
+		},
 			"mark_lookup", "mark://soul/"},
 	}
 	for _, tc := range cases {
@@ -100,14 +106,28 @@ func TestVerbsAndArgs(t *testing.T) {
 		})
 	}
 
-	// Lookup carries the query argument too.
+	// Lookup carries the query argument too; the empty filter is omitted
+	// entirely so the broker applies its own default.
 	fc := &fakeCaller{text: "status: ok\n\nbody"}
 	g := &Gateway{caller: fc}
-	if _, err := g.Lookup(authedCtx(t), "soul", "/", "hexagonal"); err != nil {
+	if _, err := g.Lookup(authedCtx(t), "soul", "/", "hexagonal", ""); err != nil {
 		t.Fatalf("Lookup: %v", err)
 	}
 	if got := fc.gotArgs["query"]; got != "hexagonal" {
 		t.Errorf("query arg = %v", got)
+	}
+	if _, present := fc.gotArgs["filter"]; present {
+		t.Errorf("empty filter must be omitted, got %v", fc.gotArgs["filter"])
+	}
+
+	// A non-empty filter rides along (tag pages: tag=<tag>).
+	fc = &fakeCaller{text: "status: ok\n\nbody"}
+	g = &Gateway{caller: fc}
+	if _, err := g.Lookup(authedCtx(t), "soul", "/", "adr", "tag=adr"); err != nil {
+		t.Fatalf("Lookup with filter: %v", err)
+	}
+	if got := fc.gotArgs["filter"]; got != "tag=adr" {
+		t.Errorf("filter arg = %v, want tag=adr", got)
 	}
 }
 

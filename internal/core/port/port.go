@@ -29,6 +29,12 @@ type ReadingService interface {
 	// Search renders the card catalog (LOOKUP) results for query under scope
 	// in world.
 	Search(ctx context.Context, world, scope, query string) (domain.Document, error)
+	// Tag renders the card catalog filtered to one tag — the lookup-backed
+	// tag page that replaces the global search box (ADR 0005 decision 5).
+	Tag(ctx context.Context, world, tag string) (domain.Document, error)
+	// Raw returns the unrendered source of the document at (world, path) —
+	// the projection's escape to protocol (ADR 0005 decision 12).
+	Raw(ctx context.Context, world, path string) (domain.RawDocument, error)
 }
 
 // WorldGateway is an outbound (driven) port — read from demarkus worlds. The
@@ -41,10 +47,14 @@ type WorldGateway interface {
 	Fetch(ctx context.Context, world, path string) (domain.RawDocument, error)
 	List(ctx context.Context, world, path string) (domain.RawDocument, error)
 	Versions(ctx context.Context, world, path string) (domain.RawDocument, error)
-	Lookup(ctx context.Context, world, scope, query string) (domain.RawDocument, error)
+	// Lookup queries the catalog for query under scope. filter is the
+	// catalog's comma-separated key=value predicate string ("" for none) —
+	// tag pages use tag=<tag>.
+	Lookup(ctx context.Context, world, scope, query, filter string) (domain.RawDocument, error)
 }
 
-// Renderer is an outbound (driven) port — markdown to sanitized HTML.
+// Renderer is an outbound (driven) port — markdown to sanitized HTML plus
+// the properties parsed from a leading frontmatter fence.
 type Renderer interface {
-	Render(markdown string) (string, error)
+	Render(markdown string) (domain.Rendered, error)
 }

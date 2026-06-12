@@ -3,16 +3,21 @@
 // never on the concrete service or any outbound adapter.
 //
 // Rendering is SSR-first, htmx-hard (ADR 0003): every response is server-rendered
-// HTML. A boosted navigation gets the full "page"; a targeted htmx swap (e.g. the
-// search box → #main) gets the "content" fragment. One handler, one template —
-// no duplicate render path — and everything degrades without JS.
+// HTML. A boosted navigation gets the full "page"; a targeted htmx swap gets the
+// "content" fragment. One handler, one template — no duplicate render path — and
+// everything degrades without JS.
 //
 // URL scheme: a document's address is (world, path) — /w/<world>/d/<path>,
-// /w/<world>/search, /w/<world>/versions/<path>. The world segment is a
-// knowledge-system name or a demarkus host[:port]; following mark:// links
-// across worlds is how the distributed knowledge graph is traversed. / serves
-// the default world's default document; the world-less 1a routes redirect to
-// their world-scoped homes.
+// /w/<world>/tags/<tag>, /w/<world>/raw/<path>, /w/<world>/versions/<path>.
+// The world segment is a knowledge-system name or a demarkus host[:port];
+// following mark:// links across worlds is how the distributed knowledge graph
+// is traversed. / serves the default world's default document; the world-less
+// 1a routes redirect to their world-scoped homes.
+//
+// There is no global search box (ADR 0005 decision 5): lateral navigation is
+// tags (the margin's clickable exit to lookup-backed tag pages) and links.
+// The catalog endpoint survives at /w/<world>/search for direct use — R2
+// folds it into the trail as the catalog pane.
 package web
 
 import (
@@ -41,6 +46,13 @@ func NewReadingHandler(reading port.ReadingService, defaultWorld, defaultDoc str
 	return ReadingHandler{reading: reading, defaultWorld: defaultWorld, defaultDoc: defaultDoc}
 }
 
+// tagLink is one clickable tag in the margin — the lateral-nav exit to a
+// lookup-backed tag page.
+type tagLink struct {
+	Name string
+	URL  string
+}
+
 // page is the view model shared by the "page" layout and the "content" partial.
 type page struct {
 	Title         string
@@ -49,24 +61,32 @@ type page struct {
 	Content       template.HTML // sanitized by the markdown adapter, links rewritten here
 	World         string        // current world (display)
 	WorldPath     string        // current world, path-escaped for URL building
-	Query         string        // current catalog query (keeps the search box populated)
-	ShowHistory   bool          // show the "editions" affordance (documents only)
 	Authenticated bool          // behind the turnstile (broker mode) — shows sign-out
+
+	// The margin (documents only — listings and catalog views render
+	// without one; an empty margin is correct, ADR 0005 decision 8).
+	IsDoc      bool
+	Status     string // trust badge: draft | wip | accepted | archived | open vocabulary
+	Tags       []tagLink
+	Properties []domain.Property // parsed body frontmatter, rendered friendly
+	Modified   string            // provenance: response metadata, verbatim
+	Version    string
+	Agent      string
+	MarkURL    string // canonical protocol address — the escape hatch (decision 12)
 }
 
 // viewOpts carries per-view presentation choices into present.
 type viewOpts struct {
-	world       string // world the view belongs to
-	path        string // path for error messages (the requested resource)
-	query       string // current catalog query (keeps the search box populated)
-	showHistory bool   // show the "editions" affordance (documents only)
-	catalog     bool   // linkify the LOOKUP catalog table's Path column
+	world   string // world the view belongs to
+	path    string // path for error messages (the requested resource)
+	doc     bool   // a real document: render the margin (trust signals)
+	catalog bool   // linkify the LOOKUP catalog table's Path column
 }
 
 // Root renders the configured default document of the default world.
 func (h *ReadingHandler) Root(c *echo.Context) error {
 	doc, err := h.reading.Read(c.Request().Context(), h.defaultWorld, h.defaultDoc)
-	return h.present(c, doc, err, viewOpts{world: h.defaultWorld, path: h.defaultDoc, showHistory: true})
+	return h.present(c, doc, err, viewOpts{world: h.defaultWorld, path: h.defaultDoc, doc: true})
 }
 
 // Doc renders a document, or a directory listing (the stacks) when the path
@@ -79,21 +99,45 @@ func (h *ReadingHandler) Doc(c *echo.Context) error {
 		return h.present(c, doc, err, viewOpts{world: world, path: p})
 	}
 	doc, err := h.reading.Read(c.Request().Context(), world, p)
-	return h.present(c, doc, err, viewOpts{world: world, path: p, showHistory: true})
+	return h.present(c, doc, err, viewOpts{world: world, path: p, doc: true})
 }
 
 // Search renders the card catalog (LOOKUP) for the q query in the route's
-// world. An empty query falls back to the world's index so clearing the box
+// world. An empty query falls back to the world's index so a bare /search
 // returns you somewhere sensible.
 func (h *ReadingHandler) Search(c *echo.Context) error {
 	world := c.Param("world")
 	q := strings.TrimSpace(c.QueryParam("q"))
 	if q == "" {
 		doc, err := h.reading.Read(c.Request().Context(), world, h.defaultDoc)
-		return h.present(c, doc, err, viewOpts{world: world, path: h.defaultDoc, showHistory: true})
+		return h.present(c, doc, err, viewOpts{world: world, path: h.defaultDoc, doc: true})
 	}
 	doc, err := h.reading.Search(c.Request().Context(), world, "/", q)
-	return h.present(c, doc, err, viewOpts{world: world, path: "/search", query: q, catalog: true})
+	return h.present(c, doc, err, viewOpts{world: world, path: "/search", catalog: true})
+}
+
+// TagPage renders the catalog filtered to one tag — the margin's lateral-nav
+// destination. /w/<world>/tags/<tag>.
+func (h *ReadingHandler) TagPage(c *echo.Context) error {
+	world := c.Param("world")
+	tag := c.Param("tag")
+	if dec, err := url.PathUnescape(tag); err == nil {
+		tag = dec
+	}
+	doc, err := h.reading.Tag(c.Request().Context(), world, tag)
+	return h.present(c, doc, err, viewOpts{world: world, path: "/tags/" + tag, catalog: true})
+}
+
+// RawSource serves the document's unrendered markdown — the projection's
+// escape to protocol (ADR 0005 decision 12). /w/<world>/raw/<path>.
+func (h *ReadingHandler) RawSource(c *echo.Context) error {
+	world := c.Param("world")
+	p := "/" + c.Param("*")
+	raw, err := h.reading.Raw(c.Request().Context(), world, p)
+	if err != nil {
+		return presentError(c, err, world, p)
+	}
+	return c.Blob(http.StatusOK, "text/plain; charset=utf-8", []byte(raw.Body))
 }
 
 // History renders the edition history of a document. /w/<world>/versions/<path>.
@@ -129,37 +173,67 @@ func (h *ReadingHandler) legacyRedirect(c *echo.Context, suffix string) error {
 }
 
 func (h *ReadingHandler) present(c *echo.Context, doc domain.Document, err error, opts viewOpts) error {
+	if err != nil {
+		return presentError(c, err, opts.world, opts.path)
+	}
+	content := rewriteLinks(doc.HTML, opts.world, doc.Path)
+	if opts.catalog {
+		content = linkifyCatalogPaths(content, opts.world)
+	}
+	vm := page{
+		Title:         doc.Title,
+		Host:          doc.Source,
+		Path:          doc.Path,
+		Content:       template.HTML(content), //nolint:gosec // sanitized in the markdown adapter; rewriteLinks/linkify only edit links
+		World:         opts.world,
+		WorldPath:     url.PathEscape(opts.world),
+		Authenticated: c.Get(authedKey) != nil, // set by RequireSession in broker mode
+	}
+	if opts.doc {
+		vm.IsDoc = true
+		vm.Status = doc.Status
+		vm.Tags = tagLinks(opts.world, doc.Tags)
+		vm.Properties = doc.Properties
+		vm.Modified = doc.Modified
+		vm.Version = doc.Version
+		vm.Agent = doc.Agent
+		vm.MarkURL = "mark://" + opts.world + doc.Path
+	}
+	return c.Render(http.StatusOK, h.templateFor(c), vm)
+}
+
+// presentError maps domain errors to HTTP errors — shared by the rendered
+// views and the raw-source escape.
+func presentError(c *echo.Context, err error, world, path string) error {
 	switch {
-	case err == nil:
-		content := rewriteLinks(doc.HTML, opts.world, doc.Path)
-		if opts.catalog {
-			content = linkifyCatalogPaths(content, opts.world)
-		}
-		vm := page{
-			Title:         doc.Title,
-			Host:          doc.Source,
-			Path:          doc.Path,
-			Content:       template.HTML(content), //nolint:gosec // sanitized in the markdown adapter; rewriteLinks/linkify only edit links
-			World:         opts.world,
-			WorldPath:     url.PathEscape(opts.world),
-			Query:         opts.query,
-			ShowHistory:   opts.showHistory,
-			Authenticated: c.Get(authedKey) != nil, // set by RequireSession in broker mode
-		}
-		return c.Render(http.StatusOK, h.templateFor(c), vm)
 	case errors.Is(err, domain.ErrNotFound):
-		return echo.NewHTTPError(http.StatusNotFound, opts.path+": not found")
+		return echo.NewHTTPError(http.StatusNotFound, path+": not found")
 	case errors.Is(err, domain.ErrUnauthorized):
-		return echo.NewHTTPError(http.StatusUnauthorized, opts.path+": not authorized")
+		return echo.NewHTTPError(http.StatusUnauthorized, path+": not authorized")
 	default:
-		c.Logger().Error("read failed", "world", opts.world, "path", opts.path, "err", err)
+		c.Logger().Error("read failed", "world", world, "path", path, "err", err)
 		return echo.NewHTTPError(http.StatusBadGateway, "reading room is unreachable")
 	}
 }
 
-// templateFor returns the fragment for a targeted htmx swap (e.g. search → #main)
-// and the full page otherwise. A boosted navigation wants the whole document, so
-// it gets the full page; only non-boosted htmx requests get the bare fragment.
+// tagLinks builds the margin's clickable tag list. The status: axis is
+// carried by the badge, not the tag list — repeating it would stuff the
+// margin with what the badge already says.
+func tagLinks(world string, tags []string) []tagLink {
+	worldPath := url.PathEscape(world)
+	out := make([]tagLink, 0, len(tags))
+	for _, t := range tags {
+		if strings.HasPrefix(t, "status:") {
+			continue
+		}
+		out = append(out, tagLink{Name: t, URL: "/w/" + worldPath + "/tags/" + url.PathEscape(t)})
+	}
+	return out
+}
+
+// templateFor returns the fragment for a targeted htmx swap and the full page
+// otherwise. A boosted navigation wants the whole document, so it gets the
+// full page; only non-boosted htmx requests get the bare fragment.
 func (h *ReadingHandler) templateFor(c *echo.Context) string {
 	r := c.Request()
 	if r.Header.Get("HX-Request") == "true" && r.Header.Get("HX-Boosted") != "true" {

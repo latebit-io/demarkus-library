@@ -20,7 +20,7 @@ func (f *fakeGW) List(_ context.Context, world, path string) (domain.RawDocument
 func (f *fakeGW) Versions(_ context.Context, world, path string) (domain.RawDocument, error) {
 	return domain.RawDocument{Source: f.name}, nil
 }
-func (f *fakeGW) Lookup(_ context.Context, world, scope, query string) (domain.RawDocument, error) {
+func (f *fakeGW) Lookup(_ context.Context, world, scope, query, filter string) (domain.RawDocument, error) {
 	return domain.RawDocument{Source: f.name}, nil
 }
 

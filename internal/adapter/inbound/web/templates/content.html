@@ -1,11 +1,48 @@
-{{define "content"}}<header class="doc">
-  <div class="meta">
-    <code>{{ .Host }}{{ .Path }}</code>
-    {{- if .ShowHistory }} · <a href="/w/{{ .WorldPath }}/versions{{ .Path }}"
-        hx-get="/w/{{ .WorldPath }}/versions{{ .Path }}" hx-target="#main" hx-push-url="true">editions</a>{{ end }}
-  </div>
-  <h1>{{ .Title }}</h1>
-</header>
-<article>
-  {{ .Content }}
-</article>{{end}}
+{{define "content"}}{{if .IsDoc}}<div class="doc-pane">
+  <article class="doc-body">
+    <h1>{{ .Title }}</h1>
+    {{ .Content }}
+  </article>
+  <aside class="doc-margin">
+    <!-- The margin holds exactly: status, tags, provenance, properties,
+         the protocol escape, and floated sidenotes (ADR 0005 decision 8).
+         An empty margin is correct. -->
+    <div class="doc-meta">
+      <p><span class="status status-{{ .Status }}">{{ .Status }}</span></p>
+      {{- if .Tags }}
+      <ul class="tags">
+        {{- range .Tags }}
+        <li><a href="{{ .URL }}">{{ .Name }}</a></li>
+        {{- end }}
+      </ul>
+      {{- end }}
+      {{- if or .Modified .Version .Agent }}
+      <dl class="provenance">
+        {{- if .Modified }}<dt>modified</dt><dd>{{ .Modified }}</dd>{{ end }}
+        {{- if .Version }}<dt>version</dt><dd><a href="/w/{{ .WorldPath }}/versions{{ .Path }}">{{ .Version }}</a></dd>{{ end }}
+        {{- if .Agent }}<dt>agent</dt><dd>{{ .Agent }}</dd>{{ end }}
+      </dl>
+      {{- end }}
+      {{- if .Properties }}
+      <dl class="properties">
+        {{- range .Properties }}
+        <dt>{{ .Key }}</dt><dd>{{ .Value }}</dd>
+        {{- end }}
+      </dl>
+      {{- end }}
+      <div class="escape">
+        <code>{{ .MarkURL }}</code>
+        <a href="/w/{{ .WorldPath }}/raw{{ .Path }}">source</a>
+        · <a href="/w/{{ .WorldPath }}/versions{{ .Path }}">editions</a>
+      </div>
+    </div>
+  </aside>
+</div>{{else}}<div class="doc-pane">
+  <article class="doc-body">
+    <header class="doc">
+      <div class="meta"><code>{{ .Host }}{{ .Path }}</code></div>
+      <h1>{{ .Title }}</h1>
+    </header>
+    {{ .Content }}
+  </article>
+</div>{{end}}{{end}}
