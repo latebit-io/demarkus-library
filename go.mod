@@ -3,11 +3,21 @@ module github.com/latebit-io/demarkus-library
 go 1.26.4
 
 require (
+	github.com/alecthomas/chroma/v2 v2.14.0
 	github.com/labstack/echo/v5 v5.1.1
 	github.com/mark3labs/mcp-go v0.44.0
 	github.com/microcosm-cc/bluemonday v1.0.27
-	github.com/yuin/goldmark v1.7.8
+	github.com/yuin/goldmark v1.7.13
+	github.com/yuin/goldmark-emoji v1.0.6
+	github.com/yuin/goldmark-highlighting/v2 v2.0.0-20230729083705-37449abec8cc
+	github.com/zmtcreative/gm-alert-callouts v0.8.0
 	golang.org/x/net v0.56.0
+)
+
+require (
+	github.com/dlclark/regexp2 v1.11.0 // indirect
+	github.com/jeandeaual/go-locale v0.0.0-20250612000132-0ef82f21eade // indirect
+	golang.org/x/text v0.38.0 // indirect
 )
 
 require (
