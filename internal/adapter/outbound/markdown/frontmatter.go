@@ -9,12 +9,14 @@ import (
 )
 
 // splitFrontmatter separates a leading YAML frontmatter block from the body:
-// a first line of exactly "---", closed by a line of exactly "---" or "...".
-// It returns the fence content (without the delimiters) and the remaining
-// body. Anything that does not match precisely (no opener, no closer,
-// content before the fence) returns ("", markdown) unchanged — a thematic
-// break mid-document is content, and an unclosed fence is safer rendered
-// than silently swallowing the whole body.
+// a first line of exactly "---", closed by a line of exactly "---" or "...",
+// whose content actually parses as YAML metadata (isFrontmatterFence). It
+// returns the fence content (without the delimiters) and the remaining body.
+// Anything that does not match precisely (no opener, no closer, content
+// before the fence, or fence content that is ordinary prose between two
+// thematic breaks) returns ("", markdown) unchanged — a thematic break is
+// content, and an unclosed fence is safer rendered than silently swallowing
+// the whole body.
 //
 // demarkus carries metadata out of band, but worlds contain bodies that open
 // with a metadata fence anyway (publishers that hand-wrote frontmatter, or
@@ -34,17 +36,42 @@ func splitFrontmatter(markdown string) (fence, body string) {
 			// Last line has no trailing newline: a closer here means the
 			// document was nothing but frontmatter.
 			if line := strings.TrimSuffix(rest[off:], "\r"); line == "---" || line == "..." {
+				if !isFrontmatterFence(rest[:off]) {
+					return "", markdown
+				}
 				return rest[:off], ""
 			}
 			break // unclosed fence — leave the document alone
 		}
 		line := strings.TrimSuffix(rest[off:off+lineEnd], "\r")
 		if line == "---" || line == "..." {
+			if !isFrontmatterFence(rest[:off]) {
+				return "", markdown
+			}
 			return rest[:off], rest[off+lineEnd+1:]
 		}
 		off += lineEnd + 1
 	}
 	return "", markdown
+}
+
+// isFrontmatterFence reports whether candidate fence content is actually
+// metadata: empty, or a YAML mapping. A document that merely opens with a
+// thematic break ("---\nintro\n---\nbody") parses as a scalar or sequence,
+// not a mapping — that is content, and stripping it would silently lose it.
+// Deliberately looser than parseFrontmatter, which additionally drops
+// non-displayable values: a mapping of nested structures is still
+// frontmatter (strip it) even though it yields no margin properties.
+func isFrontmatterFence(fence string) bool {
+	if strings.TrimSpace(fence) == "" {
+		return true // degenerate "---\n---" header: metadata-shaped, zero keys
+	}
+	var root yaml.Node
+	if yaml.Unmarshal([]byte(fence), &root) != nil {
+		return false
+	}
+	return root.Kind == yaml.DocumentNode && len(root.Content) > 0 &&
+		root.Content[0].Kind == yaml.MappingNode
 }
 
 // parseFrontmatter turns a frontmatter fence into ordered display properties.
