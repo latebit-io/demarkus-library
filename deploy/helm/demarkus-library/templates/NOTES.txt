@@ -1,0 +1,58 @@
+demarkus-library installed as release {{ .Release.Name | quote }} in namespace {{ .Release.Namespace | quote }}.
+
+== Library URL ==
+{{- if .Values.ingress.enabled }}
+  Public: https://{{ .Values.ingress.host }}/
+  Routed through IngressClass {{ .Values.ingress.className | quote }}.
+  {{- if .Values.ingress.tls.certManager.enabled }}
+  TLS via cert-manager Certificate {{ include "demarkus-library.fullname" . }}-tls (issuer: {{ .Values.ingress.tls.certManager.issuerRef.kind }}/{{ .Values.ingress.tls.certManager.issuerRef.name }}).
+  {{- else if .Values.ingress.tls.existingSecret }}
+  TLS via pre-existing Secret {{ .Values.ingress.tls.existingSecret | quote }}.
+  {{- else }}
+  TLS: not configured on the Ingress — controller-side TLS termination assumed.
+  {{- end }}
+{{- else }}
+  In-cluster: http://{{ include "demarkus-library.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.library.port }}/
+  Ingress is disabled. Expose via port-forward for dev:
+    kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "demarkus-library.fullname" . }} {{ .Values.library.port }}:{{ .Values.library.port }}
+{{- end }}
+
+== Transport: {{ .Values.library.transport }} ==
+{{- if eq .Values.library.transport "broker" }}
+  Broker:   {{ .Values.library.broker.url }}
+  World:    {{ .Values.library.broker.world }}
+  Callback: {{ .Values.library.broker.redirectURI }}
+
+== Prerequisites the chart does NOT enforce ==
+- The broker's webClients registry must hold an entry for clientID
+  {{ .Values.library.broker.clientID | quote }} whose clientSecretHash is the sha256 of this
+  deployment's client secret and whose redirectURIs list contains
+  {{ .Values.library.broker.redirectURI | quote }} exactly.
+{{- if .Values.library.broker.clientSecret }}
+
+== Security invariants to verify ==
+- library.broker.clientSecret is set in values (cleartext). The value lives in
+  helm release history. For production, switch to
+  library.broker.existingSecretRef pointing at an externally-managed Secret
+  (External Secrets / Sealed Secrets / Vault).
+{{- end }}
+{{- if not .Values.library.broker.cookieSecure }}
+- library.broker.cookieSecure=false: the session cookie travels over plain
+  http. Dev/port-forward only — never expose this posture publicly.
+{{- end }}
+{{- else }}
+  World: {{ .Values.library.quic.host }}
+  NOTE: quic transport has NO login turnstile — the reading room is open to
+  anything that can reach the Service. Dev/demo posture only.
+{{- end }}
+{{- if .Values.library.insecure }}
+- library.insecure=true: direct QUIC dials skip TLS verification (self-signed
+  world certs). The wire stays encrypted; peer identity is unverified. Flip to
+  false once a shared CA signs your world certs.
+{{- end }}
+{{- if gt (int .Values.replicaCount) 1 }}
+
+WARNING: replicaCount={{ .Values.replicaCount }} but sessions are in-memory — readers will flap
+between logged-in and the login turnstile depending on which replica serves
+them. Keep replicaCount at 1 until a shared session store ships.
+{{- end }}

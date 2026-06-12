@@ -1,0 +1,30 @@
+apiVersion: v2
+name: demarkus-library
+description: |
+  Universe Library — the server-rendered web reading room for a demarkus
+  universe. Reads through the broker's MCP gateway behind an org-login
+  turnstile (OAuth confidential web client), or directly over QUIC for
+  dev/demo worlds. Federation follows mark:// links across the
+  distributed graph.
+type: application
+# version + appVersion are pinned 1:1 to the `v<X>` git tag at publish
+# time — the release workflow renders the chart with
+# `helm package --version $VER --app-version $VER` where $VER is the
+# auto-bumped semver. The values committed below are only used for
+# local-render and unittest paths; the source-of-truth at publish is the
+# workflow. Keep this file's version in sync with the latest v* tag for
+# predictable local renders, but don't expect a manual bump here to
+# actually publish a new chart on its own.
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - demarkus
+  - mark-protocol
+  - library
+  - reading-room
+home: https://demarkus.io
+sources:
+  - https://github.com/latebit-io/demarkus-library
+maintainers:
+  - name: latebit-io
+    url: https://github.com/latebit-io

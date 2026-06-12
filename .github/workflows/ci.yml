@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    # dorny/paths-filter@v3 calls the Pulls.listFiles GitHub API on
+    # pull_request events to compute the diff; grant the two scopes the
+    # action needs at the job level (see the demarkus repo's ci.yml for
+    # the restricted-default-token backstory).
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      app: ${{ steps.filter.outputs.app }}
+      charts: ${{ steps.filter.outputs.charts }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            app:
+              - 'cmd/**'
+              - 'internal/**'
+              - 'go.mod'
+              - 'go.sum'
+              - '.goreleaser.yml'
+              - 'Dockerfile'
+            charts:
+              - 'deploy/helm/**'
+
+  test-app:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.app == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+      - uses: golangci/golangci-lint-action@v7
+        with:
+          version: v2.9.0
+      - name: Test
+        run: go test ./...
+      - name: Vet
+        run: go vet ./...
+      - name: Build
+        run: go build -o /dev/null ./cmd/demarkus-library
+      - name: GoReleaser config check
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser-pro
+          version: latest
+          args: check
+        env:
+          GORELEASER_KEY: ${{ secrets.GORELEASER_KEY }}
+
+  test-charts:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.charts == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.13.2
+      - name: Install helm-unittest
+        run: helm plugin install https://github.com/helm-unittest/helm-unittest --version v0.6.2
+      - name: Lint demarkus-library chart
+        run: helm lint deploy/helm/demarkus-library
+      - name: Unit test demarkus-library chart
+        run: helm unittest deploy/helm/demarkus-library

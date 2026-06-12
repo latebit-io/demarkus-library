@@ -50,11 +50,14 @@ import (
 // sweep just bounds memory.
 const sweepInterval = time.Hour
 
+// version is stamped by goreleaser via -ldflags "-X main.version=...".
+var version = "dev"
+
 func main() {
 	versionFlag := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
 	if *versionFlag {
-		fmt.Println("demarkus-library (phase 1b)")
+		fmt.Println("demarkus-library", version)
 		os.Exit(0)
 	}
 

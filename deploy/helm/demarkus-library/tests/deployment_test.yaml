@@ -1,0 +1,215 @@
+suite: deployment
+templates:
+  - deployment.yaml
+  - secret.yaml
+release:
+  namespace: library-ns
+set:
+  # Suite-wide broker-mode defaults so every test renders; individual
+  # tests override when targeting a specific surface.
+  library.broker.url: https://broker.example.com
+  library.broker.clientID: library-web
+  library.broker.clientSecret: shh
+  library.broker.redirectURI: https://library.example.com/auth/callback
+  library.broker.world: root
+tests:
+  - it: renders a single-replica Deployment with Recreate strategy (in-memory sessions)
+    template: deployment.yaml
+    asserts:
+      - isKind:
+          of: Deployment
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-demarkus-library
+      - equal:
+          path: spec.replicas
+          value: 1
+      - equal:
+          path: spec.strategy.type
+          value: Recreate
+
+  - it: container image uses AppVersion when image.tag empty and relies on ENTRYPOINT
+    template: deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/latebit-io/demarkus-library:0.1.0
+      - notExists:
+          path: spec.template.spec.containers[0].command
+
+  - it: broker mode renders the full env contract
+    template: deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DEMARKUS_TRANSPORT
+            value: "broker"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DEMARKUS_BROKER_URL
+            value: "https://broker.example.com"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DEMARKUS_CLIENT_ID
+            value: "library-web"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DEMARKUS_REDIRECT_URI
+            value: "https://library.example.com/auth/callback"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DEMARKUS_WORLD
+            value: "root"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DEMARKUS_SCOPES
+            value: "mark.read"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DEMARKUS_FEDERATION
+            value: "true"
+
+  - it: cleartext clientSecret flows via the chart-managed Secret and rolls the pod on change
+    template: deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DEMARKUS_CLIENT_SECRET
+            valueFrom:
+              secretKeyRef:
+                name: RELEASE-NAME-demarkus-library-oauth
+                key: clientSecret
+      - matchRegex:
+          path: spec.template.metadata.annotations["checksum/secret"]
+          pattern: '^[0-9a-f]{64}$'
+
+  - it: existingSecretRef points the env at the external Secret and skips the checksum
+    template: deployment.yaml
+    set:
+      library.broker.clientSecret: ""
+      library.broker.existingSecretRef.name: library-oauth-external
+      library.broker.existingSecretRef.key: secret
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DEMARKUS_CLIENT_SECRET
+            valueFrom:
+              secretKeyRef:
+                name: library-oauth-external
+                key: secret
+      - notExists:
+          path: spec.template.metadata.annotations["checksum/secret"]
+
+  - it: quic mode renders host + token env and no broker env
+    template: deployment.yaml
+    set:
+      library.transport: quic
+      library.broker.url: ""
+      library.broker.clientID: ""
+      library.broker.clientSecret: ""
+      library.broker.redirectURI: ""
+      library.broker.world: ""
+      library.quic.host: soul.demarkus.io
+      library.quic.readToken: tok123
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DEMARKUS_HOST
+            value: "soul.demarkus.io"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DEMARKUS_AUTH
+            value: "tok123"
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DEMARKUS_BROKER_URL
+          any: true
+
+  - it: health probes target /health on the http port
+    template: deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.path
+          value: /health
+      - equal:
+          path: spec.template.spec.containers[0].readinessProbe.httpGet.path
+          value: /health
+
+  - it: pod-level securityContext locks down the pod
+    template: deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext.runAsNonRoot
+          value: true
+      - equal:
+          path: spec.template.spec.securityContext.runAsUser
+          value: 65532
+      - equal:
+          path: spec.template.spec.securityContext.seccompProfile.type
+          value: RuntimeDefault
+
+  - it: container-level securityContext locks down the container
+    template: deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
+          value: true
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation
+          value: false
+      - contains:
+          path: spec.template.spec.containers[0].securityContext.capabilities.drop
+          content: ALL
+
+  - it: fails render when broker mode lacks required settings
+    template: deployment.yaml
+    set:
+      library.broker.world: ""
+    asserts:
+      - failedTemplate:
+          errorMessage: library.broker.world is required when library.transport is "broker"
+
+  - it: fails render when both clientSecret modes are set
+    template: deployment.yaml
+    set:
+      library.broker.existingSecretRef.name: also-set
+    asserts:
+      - failedTemplate:
+          errorMessage: library.broker.clientSecret and library.broker.existingSecretRef.name are mutually exclusive; set exactly one
+
+  - it: fails render when neither clientSecret mode is set
+    template: deployment.yaml
+    set:
+      library.broker.clientSecret: ""
+    asserts:
+      - failedTemplate:
+          errorMessage: library.broker.clientSecret or library.broker.existingSecretRef.name is required when library.transport is "broker"
+
+  - it: fails render when quic mode lacks a host
+    template: deployment.yaml
+    set:
+      library.transport: quic
+      library.broker.clientSecret: ""
+    asserts:
+      - failedTemplate:
+          errorMessage: library.quic.host is required when library.transport is "quic"
+
+  - it: fails render on an unknown transport
+    template: deployment.yaml
+    set:
+      library.transport: carrier-pigeon
+    asserts:
+      - failedTemplate:
+          errorMessagePattern: library.transport must be "broker" or "quic"

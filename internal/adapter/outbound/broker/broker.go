@@ -292,7 +292,7 @@ func (m *mcpCaller) entryFor(token string) *pooledEntry {
 
 	// Close evicted sessions outside the pool lock — Close does I/O.
 	for _, c := range toClose {
-		c.Close()
+		_ = c.Close()
 	}
 	return entry
 }
@@ -341,14 +341,14 @@ func (m *mcpCaller) clientOf(ctx context.Context, entry *pooledEntry, token stri
 		return nil, fmt.Errorf("build mcp client: %w", err)
 	}
 	if err := c.Start(ctx); err != nil {
-		c.Close()
+		_ = c.Close()
 		return nil, fmt.Errorf("start mcp client: %w", err)
 	}
 	initReq := mcp.InitializeRequest{}
 	initReq.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
 	initReq.Params.ClientInfo = mcp.Implementation{Name: "demarkus-library", Version: "0.1.0"}
 	if _, err := c.Initialize(ctx, initReq); err != nil {
-		c.Close()
+		_ = c.Close()
 		return nil, err
 	}
 	entry.client = c
@@ -367,7 +367,7 @@ func (m *mcpCaller) invalidate(entry *pooledEntry, failed *mcpclient.Client) {
 	}
 	entry.mu.Unlock()
 	if current {
-		failed.Close()
+		_ = failed.Close()
 	}
 }
 
@@ -385,7 +385,7 @@ func (m *mcpCaller) close() {
 	for _, e := range entries {
 		e.mu.Lock()
 		if e.client != nil {
-			e.client.Close()
+			_ = e.client.Close()
 			e.client = nil
 		}
 		e.mu.Unlock()
