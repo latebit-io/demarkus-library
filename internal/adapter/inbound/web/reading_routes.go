@@ -4,17 +4,21 @@ import "github.com/labstack/echo/v5"
 
 // ReadingRoutes registers the reading-room routes. A document's address is
 // (world, path):
-//   - /                          default world's default document
+//   - /                          the default trail (default world's default doc)
+//   - /t/<trail>                 the trail canvas (ADR 0005; format in trail.go)
 //   - /w/:world/d/<path>         a document, or the stacks when path ends in /
 //   - /w/:world/tags/:tag        lookup-backed tag page (the lateral exit)
 //   - /w/:world/raw/<path>       unrendered source — the protocol escape
 //   - /w/:world/search?q=        the card catalog (LOOKUP) in that world
 //   - /w/:world/versions/<path>  edition history
 //
-// The world-less 1a routes (/d, /search, /versions) 301 to the default
-// world's equivalents so old bookmarks keep working.
+// /w/ routes are the stable single-pane permalinks (and what the margin's
+// escape block points at); /t/ is where reading happens. The world-less 1a
+// routes (/d, /search, /versions) 301 to the default world's equivalents so
+// old bookmarks keep working.
 func ReadingRoutes(e *echo.Echo, handler ReadingHandler, middleware ...echo.MiddlewareFunc) {
 	e.GET("/", handler.Root, middleware...)
+	e.GET("/t/*", handler.Trail, middleware...)
 	e.GET("/w/:world/d/*", handler.Doc, middleware...)
 	e.GET("/w/:world/tags/:tag", handler.TagPage, middleware...)
 	e.GET("/w/:world/raw/*", handler.RawSource, middleware...)

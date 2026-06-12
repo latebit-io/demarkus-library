@@ -132,8 +132,24 @@
     renderMath(root);
   }
 
-  document.addEventListener("DOMContentLoaded", function () { scan(document.body); });
-  // htmx fragment swaps (search results, hx-boost navigation) land after
-  // settle; rescan just the swapped subtree.
-  document.body.addEventListener("htmx:afterSettle", function (e) { scan(e.target); });
+  // --- trail canvas ------------------------------------------------------
+  // The one piece of JS the trail engine needs (ADR 0005): new panes open
+  // at the right edge, so bring the focused pane into view after each
+  // render. htmx's own `show:` modifier is vertical-biased; this is the
+  // pre-agreed snippet. Everything else about the canvas is server state.
+  function showFocusedPane() {
+    var pane = document.querySelector(".pane.focused");
+    if (pane) pane.scrollIntoView({ inline: "nearest", block: "nearest" });
+  }
+
+  document.addEventListener("DOMContentLoaded", function () {
+    scan(document.body);
+    showFocusedPane();
+  });
+  // htmx fragment swaps (hx-boost navigation) land after settle; rescan
+  // just the swapped subtree and re-center the canvas.
+  document.body.addEventListener("htmx:afterSettle", function (e) {
+    scan(e.target);
+    showFocusedPane();
+  });
 })();

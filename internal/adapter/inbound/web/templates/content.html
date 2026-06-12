@@ -1,13 +1,4 @@
-{{define "content"}}{{if .IsDoc}}<div class="doc-pane">
-  <article class="doc-body">
-    <h1>{{ .Title }}</h1>
-    {{ .Content }}
-  </article>
-  <aside class="doc-margin">
-    <!-- The margin holds exactly: status, tags, provenance, properties,
-         the protocol escape, and floated sidenotes (ADR 0005 decision 8).
-         An empty margin is correct. -->
-    <div class="doc-meta">
+{{define "doc-meta"}}<div class="doc-meta">
       <p><span class="status status-{{ .Status }}">{{ .Status }}</span></p>
       {{- if .Tags }}
       <ul class="tags">
@@ -35,7 +26,18 @@
         <a href="/w/{{ .WorldPath }}/raw{{ .Path }}">source</a>
         · <a href="/w/{{ .WorldPath }}/versions{{ .Path }}">editions</a>
       </div>
-    </div>
+</div>{{end}}
+
+{{define "content"}}{{if .IsDoc}}<div class="doc-pane">
+  <article class="doc-body">
+    <h1>{{ .Title }}</h1>
+    {{ .Content }}
+  </article>
+  <aside class="doc-margin">
+    <!-- The margin holds exactly: status, tags, provenance, properties,
+         the protocol escape, and floated sidenotes (ADR 0005 decision 8).
+         An empty margin is correct. -->
+    {{template "doc-meta" .}}
   </aside>
 </div>{{else}}<div class="doc-pane">
   <article class="doc-body">

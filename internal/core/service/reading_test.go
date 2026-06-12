@@ -56,7 +56,7 @@ func (f fakeRenderer) Render(string) (domain.Rendered, error) {
 }
 
 func TestReadRendersAndPopulatesDocument(t *testing.T) {
-	svc := NewReadingService(
+	svc := newTestService(
 		fakeGateway{raw: domain.RawDocument{
 			Source: "world:6309",
 			Path:   "/greeting.md",
@@ -136,7 +136,7 @@ func TestBrowseHistorySearchRouteAndRender(t *testing.T) {
 	}
 	for _, tc := range cases {
 		var called string
-		svc := NewReadingService(fakeGateway{raw: raw, called: &called}, fakeRenderer{html: "<ul></ul>"})
+		svc := newTestService(fakeGateway{raw: raw, called: &called}, fakeRenderer{html: "<ul></ul>"})
 
 		doc, err := tc.call(svc)
 		if err != nil {
@@ -159,7 +159,7 @@ func TestBrowseHistorySearchRouteAndRender(t *testing.T) {
 
 func TestTagFiltersLookup(t *testing.T) {
 	var filter string
-	svc := NewReadingService(fakeGateway{filter: &filter}, fakeRenderer{})
+	svc := newTestService(fakeGateway{filter: &filter}, fakeRenderer{})
 	if _, err := svc.Tag(t.Context(), "soul", "adr"); err != nil {
 		t.Fatalf("Tag: %v", err)
 	}
@@ -170,7 +170,7 @@ func TestTagFiltersLookup(t *testing.T) {
 
 func TestSearchDoesNotFilter(t *testing.T) {
 	var filter string
-	svc := NewReadingService(fakeGateway{filter: &filter}, fakeRenderer{})
+	svc := newTestService(fakeGateway{filter: &filter}, fakeRenderer{})
 	if _, err := svc.Search(t.Context(), "soul", "/", "hex"); err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -186,7 +186,7 @@ func TestRawReturnsUnrenderedSource(t *testing.T) {
 		Body:     "---\nstatus: draft\n---\n# Source",
 		Metadata: map[string]string{"version": "3"},
 	}
-	svc := NewReadingService(fakeGateway{raw: raw}, fakeRenderer{err: errors.New("renderer must not run")})
+	svc := newTestService(fakeGateway{raw: raw}, fakeRenderer{err: errors.New("renderer must not run")})
 	got, err := svc.Raw(t.Context(), "soul", "/x.md")
 	if err != nil {
 		t.Fatalf("Raw: %v", err)
@@ -198,7 +198,7 @@ func TestRawReturnsUnrenderedSource(t *testing.T) {
 
 func TestReadPropagatesGatewayError(t *testing.T) {
 	for _, want := range []error{domain.ErrNotFound, domain.ErrUnauthorized} {
-		svc := NewReadingService(fakeGateway{err: want}, fakeRenderer{})
+		svc := newTestService(fakeGateway{err: want}, fakeRenderer{})
 		if _, err := svc.Read(t.Context(), "soul", "/x.md"); !errors.Is(err, want) {
 			t.Errorf("err = %v, want %v", err, want)
 		}
@@ -207,7 +207,7 @@ func TestReadPropagatesGatewayError(t *testing.T) {
 
 func TestReadPropagatesRenderError(t *testing.T) {
 	boom := errors.New("render boom")
-	svc := NewReadingService(
+	svc := newTestService(
 		fakeGateway{raw: domain.RawDocument{Body: "x"}},
 		fakeRenderer{err: boom},
 	)
@@ -217,7 +217,7 @@ func TestReadPropagatesRenderError(t *testing.T) {
 }
 
 func TestTitleFallsBackToBasename(t *testing.T) {
-	svc := NewReadingService(
+	svc := newTestService(
 		fakeGateway{raw: domain.RawDocument{Path: "/notes/deploy.md"}},
 		fakeRenderer{html: ""},
 	)
@@ -236,5 +236,104 @@ func TestTitleFromMetadataIsTrimmed(t *testing.T) {
 	}
 	if !strings.HasPrefix(titleFor("/a/b/c.md", nil), "c") {
 		t.Errorf("basename fallback broken")
+	}
+}
+
+// newTestService wires the fakes with no cache — cache behavior has its own
+// tests below.
+func newTestService(g fakeGateway, r fakeRenderer) *ReadingService {
+	return NewReadingService(g, r, nil)
+}
+
+// fakeCache records puts and serves scripted hits.
+type fakeCache struct {
+	store map[string]domain.Document
+	puts  []string
+}
+
+func newFakeCache() *fakeCache { return &fakeCache{store: map[string]domain.Document{}} }
+
+func (f *fakeCache) Get(key string) (domain.Document, bool) {
+	doc, ok := f.store[key]
+	return doc, ok
+}
+
+func (f *fakeCache) Put(key string, doc domain.Document) {
+	f.store[key] = doc
+	f.puts = append(f.puts, key)
+}
+
+func TestReadRefreshesCacheAndReadCachedServesIt(t *testing.T) {
+	c := newFakeCache()
+	var called string
+	svc := NewReadingService(
+		fakeGateway{raw: domain.RawDocument{Path: "/x.md", Body: "# x"}, called: &called},
+		fakeRenderer{html: "<h1>x</h1>"}, c)
+
+	// Live read populates the cache (focused-live policy).
+	if _, err := svc.Read(t.Context(), "soul", "/x.md"); err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if len(c.puts) != 1 {
+		t.Fatalf("puts = %v, want exactly the doc key", c.puts)
+	}
+
+	// Cached read is a pure cache hit — no gateway call.
+	called = ""
+	doc, err := svc.ReadCached(t.Context(), "soul", "/x.md")
+	if err != nil {
+		t.Fatalf("ReadCached: %v", err)
+	}
+	if called != "" {
+		t.Errorf("gateway hit on cached read: %s", called)
+	}
+	if doc.HTML != "<h1>x</h1>" {
+		t.Errorf("doc = %+v", doc)
+	}
+
+	// Miss reads through (and re-populates).
+	if _, err := svc.ReadCached(t.Context(), "soul", "/other.md"); err != nil {
+		t.Fatalf("ReadCached miss: %v", err)
+	}
+	if called != "Fetch" {
+		t.Errorf("miss did not read through, called = %q", called)
+	}
+}
+
+func TestTagCachedReadsThroughAndCaches(t *testing.T) {
+	c := newFakeCache()
+	var called string
+	svc := NewReadingService(fakeGateway{raw: domain.RawDocument{Body: "|t|"}, called: &called},
+		fakeRenderer{html: "<table></table>"}, c)
+
+	if _, err := svc.TagCached(t.Context(), "soul", "adr"); err != nil {
+		t.Fatalf("TagCached: %v", err)
+	}
+	if called != "Lookup" {
+		t.Fatalf("called = %q", called)
+	}
+	called = ""
+	if _, err := svc.TagCached(t.Context(), "soul", "adr"); err != nil {
+		t.Fatalf("TagCached hit: %v", err)
+	}
+	if called != "" {
+		t.Errorf("gateway hit on cached tag page: %s", called)
+	}
+}
+
+func TestDocAndTagKeysNeverCollide(t *testing.T) {
+	if docKey("w", "/adr") == tagKey("w", "/adr") {
+		t.Error("doc and tag cache keys collide")
+	}
+}
+
+func TestNilCacheCachedReadsFallThrough(t *testing.T) {
+	var called string
+	svc := newTestService(fakeGateway{raw: domain.RawDocument{Body: "x"}, called: &called}, fakeRenderer{})
+	if _, err := svc.ReadCached(t.Context(), "soul", "/x.md"); err != nil {
+		t.Fatalf("ReadCached: %v", err)
+	}
+	if called != "Fetch" {
+		t.Errorf("nil-cache ReadCached must read live, called = %q", called)
 	}
 }

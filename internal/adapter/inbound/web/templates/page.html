@@ -1,18 +1,17 @@
-{{define "page"}}<!doctype html>
-<html lang="en">
-<head>
+{{define "head"}}<head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ .Title }} — demarkus Library</title>
   <script src="/static/htmx.min.js"></script>
-  <!-- Islands loader (ADR 0003 concessions: mermaid + KaTeX). Tiny; the
-       heavy vendored libs load lazily, only on pages that need them. -->
+  <!-- Islands loader (ADR 0003 concessions: mermaid + KaTeX) + the trail
+       canvas's scroll-focused-pane-into-view snippet. Tiny; the heavy
+       vendored libs load lazily, only on pages that need them. -->
   <script src="/static/islands.js" defer></script>
   <link rel="stylesheet" href="/static/chroma.css">
   <style>
     /* The Tufte pane (ADR 0005, R1): ~60ch reading column + working margin.
        Off-white/off-black; color is reserved for signal (the status badge).
-       The same numbers become the pane unit of the R2 trail engine. */
+       R2 stacks the same pane on the trail canvas. */
     :root {
       color-scheme: light dark;
       --margin-w: 250px;
@@ -112,12 +111,45 @@
     .callout-caution   { border-color: light-dark(#cf222e, #f85149); }
     .callout-caution   .callout-title { color: light-dark(#cf222e, #f85149); }
     .htmx-request#main { opacity: .55; transition: opacity .15s; }
+
+    /* ── The trail canvas (ADR 0005, R2): panes laid out left→right; the
+          canvas scrolls, panes never resize to fit. ──────────────────── */
+    body.canvas-page { max-width: none; padding: 1.5rem 1.5rem 2rem; }
+    main.canvas { display: flex; align-items: flex-start; gap: 1.25rem;
+                  overflow-x: auto; overscroll-behavior-x: contain;
+                  min-height: 85vh; }
+    .pane { flex: 0 0 auto; }
+    .pane.focused { width: calc(60ch + var(--gutter) + var(--margin-w)); }
+    .pane.body { width: 60ch; }
+    .pane.focused .pane-cols { display: grid;
+                  grid-template-columns: minmax(0, 60ch) var(--margin-w);
+                  column-gap: var(--gutter); }
+    /* The margin is an attribute of attention: a body-only parent hides
+       its sidenotes (their float would bleed into the neighboring pane). */
+    .pane.body .sidenote { display: none; }
+    .pane-head { font-family: system-ui, sans-serif; font-size: .72rem;
+                 color: var(--muted); margin-bottom: .8rem;
+                 border-bottom: 1px solid var(--faint); padding-bottom: .35rem; }
+    .pane-head a { color: inherit; text-decoration: none; }
+    .pane.spine { display: flex; flex-direction: column; align-items: center;
+                  gap: .7rem; width: 2.4rem; min-height: 22rem;
+                  padding: .8rem .3rem; border: 1px solid var(--faint);
+                  border-radius: 6px; text-decoration: none; color: var(--muted);
+                  background: transparent; }
+    .pane.spine:hover { border-color: var(--muted); }
+    .pane.spine .spine-title { writing-mode: vertical-rl; font-family: system-ui, sans-serif;
+                  font-size: .8rem; max-height: 15rem; overflow: hidden;
+                  text-overflow: ellipsis; white-space: nowrap; }
+    .pane.spine .status { writing-mode: vertical-rl; font-size: .55rem;
+                  letter-spacing: .06em; padding: .3rem .15rem; }
+    .pane.spine.gone { opacity: .55; border-style: dashed; }
+    /* Active-link highlight: the open links ARE the breadcrumb. */
+    a.active-link { background: var(--faint); border-radius: 3px;
+                    padding: 0 .2rem; text-decoration-thickness: 2px; }
   </style>
-</head>
-<!-- hx-boost: in-app navigation swaps without a full reload; the server still
-     renders every page, so links work with JS off too. -->
-<body hx-boost="true">
-  <nav>
+</head>{{end}}
+
+{{define "nav"}}<nav>
     <a class="brand" href="/">demarkus Library</a>
     <span class="world">{{ .World }}</span>
     {{- if .Authenticated }}
@@ -127,7 +159,15 @@
       <button type="submit" class="signout">sign out</button>
     </form>
     {{- end }}
-  </nav>
+</nav>{{end}}
+
+{{define "page"}}<!doctype html>
+<html lang="en">
+{{template "head" .}}
+<!-- hx-boost: in-app navigation swaps without a full reload; the server still
+     renders every page, so links work with JS off too. -->
+<body hx-boost="true">
+  {{template "nav" .}}
   <main id="main">
     {{ template "content" . }}
   </main>

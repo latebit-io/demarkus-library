@@ -11,44 +11,70 @@ import (
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
 )
 
-// fakeReading scripts the inbound port for handler tests.
+// fakeReading scripts the inbound port for handler tests. called is the
+// last method invoked; calls is every invocation in order with its path or
+// tag ("Read /x.md"). docs maps a path/tag to its scripted document
+// (fallback: doc); errs maps a path/tag to a scripted error.
 type fakeReading struct {
 	doc    domain.Document
+	docs   map[string]domain.Document
+	errs   map[string]error
 	raw    domain.RawDocument
 	err    error
 	called string
+	calls  []string
 	gotTag string
 }
 
-func (f *fakeReading) Read(_ context.Context, _, _ string) (domain.Document, error) {
-	f.called = "Read"
+func (f *fakeReading) record(method, key string) (domain.Document, error) {
+	f.called = method
+	f.calls = append(f.calls, method+" "+key)
+	if err, ok := f.errs[key]; ok {
+		return domain.Document{}, err
+	}
+	if doc, ok := f.docs[key]; ok {
+		return doc, nil
+	}
 	return f.doc, f.err
 }
 
-func (f *fakeReading) Browse(_ context.Context, _, _ string) (domain.Document, error) {
-	f.called = "Browse"
-	return f.doc, f.err
+func (f *fakeReading) Read(_ context.Context, _, path string) (domain.Document, error) {
+	return f.record("Read", path)
 }
 
-func (f *fakeReading) History(_ context.Context, _, _ string) (domain.Document, error) {
-	f.called = "History"
-	return f.doc, f.err
+func (f *fakeReading) Browse(_ context.Context, _, path string) (domain.Document, error) {
+	return f.record("Browse", path)
 }
 
-func (f *fakeReading) Search(_ context.Context, _, _, _ string) (domain.Document, error) {
-	f.called = "Search"
-	return f.doc, f.err
+func (f *fakeReading) History(_ context.Context, _, path string) (domain.Document, error) {
+	return f.record("History", path)
+}
+
+func (f *fakeReading) Search(_ context.Context, _, _, q string) (domain.Document, error) {
+	return f.record("Search", q)
 }
 
 func (f *fakeReading) Tag(_ context.Context, _, tag string) (domain.Document, error) {
-	f.called = "Tag"
 	f.gotTag = tag
-	return f.doc, f.err
+	return f.record("Tag", tag)
 }
 
 func (f *fakeReading) Raw(_ context.Context, _, _ string) (domain.RawDocument, error) {
 	f.called = "Raw"
 	return f.raw, f.err
+}
+
+func (f *fakeReading) ReadCached(_ context.Context, _, path string) (domain.Document, error) {
+	return f.record("ReadCached", path)
+}
+
+func (f *fakeReading) BrowseCached(_ context.Context, _, path string) (domain.Document, error) {
+	return f.record("BrowseCached", path)
+}
+
+func (f *fakeReading) TagCached(_ context.Context, _, tag string) (domain.Document, error) {
+	f.gotTag = tag
+	return f.record("TagCached", tag)
 }
 
 func readingApp(t *testing.T, svc *fakeReading) *echo.Echo {
