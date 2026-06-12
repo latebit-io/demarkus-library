@@ -4,9 +4,9 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/latebit/demarkus-library/internal/core/domain"
-	"github.com/latebit/demarkus/client/fetch"
-	"github.com/latebit/demarkus/protocol"
+	"github.com/latebit-io/demarkus-library/internal/core/domain"
+	"github.com/latebit-io/demarkus/client/fetch"
+	"github.com/latebit-io/demarkus/protocol"
 )
 
 type fakeClient struct {

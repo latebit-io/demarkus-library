@@ -7,8 +7,8 @@ import (
 	"context"
 	"strings"
 
-	"github.com/latebit/demarkus-library/internal/core/domain"
-	"github.com/latebit/demarkus-library/internal/core/port"
+	"github.com/latebit-io/demarkus-library/internal/core/domain"
+	"github.com/latebit-io/demarkus-library/internal/core/port"
 )
 
 // ReadingService implements port.ReadingService over a world gateway and a

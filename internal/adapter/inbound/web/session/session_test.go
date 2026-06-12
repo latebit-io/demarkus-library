@@ -93,7 +93,9 @@ func TestMemoryStoreCRUDAndTTL(t *testing.T) {
 
 	// Sweep drops expired entries in bulk.
 	s2 := Session{ID: "id-2", CreatedAt: clock.now()}
-	store.Save(ctx, s2)
+	if err := store.Save(ctx, s2); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
 	clock.advance(2 * time.Hour)
 	if n := store.Sweep(); n != 1 {
 		t.Errorf("Sweep = %d, want 1", n)

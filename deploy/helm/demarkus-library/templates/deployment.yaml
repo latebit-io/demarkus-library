@@ -1,0 +1,143 @@
+{{- include "demarkus-library.validate" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "demarkus-library.fullname" . }}
+  labels:
+    {{- include "demarkus-library.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  {{- /* Recreate, not RollingUpdate: sessions are in-memory, so during
+         a rolling window two pods would each hold half the sessions
+         behind one Service and readers would flap between logged-in
+         and the login turnstile. A short hard cutover (every reader's
+         next request just re-enters the still-valid broker login flow)
+         is the better failure mode until a shared session store
+         lands. */}}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "demarkus-library.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "demarkus-library.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        {{- /* Config is plain env on the pod spec, so most changes roll
+               the pod via the template hash; the chart-managed Secret
+               is referenced by name only, so its content needs an
+               explicit checksum to trigger a roll. Only rendered in
+               cleartext-secret mode — existingSecretRef rotations are
+               operator-driven (bounce the deployment). */}}
+        {{- if include "demarkus-library.cleartextSecret" . }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        {{- end }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "demarkus-library.serviceAccountName" . }}
+      # The library never talks to the kube-apiserver. Set on the pod —
+      # not only the chart-managed ServiceAccount — so the posture holds
+      # when serviceAccount.create=false binds an existing/default SA.
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: library
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          env:
+            - name: PORT
+              value: {{ .Values.library.port | quote }}
+            - name: DEMARKUS_TRANSPORT
+              value: {{ .Values.library.transport | quote }}
+            - name: DEMARKUS_FEDERATION
+              value: {{ .Values.library.federation | quote }}
+            - name: DEMARKUS_DEFAULT_DOC
+              value: {{ .Values.library.defaultDoc | quote }}
+            {{- /* DEMARKUS_INSECURE governs every direct QUIC dial —
+                   the quic transport's home world and broker-mode
+                   federation link-following alike — so it renders in
+                   both transports. */}}
+            - name: DEMARKUS_INSECURE
+              value: {{ .Values.library.insecure | quote }}
+            {{- if eq .Values.library.transport "broker" }}
+            - name: DEMARKUS_BROKER_URL
+              value: {{ .Values.library.broker.url | quote }}
+            - name: DEMARKUS_CLIENT_ID
+              value: {{ .Values.library.broker.clientID | quote }}
+            - name: DEMARKUS_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  {{- if trim .Values.library.broker.existingSecretRef.name }}
+                  name: {{ .Values.library.broker.existingSecretRef.name | quote }}
+                  key: {{ .Values.library.broker.existingSecretRef.key | quote }}
+                  {{- else }}
+                  name: {{ include "demarkus-library.secretName" . | quote }}
+                  key: clientSecret
+                  {{- end }}
+            - name: DEMARKUS_REDIRECT_URI
+              value: {{ .Values.library.broker.redirectURI | quote }}
+            - name: DEMARKUS_WORLD
+              value: {{ .Values.library.broker.world | quote }}
+            - name: DEMARKUS_SCOPES
+              value: {{ .Values.library.broker.scopes | quote }}
+            - name: DEMARKUS_SESSION_TTL
+              value: {{ .Values.library.broker.sessionTTL | quote }}
+            - name: DEMARKUS_COOKIE_SECURE
+              value: {{ .Values.library.broker.cookieSecure | quote }}
+            {{- else }}
+            - name: DEMARKUS_HOST
+              value: {{ .Values.library.quic.host | quote }}
+            {{- with .Values.library.quic.readToken }}
+            - name: DEMARKUS_AUTH
+              value: {{ . | quote }}
+            {{- end }}
+            {{- end }}
+          ports:
+            - name: http
+              protocol: TCP
+              containerPort: {{ .Values.library.port }}
+          {{- if .Values.probes.enabled }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: {{ .Values.probes.liveness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.liveness.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.liveness.failureThreshold }}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: {{ .Values.probes.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.probes.readiness.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.readiness.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.readiness.failureThreshold }}
+          {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

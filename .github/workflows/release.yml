@@ -1,0 +1,197 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Serialize runs: two pushes landing before the first run tags would both
+# compute the same next version and race at tag creation, dropping the
+# loser's commits from any release. Non-cancelling so every push still
+# gets evaluated in order.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+# Default read-only; only the release job gets write scopes (below).
+permissions:
+  contents: read
+
+jobs:
+  # Gates BOTH artifacts this workflow publishes: the Go module/image
+  # (test/vet/build) and the helm chart (lint + unittest). Without the
+  # chart checks here, a chart-only push could publish a broken chart
+  # regardless of what ci.yml concludes — the two workflows run
+  # independently.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: "1.26"
+      - run: go test ./...
+      - run: go vet ./...
+      - run: go build -o /dev/null ./cmd/demarkus-library
+      - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4
+        with:
+          version: v3.13.2
+      - name: Install helm-unittest
+        run: helm plugin install https://github.com/helm-unittest/helm-unittest --version v0.6.2
+      - name: Lint demarkus-library chart
+        run: helm lint deploy/helm/demarkus-library
+      - name: Unit test demarkus-library chart
+        run: helm unittest deploy/helm/demarkus-library
+
+  semver:
+    needs: test
+    runs-on: ubuntu-latest
+    outputs:
+      new_version: ${{ steps.semver.outputs.version }}
+      should_release: ${{ steps.check.outputs.should_release }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+      - uses: PaulHatch/semantic-version@8d3552d38408b608e90e76237a2a5ac9fe524d04 # v5.3.0
+        id: semver
+        with:
+          tag_prefix: "v"
+          major_pattern: "BREAKING CHANGE:"
+          minor_pattern: "feat:"
+          # Single-module repo: no change_path. The chart and image are
+          # released together at the same version, so every commit —
+          # chart-only included — participates in the bump (see the
+          # demarkus repo's change_path note for the failure mode this
+          # avoids).
+          bump_each_commit: false
+          search_commit_body: true
+      - name: Check if version changed
+        id: check
+        run: |
+          TAG="v${{ steps.semver.outputs.version }}"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "Version: ${{ steps.semver.outputs.version }}, Tag exists: $(git rev-parse --verify "$TAG" 2>/dev/null && echo yes || echo no)"
+
+  release:
+    needs: semver
+    # The ref guard covers workflow_dispatch: without it, a manual run
+    # from a feature branch would tag that branch's HEAD and publish the
+    # image/chart from unmerged code.
+    if: github.ref == 'refs/heads/main' && needs.semver.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    # The only job that publishes: contents:write to create the tag and
+    # the GitHub Release, packages:write to push the image + chart to ghcr.
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: "1.26"
+
+      # The tag must exist before goreleaser runs (it resolves
+      # GORELEASER_CURRENT_TAG against the repo), so tag-then-publish is
+      # the required order; the failure-rollback step at the end of the
+      # job un-tags so a fixed re-run can release the same version
+      # instead of skipping it at the semver tag-exists check.
+      - name: Create tag
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            const tag = 'v${{ needs.semver.outputs.new_version }}';
+            await github.rest.git.createRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: `refs/tags/${tag}`,
+              sha: context.sha
+            });
+            console.log(`Created tag: ${tag}`);
+
+      - name: Fetch tags
+        run: git fetch --tags --force
+
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: goreleaser/goreleaser-action@e435ccd777264be153ace6237001ef4d979d3a7a # v6
+        with:
+          distribution: goreleaser-pro
+          # Bounded range, not `latest` — keeps the binary from drifting
+          # majors while still picking up v2 patch releases.
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GORELEASER_KEY: ${{ secrets.GORELEASER_KEY }}
+          GORELEASER_CURRENT_TAG: "v${{ needs.semver.outputs.new_version }}"
+
+      # Stage pre-built binaries into dist/docker/<arch>/ so the
+      # Dockerfile is COPY-only and buildx skips QEMU compilation
+      # entirely (no Go compile under emulation).
+      - name: Stage binaries for Docker build
+        run: |
+          set -euxo pipefail
+          ls dist/
+          mkdir -p dist/docker/amd64 dist/docker/arm64 dist/docker/armv7
+          cp dist/demarkus-library_linux_amd64*/demarkus-library dist/docker/amd64/
+          cp dist/demarkus-library_linux_arm64*/demarkus-library dist/docker/arm64/
+          cp dist/demarkus-library_linux_arm_7*/demarkus-library dist/docker/armv7/
+
+      # Dockerfile is COPY-only over the staged binaries above. Multi-
+      # arch build under QEMU completes in seconds because no compile
+      # runs under emulation.
+      - name: Build + push demarkus-library image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64,linux/arm64,linux/arm/v7
+          push: true
+          tags: |
+            ghcr.io/latebit-io/demarkus-library:${{ needs.semver.outputs.new_version }}
+            ghcr.io/latebit-io/demarkus-library:latest
+
+      # Chart version + appVersion are pinned 1:1 to the module version
+      # so `helm install ghcr.io/.../charts/demarkus-library --version X`
+      # resolves the image at the same tag. Helm 3.13+ reads
+      # ~/.docker/config.json for OCI auth, which docker/login-action
+      # already wrote.
+      - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4
+        with:
+          version: v3.13.2
+
+      - name: Package + push demarkus-library chart
+        run: |
+          VER="${{ needs.semver.outputs.new_version }}"
+          helm package deploy/helm/demarkus-library --version "$VER" --app-version "$VER" --destination /tmp/charts
+          helm push "/tmp/charts/demarkus-library-${VER}.tgz" oci://ghcr.io/latebit-io/charts
+
+      # If anything after tag creation failed, delete the GitHub Release
+      # (goreleaser may have created it) and the tag, so the version isn't
+      # burned: without this, the next run's tag-exists check would skip
+      # this version forever and the failed commit would never release.
+      # Best-effort `|| true` — the release/tag may not exist depending on
+      # where the job died.
+      - name: Roll back tag on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="v${{ needs.semver.outputs.new_version }}"
+          gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --yes || true
+          git push origin ":refs/tags/$TAG" || true

@@ -1,0 +1,38 @@
+version: 2
+
+project_name: demarkus-library
+
+# Single-module repo — plain v<X> tags, no monorepo block (unlike the
+# demarkus repo's per-directory tag prefixes).
+
+builds:
+  - id: demarkus-library
+    main: ./cmd/demarkus-library
+    binary: demarkus-library
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+      - arm
+    goarm:
+      - "7"
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+
+# `ids` (not the demarkus repo's `builds`) — archives.builds is
+# deprecated as of goreleaser 2.8.
+archives:
+  - id: demarkus-library
+    ids:
+      - demarkus-library
+    name_template: "demarkus-library_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: "demarkus-library_checksums.txt"
+
+changelog:
+  use: github-native

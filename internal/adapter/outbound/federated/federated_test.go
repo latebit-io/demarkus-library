@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/latebit/demarkus-library/internal/core/domain"
+	"github.com/latebit-io/demarkus-library/internal/core/domain"
 )
 
 // fakeGW records which route was taken.

@@ -33,16 +33,16 @@ import (
 
 	"github.com/labstack/echo/v5"
 	"github.com/labstack/echo/v5/middleware"
-	"github.com/latebit/demarkus-library/internal/adapter/inbound/web"
-	"github.com/latebit/demarkus-library/internal/adapter/inbound/web/session"
-	"github.com/latebit/demarkus-library/internal/adapter/outbound/broker"
-	"github.com/latebit/demarkus-library/internal/adapter/outbound/federated"
-	"github.com/latebit/demarkus-library/internal/adapter/outbound/markdown"
-	"github.com/latebit/demarkus-library/internal/adapter/outbound/oauth"
-	"github.com/latebit/demarkus-library/internal/adapter/outbound/world"
-	"github.com/latebit/demarkus-library/internal/core/port"
-	"github.com/latebit/demarkus-library/internal/core/service"
-	"github.com/latebit/demarkus/client/fetch"
+	"github.com/latebit-io/demarkus-library/internal/adapter/inbound/web"
+	"github.com/latebit-io/demarkus-library/internal/adapter/inbound/web/session"
+	"github.com/latebit-io/demarkus-library/internal/adapter/outbound/broker"
+	"github.com/latebit-io/demarkus-library/internal/adapter/outbound/federated"
+	"github.com/latebit-io/demarkus-library/internal/adapter/outbound/markdown"
+	"github.com/latebit-io/demarkus-library/internal/adapter/outbound/oauth"
+	"github.com/latebit-io/demarkus-library/internal/adapter/outbound/world"
+	"github.com/latebit-io/demarkus-library/internal/core/port"
+	"github.com/latebit-io/demarkus-library/internal/core/service"
+	"github.com/latebit-io/demarkus/client/fetch"
 )
 
 // sweepInterval is how often expired sessions and abandoned logins are
@@ -50,11 +50,14 @@ import (
 // sweep just bounds memory.
 const sweepInterval = time.Hour
 
+// version is stamped by goreleaser via -ldflags "-X main.version=...".
+var version = "dev"
+
 func main() {
 	versionFlag := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
 	if *versionFlag {
-		fmt.Println("demarkus-library (phase 1b)")
+		fmt.Println("demarkus-library", version)
 		os.Exit(0)
 	}
 

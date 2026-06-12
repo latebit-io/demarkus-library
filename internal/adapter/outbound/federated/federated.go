@@ -17,9 +17,9 @@ import (
 	"context"
 	"strings"
 
-	"github.com/latebit/demarkus-library/internal/adapter/outbound/world"
-	"github.com/latebit/demarkus-library/internal/core/domain"
-	"github.com/latebit/demarkus-library/internal/core/port"
+	"github.com/latebit-io/demarkus-library/internal/adapter/outbound/world"
+	"github.com/latebit-io/demarkus-library/internal/core/domain"
+	"github.com/latebit-io/demarkus-library/internal/core/port"
 )
 
 // Config wires the composite. Zero-value fields disable that route.

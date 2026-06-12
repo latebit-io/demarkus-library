@@ -23,8 +23,8 @@ import (
 	"strings"
 
 	"github.com/labstack/echo/v5"
-	"github.com/latebit/demarkus-library/internal/core/domain"
-	"github.com/latebit/demarkus-library/internal/core/port"
+	"github.com/latebit-io/demarkus-library/internal/core/domain"
+	"github.com/latebit-io/demarkus-library/internal/core/port"
 )
 
 // ReadingHandler serves rendered demarkus documents, listings, catalog searches,

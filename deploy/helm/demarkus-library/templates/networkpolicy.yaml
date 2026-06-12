@@ -1,0 +1,70 @@
+{{- if .Values.networkPolicy.enabled }}
+{{- /* Default-on NetworkPolicy. The library accepts inbound traffic
+   only from the ingress controller's namespace and emits outbound
+   traffic only to DNS, TCP 443 (the broker's public origin for OAuth +
+   MCP gateway reads), and the QUIC port for direct world dials
+   (quic transport + federation link-following).
+
+   Relies on the automatic `kubernetes.io/metadata.name` namespace
+   label (Kubernetes 1.21+). Older clusters must label the
+   ingress-controller and kube-system namespaces explicitly, or set
+   `networkPolicy.enabled: false` and ship their own policy.
+
+   If your broker is reachable on a port other than 443, or your worlds
+   listen on a QUIC port other than networkPolicy.quicEgressPort,
+   disable this policy and supply your own. */ -}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "demarkus-library.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "demarkus-library.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "demarkus-library.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Values.networkPolicy.ingressFromNamespace | quote }}
+        {{- /* Same-namespace callers stay admitted regardless of the
+               ingress posture — the chart default is ingress.enabled
+               false, and without this selector a default install would
+               be unreachable by every in-cluster consumer outside the
+               ingress-controller namespace. */}}
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.library.port }}
+  egress:
+    # DNS — UDP + TCP to kube-system (CoreDNS / kube-dns).
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # TCP 443 to anywhere — the broker's public https origin (OAuth
+    # token exchange + MCP gateway reads). Intentionally not pinned to
+    # the broker's IPs: they sit behind an Ingress / cloud LB whose
+    # frontends rotate.
+    - ports:
+        - protocol: TCP
+          port: 443
+    # QUIC to anywhere — direct world dials: the quic transport's home
+    # world and broker-mode federation link-following. Federation
+    # follows mark:// links to arbitrary hosts by design, so the
+    # destination cannot be enumerated; the port is the demarkus
+    # default.
+    - ports:
+        - protocol: UDP
+          port: {{ .Values.networkPolicy.quicEgressPort }}
+{{- end }}

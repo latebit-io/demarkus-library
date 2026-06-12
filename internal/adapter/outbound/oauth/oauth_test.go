@@ -44,7 +44,7 @@ func newBrokerStub(t *testing.T) *brokerStub {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /.well-known/oauth-authorization-server", func(w http.ResponseWriter, r *http.Request) {
 		b.discoveryHits.Add(1)
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"issuer":                 b.srv.URL,
 			"authorization_endpoint": b.srv.URL + "/oauth/authorize",
 			"token_endpoint":         b.srv.URL + "/device/token",
@@ -64,10 +64,10 @@ func newBrokerStub(t *testing.T) *brokerStub {
 		resp := b.tokenResponses[min(b.tokenCalls, len(b.tokenResponses)-1)]
 		b.tokenCalls++
 		w.WriteHeader(resp.status)
-		w.Write([]byte(resp.body))
+		_, _ = w.Write([]byte(resp.body))
 	})
 	mux.HandleFunc("POST /token/revoke", func(w http.ResponseWriter, r *http.Request) {
-		r.ParseForm()
+		_ = r.ParseForm()
 		b.lastForm = r.PostForm
 		w.WriteHeader(http.StatusNoContent)
 	})

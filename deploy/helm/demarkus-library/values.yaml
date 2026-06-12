@@ -1,0 +1,213 @@
+# Default values for demarkus-library.
+# Override with --values or --set on `helm install`.
+
+image:
+  # Single-binary image; demarkus-library is ENTRYPOINT. Templates and
+  # static assets are embedded, HTTP /health probe, so nothing else is
+  # bundled.
+  repository: ghcr.io/latebit-io/demarkus-library
+  # tag defaults to .Chart.appVersion when empty
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+# Sessions are in-memory (session.MemoryStore): a reader's opaque session
+# cookie is only valid against the replica that minted it. Until a shared
+# session store (or sticky sessions at the Ingress) ships, more than one
+# replica produces login loops — keep this at 1.
+replicaCount: 1
+
+library:
+  # HTTP listen port inside the pod (PORT). The library speaks plain
+  # HTTP — the Ingress terminates TLS. The native TLS knobs
+  # (DEMARKUS_TLS_CERT/KEY) are a local-dev convenience and deliberately
+  # have no chart surface.
+  port: 8080
+
+  # Outbound world transport (DEMARKUS_TRANSPORT):
+  #   broker — production path (Phase 1b): reads go through the broker's
+  #            MCP gateway with the reader's bearer; the reading room
+  #            sits behind the org-login turnstile.
+  #   quic   — dev/demo path (Phase 0/1a): one world read directly over
+  #            QUIC, no login.
+  transport: broker
+
+  # Follow mark:// links to demarkus servers outside the home world /
+  # knowledge system — anonymous, tokenless QUIC reads of whatever host
+  # the link names (DEMARKUS_FEDERATION). The distributed knowledge
+  # graph working as intended; set false to pin readers to home worlds.
+  federation: true
+
+  # Document served at / (DEMARKUS_DEFAULT_DOC).
+  defaultDoc: /index.md
+
+  # Skip TLS verification on direct QUIC dials (DEMARKUS_INSECURE) —
+  # quic-mode home world and federation targets alike. Defaults true to
+  # match the binary: demarkus worlds commonly run self-signed certs
+  # (cert-manager `selfsigned` issuer, dev worlds) with no shared CA the
+  # library could trust. QUIC still encrypts on the wire. Flip to false
+  # once a shared CA is wired. Same trade-off as the broker chart's
+  # worldDialer.insecureSkipVerify.
+  insecure: true
+
+  # Broker mode (library.transport=broker). The library is a registered
+  # confidential web client at the broker — the matching webClients
+  # entry in the demarkus-broker chart holds the sha256 of clientSecret
+  # and the exact redirectURI.
+  broker:
+    # Broker origin, e.g. https://broker.example.com
+    # (DEMARKUS_BROKER_URL).
+    url: ""
+    # webClients registry entry at the broker (DEMARKUS_CLIENT_ID).
+    clientID: ""
+    # OAuth client secret (DEMARKUS_CLIENT_SECRET). Two modes:
+    #   1. Cleartext via this field — chart bakes it into the
+    #      chart-managed Secret. Easiest install path; the value lives
+    #      in helm release history.
+    #   2. existingSecretRef below — production path. Chart mounts
+    #      DEMARKUS_CLIENT_SECRET into the pod from an externally-
+    #      managed Kubernetes Secret (External Secrets Operator, Sealed
+    #      Secrets, kubectl-created).
+    # Set exactly one; the chart fails template-render if both are set
+    # so the precedence isn't ambiguous to a reader of the values file.
+    clientSecret: ""
+    existingSecretRef:
+      # Name of the operator-managed Secret. Empty disables this mode.
+      name: ""
+      # Data key inside the Secret holding the client secret.
+      key: clientSecret
+    # Public URL of /auth/callback (DEMARKUS_REDIRECT_URI). Must exactly
+    # match a redirect URI registered in the broker's webClients entry —
+    # typically https://<ingress.host>/auth/callback.
+    redirectURI: ""
+    # Home world name for mark://<world>/<path> reads (DEMARKUS_WORLD).
+    world: ""
+    # OAuth scopes, space-separated (DEMARKUS_SCOPES).
+    scopes: mark.read
+    # Absolute session lifetime (DEMARKUS_SESSION_TTL). 30 days — the
+    # broker refreshes the underlying bearer server-side, so this only
+    # bounds how long a reader goes without re-touching the IdP.
+    sessionTTL: 720h
+    # Secure flag on the session cookie (DEMARKUS_COOKIE_SECURE). The
+    # Ingress serves https so this stays true; false only for local /
+    # port-forward dev over plain http.
+    cookieSecure: true
+
+  # Direct-QUIC mode (library.transport=quic). Dev/demo only — no login
+  # turnstile in front of the reading room.
+  quic:
+    # demarkus world host[:port] (DEMARKUS_HOST).
+    host: ""
+    # Read token for private paths (DEMARKUS_AUTH). Cleartext in values
+    # — acceptable because quic mode is a dev/demo posture; production
+    # deployments use the broker transport.
+    readToken: ""
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+# Liveness + readiness use the library's own /health HTTP endpoint
+# (unauthed — registered outside the turnstile).
+probes:
+  enabled: true
+  liveness:
+    initialDelaySeconds: 10
+    periodSeconds: 30
+    timeoutSeconds: 5
+    failureThreshold: 5
+  readiness:
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+networkPolicy:
+  enabled: true
+  # Ingress controller namespace selector — library accepts inbound HTTP
+  # only from pods in this namespace. Override to match your controller
+  # (defaults assume nginx-ingress in namespace `ingress-nginx`).
+  ingressFromNamespace: ingress-nginx
+  # UDP port admitted for outbound QUIC dials (quic transport's home
+  # world + federation link-following). 6309 is the demarkus default;
+  # worlds on non-standard ports need this widened or the policy
+  # disabled in favor of your own.
+  quicEgressPort: 6309
+
+# Default-off: with replicaCount 1 a minAvailable:1 budget would block
+# every node drain. Enable alongside a multi-replica posture once a
+# shared session store lands.
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+
+# Ingress fronts the library's plain-HTTP listener with TLS termination
+# at the controller. The broker's https-only redirect-URI rule means a
+# broker-transport deployment is effectively https-only — terminate TLS
+# here and keep library.broker.cookieSecure true.
+ingress:
+  enabled: false
+  # IngressClass to route through. nginx is the most common managed-k8s
+  # default; override for traefik / haproxy / cloud-specific classes.
+  className: nginx
+  # Public hostname the library is reachable at, e.g.
+  # library.example.com. Required when ingress.enabled is true.
+  host: ""
+  # Controller-specific annotations (e.g. proxy-body-size,
+  # cert-manager.io/cluster-issuer).
+  annotations: {}
+  # Path to expose. Defaults to the whole reading room at /.
+  path: /
+  pathType: Prefix
+  # TLS configuration. Three modes:
+  #   1. existingSecret: reference a pre-existing kubernetes.io/tls
+  #      Secret (cert-manager-managed, externally-provisioned, etc.).
+  #   2. certManager.enabled=true: chart provisions a cert-manager
+  #      Certificate resource that creates the TLS Secret in this
+  #      release's namespace.
+  #   3. neither set: Ingress has no TLS block (controller handles TLS
+  #      termination externally, or the deployment runs without TLS —
+  #      not recommended; broker mode's redirect URI must be https).
+  tls:
+    existingSecret: ""
+    certManager:
+      enabled: false
+      issuerRef:
+        kind: ClusterIssuer
+        name: letsencrypt-prod
+      # Annotations on the Certificate resource.
+      annotations: {}
+
+service:
+  type: ClusterIP
+  annotations: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: ["ALL"]
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+podAnnotations: {}
+podLabels: {}

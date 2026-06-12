@@ -114,7 +114,7 @@ func (c *Client) endpoints(ctx context.Context) (endpoints, error) {
 	if err != nil {
 		return endpoints{}, fmt.Errorf("oauth: fetch discovery: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return endpoints{}, fmt.Errorf("oauth: discovery returned %s", resp.Status)
 	}
@@ -188,7 +188,7 @@ func (c *Client) Revoke(ctx context.Context, refreshToken string) error {
 	if err != nil {
 		return fmt.Errorf("oauth: revoke: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		return fmt.Errorf("oauth: revoke returned %s", resp.Status)
 	}
@@ -214,7 +214,7 @@ func (c *Client) token(ctx context.Context, form url.Values) (TokenSet, error) {
 	if err != nil {
 		return TokenSet{}, fmt.Errorf("oauth: token request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return TokenSet{}, fmt.Errorf("oauth: read token response: %w", err)

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/latebit/demarkus-library/internal/core/domain"
+	"github.com/latebit-io/demarkus-library/internal/core/domain"
 )
 
 // fakeGateway and fakeRenderer stand in for the outbound adapters. When called

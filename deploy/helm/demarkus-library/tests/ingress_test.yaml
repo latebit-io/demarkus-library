@@ -1,0 +1,84 @@
+suite: ingress
+templates:
+  - ingress.yaml
+  - certificate.yaml
+release:
+  namespace: library-ns
+set:
+  library.broker.url: https://broker.example.com
+  library.broker.clientID: library-web
+  library.broker.clientSecret: shh
+  library.broker.redirectURI: https://library.example.com/auth/callback
+  library.broker.world: root
+  ingress.enabled: true
+  ingress.host: library.example.com
+tests:
+  - it: renders an Ingress routing the host to the http port
+    template: ingress.yaml
+    asserts:
+      - isKind:
+          of: Ingress
+      - equal:
+          path: spec.ingressClassName
+          value: nginx
+      - equal:
+          path: spec.rules[0].host
+          value: library.example.com
+      - equal:
+          path: spec.rules[0].http.paths[0].backend.service.port.number
+          value: 8080
+
+  - it: no TLS block when neither TLS mode is set
+    template: ingress.yaml
+    asserts:
+      - notExists:
+          path: spec.tls
+
+  - it: existingSecret mode references the named Secret
+    template: ingress.yaml
+    set:
+      ingress.tls.existingSecret: library-tls-external
+    asserts:
+      - equal:
+          path: spec.tls[0].secretName
+          value: library-tls-external
+      - contains:
+          path: spec.tls[0].hosts
+          content: library.example.com
+
+  - it: certManager mode wires Ingress TLS and the Certificate to the same Secret
+    set:
+      ingress.tls.certManager.enabled: true
+    asserts:
+      - equal:
+          path: spec.tls[0].secretName
+          value: RELEASE-NAME-demarkus-library-tls
+        template: ingress.yaml
+      - isKind:
+          of: Certificate
+        template: certificate.yaml
+      - equal:
+          path: spec.secretName
+          value: RELEASE-NAME-demarkus-library-tls
+        template: certificate.yaml
+      - equal:
+          path: spec.issuerRef.name
+          value: letsencrypt-prod
+        template: certificate.yaml
+
+  - it: fails render when both TLS modes are set
+    template: ingress.yaml
+    set:
+      ingress.tls.existingSecret: library-tls-external
+      ingress.tls.certManager.enabled: true
+    asserts:
+      - failedTemplate:
+          errorMessage: ingress.tls.existingSecret and ingress.tls.certManager.enabled are mutually exclusive; set exactly one
+
+  - it: fails render when enabled without a host
+    template: ingress.yaml
+    set:
+      ingress.host: ""
+    asserts:
+      - failedTemplate:
+          errorMessage: ingress.host is required when ingress.enabled is true
