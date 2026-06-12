@@ -63,6 +63,11 @@ func stripFrontmatter(markdown string) string {
 	for off := 0; off < len(rest); {
 		lineEnd := strings.IndexByte(rest[off:], '\n')
 		if lineEnd < 0 {
+			// Last line has no trailing newline: a closer here means the
+			// document was nothing but frontmatter.
+			if line := strings.TrimSuffix(rest[off:], "\r"); line == "---" || line == "..." {
+				return ""
+			}
 			break // unclosed fence — leave the document alone
 		}
 		line := strings.TrimSuffix(rest[off:off+lineEnd], "\r")

@@ -37,6 +37,8 @@ func TestStripFrontmatter(t *testing.T) {
 		{"no frontmatter untouched", "# Doc\n\n---\n\nmore", "# Doc\n\n---\n\nmore"},
 		{"unclosed fence untouched", "---\ntitle: x\nno closer", "---\ntitle: x\nno closer"},
 		{"content before fence untouched", "intro\n---\nx\n---\n", "intro\n---\nx\n---\n"},
+		{"closer at EOF no newline", "---\ntitle: x\n---", ""},
+		{"closer at EOF crlf no newline", "---\r\ntitle: x\r\n---", ""},
 		{"empty body", "", ""},
 		{"bare fence only", "---\n", "---\n"},
 	}
