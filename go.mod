@@ -4,10 +4,11 @@ go 1.26.4
 
 require (
 	github.com/alecthomas/chroma/v2 v2.14.0
+	github.com/gohugoio/hugo-goldmark-extensions/passthrough v0.5.0
 	github.com/labstack/echo/v5 v5.1.1
 	github.com/mark3labs/mcp-go v0.44.0
 	github.com/microcosm-cc/bluemonday v1.0.27
-	github.com/yuin/goldmark v1.7.13
+	github.com/yuin/goldmark v1.8.2
 	github.com/yuin/goldmark-emoji v1.0.6
 	github.com/yuin/goldmark-highlighting/v2 v2.0.0-20230729083705-37449abec8cc
 	github.com/zmtcreative/gm-alert-callouts v0.8.0

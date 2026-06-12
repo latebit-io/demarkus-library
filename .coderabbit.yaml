@@ -21,6 +21,10 @@ reviews:
   labeling_instructions: []
   path_filters:
     - "!**/bin/**"
+    # Vendored third-party payloads (mermaid, KaTeX dist, htmx) — minified
+    # upstream artifacts, not authored code; SAST (stylelint et al.) noise.
+    - "!internal/adapter/inbound/web/static/vendor/**"
+    - "!internal/adapter/inbound/web/static/*.min.js"
   path_instructions:
     - path: "internal/core/domain/**"
       instructions: >

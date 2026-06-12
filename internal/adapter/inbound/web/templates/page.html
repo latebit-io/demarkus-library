@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ .Title }} — demarkus Library</title>
   <script src="/static/htmx.min.js"></script>
+  <!-- Islands loader (ADR 0003 concessions: mermaid + KaTeX). Tiny; the
+       heavy vendored libs load lazily, only on pages that need them. -->
+  <script src="/static/islands.js" defer></script>
   <link rel="stylesheet" href="/static/chroma.css">
   <style>
     :root { color-scheme: light dark; }
