@@ -1,12 +1,16 @@
 package broker
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -179,10 +183,54 @@ func TestTransportAuthRejection(t *testing.T) {
 	}
 }
 
-// TestEndToEndAgainstMCPServer drives the production mcpCaller against a real
-// mcp-go StreamableHTTPServer — the same server type the broker wraps — with
-// a bearer-checking middleware in front, mirroring gatewayAuth.
-func TestEndToEndAgainstMCPServer(t *testing.T) {
+// mcpTestServer is a real mcp-go StreamableHTTPServer — the same server type
+// the broker wraps — behind a bearer-checking gate mirroring gatewayAuth. It
+// counts initialize requests and can be "restarted" (fresh server-side
+// session state) to exercise the pool's rebuild path.
+type mcpTestServer struct {
+	ts *httptest.Server
+
+	mu          sync.Mutex
+	streamable  *mcpserver.StreamableHTTPServer
+	initializes int
+	failNext    bool // 404 the next tools/call once (simulated session loss)
+}
+
+func newMCPTestServer(t *testing.T) *mcpTestServer {
+	t.Helper()
+	m := &mcpTestServer{}
+	m.restart()
+
+	gate := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer good-token" {
+			w.Header().Set("WWW-Authenticate", `Bearer realm="test"`)
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		body, _ := io.ReadAll(r.Body)
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		m.mu.Lock()
+		if bytes.Contains(body, []byte(`"method":"initialize"`)) {
+			m.initializes++
+		}
+		if m.failNext && bytes.Contains(body, []byte(`"method":"tools/call"`)) {
+			m.failNext = false
+			m.mu.Unlock()
+			http.Error(w, "session not found", http.StatusNotFound)
+			return
+		}
+		streamable := m.streamable
+		m.mu.Unlock()
+		streamable.ServeHTTP(w, r)
+	})
+	m.ts = httptest.NewServer(gate)
+	t.Cleanup(m.ts.Close)
+	return m
+}
+
+// restart swaps in a fresh streamable server: all session ids the client
+// holds become unknown, exactly as after a broker redeploy.
+func (m *mcpTestServer) restart() {
 	srv := mcpserver.NewMCPServer("test-broker", "0.0.1", mcpserver.WithToolCapabilities(false))
 	srv.AddTool(
 		mcp.NewTool("mark_fetch", mcp.WithString("url", mcp.Required())),
@@ -194,33 +242,141 @@ func TestEndToEndAgainstMCPServer(t *testing.T) {
 			return mcp.NewToolResultText("status: ok\ntitle: Soul\n\n# Soul hub"), nil
 		},
 	)
-	streamable := mcpserver.NewStreamableHTTPServer(srv)
+	m.mu.Lock()
+	m.streamable = mcpserver.NewStreamableHTTPServer(srv)
+	m.mu.Unlock()
+}
 
-	gate := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer good-token" {
-			w.Header().Set("WWW-Authenticate", `Bearer realm="test"`)
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		streamable.ServeHTTP(w, r)
-	})
-	ts := httptest.NewServer(gate)
-	defer ts.Close()
+func (m *mcpTestServer) initializeCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.initializes
+}
 
-	// The production gateway: NewGateway points the mcpCaller at /mcp, but
-	// the test server serves MCP at its root — point the caller directly.
-	g := &Gateway{caller: &mcpCaller{mcpURL: ts.URL}, world: "soul"}
-
-	raw, err := g.Fetch(bearer.WithToken(t.Context(), "good-token"), "/index.md")
-	if err != nil {
-		t.Fatalf("Fetch: %v", err)
+// gateway builds the production Gateway against the test server. NewGateway
+// appends /mcp; the test server serves MCP at its root, so wire the caller
+// directly.
+func (m *mcpTestServer) gateway() *Gateway {
+	return &Gateway{
+		caller: &mcpCaller{mcpURL: m.ts.URL, now: time.Now, pool: make(map[string]*pooledEntry)},
+		world:  "soul",
 	}
-	if raw.Body != "# Soul hub" || raw.Metadata["title"] != "Soul" {
-		t.Errorf("raw = %+v", raw)
+}
+
+// TestEndToEndSessionReuse drives the production mcpCaller end to end and
+// pins the pool's reason for existing: N reads, one initialize.
+func TestEndToEndSessionReuse(t *testing.T) {
+	srv := newMCPTestServer(t)
+	g := srv.gateway()
+	defer g.Close()
+	ctx := bearer.WithToken(t.Context(), "good-token")
+
+	for range 5 {
+		raw, err := g.Fetch(ctx, "/index.md")
+		if err != nil {
+			t.Fatalf("Fetch: %v", err)
+		}
+		if raw.Body != "# Soul hub" || raw.Metadata["title"] != "Soul" {
+			t.Fatalf("raw = %+v", raw)
+		}
+	}
+	if n := srv.initializeCount(); n != 1 {
+		t.Errorf("initialize count = %d after 5 reads, want 1 (session reused)", n)
 	}
 
 	// A rejected bearer maps to ErrUnauthorized through the real transport.
 	if _, err := g.Fetch(bearer.WithToken(t.Context(), "bad-token"), "/index.md"); !errors.Is(err, domain.ErrUnauthorized) {
 		t.Errorf("bad bearer: err = %v, want ErrUnauthorized", err)
+	}
+}
+
+// TestEndToEndSessionLost 404s one tools/call mid-stream (the shape of a
+// server-side session loss); the pool must invalidate, rebuild, and retry
+// transparently — the reader sees a successful read, not an error page.
+//
+// Note a plain broker redeploy does NOT invalidate sessions: mcp-go's
+// default session manager validates id format, not existence. This guards
+// the rebuild path for the failures that do occur (LB resets, future
+// stateful session managers).
+func TestEndToEndSessionLost(t *testing.T) {
+	srv := newMCPTestServer(t)
+	g := srv.gateway()
+	defer g.Close()
+	ctx := bearer.WithToken(t.Context(), "good-token")
+
+	if _, err := g.Fetch(ctx, "/index.md"); err != nil {
+		t.Fatalf("first Fetch: %v", err)
+	}
+	srv.mu.Lock()
+	srv.failNext = true
+	srv.mu.Unlock()
+
+	raw, err := g.Fetch(ctx, "/index.md")
+	if err != nil {
+		t.Fatalf("Fetch after session loss: %v", err)
+	}
+	if raw.Body != "# Soul hub" {
+		t.Errorf("raw = %+v", raw)
+	}
+	if n := srv.initializeCount(); n != 2 {
+		t.Errorf("initialize count = %d, want 2 (rebuild after loss)", n)
+	}
+}
+
+// TestEndToEndConcurrentSingleInitialize hammers a cold pool from many
+// goroutines; the entry lock must single-flight the handshake.
+func TestEndToEndConcurrentSingleInitialize(t *testing.T) {
+	srv := newMCPTestServer(t)
+	g := srv.gateway()
+	defer g.Close()
+	ctx := bearer.WithToken(t.Context(), "good-token")
+
+	const readers = 8
+	var wg sync.WaitGroup
+	errs := make([]error, readers)
+	for i := range readers {
+		wg.Go(func() {
+			_, errs[i] = g.Fetch(ctx, "/index.md")
+		})
+	}
+	wg.Wait()
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("reader %d: %v", i, err)
+		}
+	}
+	if n := srv.initializeCount(); n != 1 {
+		t.Errorf("initialize count = %d under %d concurrent readers, want 1", n, readers)
+	}
+}
+
+// TestPoolEviction pins the lazy lifecycle: idle entries vanish after
+// idleTTL, and the cap holds under bearer churn.
+func TestPoolEviction(t *testing.T) {
+	clock := time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC)
+	caller := &mcpCaller{mcpURL: "http://unused.invalid", now: func() time.Time { return clock }, pool: make(map[string]*pooledEntry)}
+
+	caller.entryFor("bearer-a")
+	clock = clock.Add(idleTTL + time.Minute)
+	caller.entryFor("bearer-b") // sweep runs here
+
+	caller.mu.Lock()
+	_, aLives := caller.pool["bearer-a"]
+	size := len(caller.pool)
+	caller.mu.Unlock()
+	if aLives || size != 1 {
+		t.Errorf("idle entry survived: aLives=%v size=%d", aLives, size)
+	}
+
+	// Cap: maxPool fresh bearers, then one more — size must not exceed maxPool.
+	for i := range maxPool {
+		caller.entryFor(fmt.Sprintf("bearer-%d", i))
+	}
+	caller.entryFor("bearer-overflow")
+	caller.mu.Lock()
+	size = len(caller.pool)
+	caller.mu.Unlock()
+	if size > maxPool {
+		t.Errorf("pool size = %d, want <= %d", size, maxPool)
 	}
 }
