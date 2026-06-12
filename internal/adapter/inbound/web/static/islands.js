@@ -31,11 +31,24 @@
   }
   function loadCSS(href) {
     if (!loaded[href]) {
-      var l = document.createElement("link");
-      l.rel = "stylesheet";
-      l.href = href;
-      document.head.appendChild(l);
-      loaded[href] = Promise.resolve();
+      // Same failure-aware caching as loadScript: resolve only when the
+      // stylesheet really loaded, evict on error so a later scan retries
+      // (otherwise KaTeX could render unstyled for the whole session
+      // after one transient fetch failure).
+      loaded[href] = new Promise(function (resolve, reject) {
+        var l = document.createElement("link");
+        l.rel = "stylesheet";
+        l.href = href;
+        l.onload = resolve;
+        l.onerror = function () {
+          l.remove();
+          reject(new Error("failed to load " + href));
+        };
+        document.head.appendChild(l);
+      }).catch(function (err) {
+        delete loaded[href];
+        throw err;
+      });
     }
     return loaded[href];
   }
