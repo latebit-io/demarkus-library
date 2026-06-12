@@ -14,8 +14,17 @@
         var s = document.createElement("script");
         s.src = src;
         s.onload = resolve;
-        s.onerror = reject;
+        s.onerror = function () {
+          s.remove();
+          reject(new Error("failed to load " + src));
+        };
         document.head.appendChild(s);
+      }).catch(function (err) {
+        // Drop the rejected promise from the cache so the next scan
+        // (htmx swap, reload-less retry) attempts the fetch again
+        // instead of being pinned to a transient failure forever.
+        delete loaded[src];
+        throw err;
       });
     }
     return loaded[src];
@@ -55,7 +64,7 @@
         orig.replaceWith(holder);
         targets.push({ holder: holder, orig: orig });
       });
-      window.mermaid
+      return window.mermaid
         .run({ nodes: targets.map(function (t) { return t.holder; }) })
         .catch(function () {
           targets.forEach(function (t) {
@@ -65,6 +74,10 @@
             if (!t.holder.querySelector("svg")) t.holder.replaceWith(t.orig);
           });
         });
+    }).catch(function (err) {
+      // Library failed to load — blocks stay readable source (the
+      // designed degradation); log for debuggability, never throw.
+      console.warn("mermaid island unavailable:", err);
     });
   }
 
@@ -93,6 +106,11 @@
           // Never evaluate \href and friends from org-authored content.
           trust: false,
         });
+      })
+      .catch(function (err) {
+        // Library failed to load — TeX stays readable source (the
+        // designed degradation); log for debuggability, never throw.
+        console.warn("katex island unavailable:", err);
       });
   }
 
