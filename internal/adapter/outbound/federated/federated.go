@@ -77,12 +77,12 @@ func (g *Gateway) Versions(ctx context.Context, w, path string) (domain.RawDocum
 }
 
 // Lookup routes to the world's transport.
-func (g *Gateway) Lookup(ctx context.Context, w, scope, query string) (domain.RawDocument, error) {
+func (g *Gateway) Lookup(ctx context.Context, w, scope, query, filter string) (domain.RawDocument, error) {
 	gw, err := g.route(w)
 	if err != nil {
 		return domain.RawDocument{}, err
 	}
-	return gw.Lookup(ctx, w, scope, query)
+	return gw.Lookup(ctx, w, scope, query, filter)
 }
 
 // route picks the transport for a world identifier. No route → ErrNotFound:

@@ -13,12 +13,13 @@ import (
 	"github.com/alecthomas/chroma/v2"
 	chromahtml "github.com/alecthomas/chroma/v2/formatters/html"
 	"github.com/gohugoio/hugo-goldmark-extensions/passthrough"
+	"github.com/latebit-io/demarkus-library/internal/core/domain"
 	"github.com/latebit-io/demarkus-library/internal/core/port"
 	"github.com/microcosm-cc/bluemonday"
 	"github.com/yuin/goldmark"
-	"github.com/yuin/goldmark/extension"
 	emoji "github.com/yuin/goldmark-emoji"
 	highlighting "github.com/yuin/goldmark-highlighting/v2"
+	"github.com/yuin/goldmark/extension"
 	alertcallouts "github.com/zmtcreative/gm-alert-callouts"
 )
 
@@ -61,6 +62,23 @@ func chromaClassPattern() *regexp.Regexp {
 	atom := "(?:" + strings.Join(names, "|") + ")"
 	return regexp.MustCompile("^" + atom + "(?: " + atom + ")*$")
 }
+
+// sidenoteClasses matches what the sidenote extension emits: the in-text
+// anchor (<sup class="sidenote-number">) and the margin span
+// (<span class="sidenote">). CSS counters pair them — no ids involved.
+var sidenoteClasses = regexp.MustCompile(`^sidenote(?:-number)?$`)
+
+// footnoteClasses / footnoteIDs admit the goldmark footnote fallback for
+// notes that don't become sidenotes (multi-paragraph, or referenced more
+// than once): ref/backref anchors and the foot-of-document list. The id
+// shapes are exactly what the footnote renderer emits (fn:N, fnref:N, and
+// fnref:N:M for later references), so author-controlled ids can't ride in
+// (DOM clobbering stays closed).
+var (
+	footnoteClasses = regexp.MustCompile(`^footnote-(?:ref|backref)$|^footnotes$`)
+	footnoteIDs     = regexp.MustCompile(`^fn(?:ref)?:[0-9]+(?::[0-9]+)?$`)
+	footnoteHrefs   = regexp.MustCompile(`^#fn(?:ref)?:[0-9]+(?::[0-9]+)?$`)
+)
 
 // calloutClasses matches what gm-alert-callouts emits: the wrapper div
 // (`callout callout-<kind>` — kind derives from the author's [!KIND]
@@ -108,9 +126,24 @@ func NewRenderer() *Renderer {
 	// one language class; other unlexed languages don't need a client
 	// hook and stay classless.
 	policy.AllowAttrs("class").Matching(regexp.MustCompile(`^language-mermaid$`)).OnElements("code")
+	// Sidenotes (ADR 0005 decision 8): the margin span and its in-text
+	// anchor, numbered by CSS counters.
+	policy.AllowAttrs("class").Matching(sidenoteClasses).OnElements("span", "sup")
+	// Footnote fallback (notes that don't qualify as sidenotes): goldmark's
+	// ref/backref anchors need fn-shaped ids and fragment hrefs to jump
+	// between text and foot.
+	policy.AllowAttrs("class").Matching(footnoteClasses).OnElements("a", "div")
+	policy.AllowAttrs("id").Matching(footnoteIDs).OnElements("sup", "li")
+	policy.AllowAttrs("href").Matching(footnoteHrefs).OnElements("a")
 	return &Renderer{
 		md: goldmark.New(goldmark.WithExtensions(
 			extension.GFM,
+			// Footnote syntax is the sidenote channel: the sidenotes
+			// extension (below, transformer priority 1000) rewrites
+			// qualifying notes into margin spans after the footnote
+			// transformer (999) has shaped the AST.
+			extension.Footnote,
+			sidenotes{},
 			highlighting.NewHighlighting(
 				highlighting.WithFormatOptions(chromahtml.WithClasses(true)),
 			),
@@ -140,47 +173,18 @@ func NewRenderer() *Renderer {
 // Render renders markdown then sanitizes the result. Sanitize always runs after
 // render — never trust the HTML goldmark emits from untrusted source.
 //
-// A leading YAML frontmatter block is stripped first: demarkus carries
-// metadata out of band, but worlds contain bodies that open with a ---…---
-// metadata fence anyway (publishers that hand-wrote frontmatter, or
-// republished a fetched document verbatim, header included). goldmark would
-// render that fence as garbled text; to a reader it is metadata, not
-// content.
-func (r *Renderer) Render(markdown string) (string, error) {
+// A leading YAML frontmatter fence is split off first (splitFrontmatter) and
+// parsed into display properties rather than rendered as garbled text — the
+// margin shows it friendly (ADR 0005 decision 7) while demarkus's
+// out-of-band metadata stays the authoritative catalog channel.
+func (r *Renderer) Render(markdown string) (domain.Rendered, error) {
+	fence, body := splitFrontmatter(markdown)
 	var buf bytes.Buffer
-	if err := r.md.Convert([]byte(stripFrontmatter(markdown)), &buf); err != nil {
-		return "", err
+	if err := r.md.Convert([]byte(body), &buf); err != nil {
+		return domain.Rendered{}, err
 	}
-	return r.policy.Sanitize(buf.String()), nil
-}
-
-// stripFrontmatter drops a leading YAML frontmatter block: a first line of
-// exactly "---", closed by a line of exactly "---" or "...". Anything that
-// does not match precisely (no opener, no closer, content before the fence)
-// is returned unchanged — a thematic break mid-document is content, and an
-// unclosed fence is safer rendered than silently swallowing the whole body.
-func stripFrontmatter(markdown string) string {
-	rest, ok := strings.CutPrefix(markdown, "---\n")
-	if !ok {
-		if rest, ok = strings.CutPrefix(markdown, "---\r\n"); !ok {
-			return markdown
-		}
-	}
-	for off := 0; off < len(rest); {
-		lineEnd := strings.IndexByte(rest[off:], '\n')
-		if lineEnd < 0 {
-			// Last line has no trailing newline: a closer here means the
-			// document was nothing but frontmatter.
-			if line := strings.TrimSuffix(rest[off:], "\r"); line == "---" || line == "..." {
-				return ""
-			}
-			break // unclosed fence — leave the document alone
-		}
-		line := strings.TrimSuffix(rest[off:off+lineEnd], "\r")
-		if line == "---" || line == "..." {
-			return rest[off+lineEnd+1:]
-		}
-		off += lineEnd + 1
-	}
-	return markdown
+	return domain.Rendered{
+		HTML:       r.policy.Sanitize(buf.String()),
+		Properties: parseFrontmatter(fence),
+	}, nil
 }

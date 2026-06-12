@@ -73,9 +73,9 @@ func TestNormalizeHost(t *testing.T) {
 	cases := []struct{ in, want string }{
 		{"soul.demarkus.io", "soul.demarkus.io:6309"}, // bare host → default port
 		{"host:1234", "host:1234"},                    // explicit port preserved
-		{"2001:db8::1", "[2001:db8::1]:6309"},          // bare IPv6 → bracketed + default port
-		{"[2001:db8::1]:80", "[2001:db8::1]:80"},       // bracketed IPv6 with port preserved
-		{"", ""},                                       // empty unchanged
+		{"2001:db8::1", "[2001:db8::1]:6309"},         // bare IPv6 → bracketed + default port
+		{"[2001:db8::1]:80", "[2001:db8::1]:80"},      // bracketed IPv6 with port preserved
+		{"", ""},                                      // empty unchanged
 	}
 	for _, tc := range cases {
 		if got := NormalizeHost(tc.in); got != tc.want {

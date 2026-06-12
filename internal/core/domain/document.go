@@ -21,11 +21,41 @@ type RawDocument struct {
 	Metadata map[string]string // cataloged metadata (title, tags, importance, ...)
 }
 
+// Property is one parsed body-frontmatter key/value, in source order. The
+// reading room renders these in the margin's document-properties block
+// (ADR 0005 decision 7): the fence is stripped from the body but its content
+// is shown friendly, never raw.
+type Property struct {
+	Key   string
+	Value string
+}
+
+// Rendered is the renderer's output: sanitized HTML plus the properties
+// parsed from the body's leading frontmatter fence, if any.
+type Rendered struct {
+	HTML       string
+	Properties []Property
+}
+
 // Document is a rendered, display-ready document. HTML is already sanitized; the
 // inbound web adapter is responsible for marking it safe for its template.
+//
+// The margin fields carry the trust signals of ADR 0005 decisions 6–8: Status
+// resolved by authority order (metadata status: tag axis, then frontmatter,
+// absent ⇒ draft), Tags from catalog metadata, provenance
+// (Modified/Version/Agent) from response metadata, Properties from parsed
+// frontmatter. Listings and catalog views leave them zero — an empty margin
+// is correct.
 type Document struct {
 	Title  string
 	Source string
 	Path   string
 	HTML   string
+
+	Status     string // status vocabulary: draft | wip | accepted | archived
+	Tags       []string
+	Properties []Property
+	Modified   string
+	Version    string
+	Agent      string
 }

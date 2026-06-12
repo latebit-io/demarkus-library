@@ -67,10 +67,11 @@ func (g *Gateway) Versions(_ context.Context, world, path string) (domain.RawDoc
 	return g.toRawDocument(res, host, path, err)
 }
 
-// Lookup queries the world's catalog for query under scope.
-func (g *Gateway) Lookup(_ context.Context, world, scope, query string) (domain.RawDocument, error) {
+// Lookup queries the world's catalog for query under scope, optionally
+// narrowed by a comma-separated key=value filter (tag pages use tag=<tag>).
+func (g *Gateway) Lookup(_ context.Context, world, scope, query, filter string) (domain.RawDocument, error) {
 	host := NormalizeHost(world)
-	res, err := g.client.Lookup(host, scope, query, g.tokenFor(host), fetch.LookupOptions{})
+	res, err := g.client.Lookup(host, scope, query, g.tokenFor(host), fetch.LookupOptions{Filter: filter})
 	return g.toRawDocument(res, host, scope, err)
 }
 

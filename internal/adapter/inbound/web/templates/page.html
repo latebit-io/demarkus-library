@@ -10,27 +10,94 @@
   <script src="/static/islands.js" defer></script>
   <link rel="stylesheet" href="/static/chroma.css">
   <style>
-    :root { color-scheme: light dark; }
-    body { max-width: 48rem; margin: 0 auto; padding: 1.5rem 1.25rem;
-           font: 16px/1.6 system-ui, sans-serif; }
-    nav { display: flex; gap: 1rem; align-items: center; margin-bottom: 1.5rem;
-          padding-bottom: .75rem; border-bottom: 1px solid #8884; }
-    nav a.brand { font-weight: 600; text-decoration: none; white-space: nowrap; }
-    nav form[role=search] { flex: 1; margin: 0; }
-    nav input[type=search] { width: 100%; padding: .4rem .6rem; border: 1px solid #8886;
-          border-radius: 6px; background: transparent; color: inherit; font: inherit; }
-    nav form:not([role=search]) { margin: 0; }
-    button.signout { font: inherit; font-size: .85rem; padding: .35rem .7rem;
-          border: 1px solid #8886; border-radius: 6px; background: transparent;
+    /* The Tufte pane (ADR 0005, R1): ~60ch reading column + working margin.
+       Off-white/off-black; color is reserved for signal (the status badge).
+       The same numbers become the pane unit of the R2 trail engine. */
+    :root {
+      color-scheme: light dark;
+      --margin-w: 250px;
+      --gutter: 2.5rem;
+      --paper: light-dark(#fffff8, #151515);
+      --ink: light-dark(#111111, #dddddd);
+      --faint: light-dark(#11111120, #dddddd28);
+      --muted: light-dark(#11111199, #dddddd99);
+    }
+    body { margin: 0 auto; padding: 1.5rem 1.25rem 4rem;
+           max-width: calc(60ch + var(--gutter) + var(--margin-w));
+           background: var(--paper); color: var(--ink);
+           font: 17px/1.55 Charter, 'Bitstream Charter', 'Sitka Text', Cambria, Georgia, serif; }
+    nav { display: flex; gap: 1rem; align-items: baseline; margin-bottom: 2rem;
+          padding-bottom: .6rem; border-bottom: 1px solid var(--faint); }
+    nav a.brand { font-weight: 600; text-decoration: none; white-space: nowrap; color: inherit; }
+    nav .world { font-size: .8rem; color: var(--muted); flex: 1; }
+    nav form { margin: 0; }
+    button.signout { font: inherit; font-size: .8rem; padding: .3rem .7rem;
+          border: 1px solid var(--faint); border-radius: 6px; background: transparent;
           color: inherit; cursor: pointer; white-space: nowrap; }
-    button.signout:hover { background: #8881; }
-    header.doc .meta { font-size: .8rem; opacity: .65; }
-    header.doc .meta a { color: inherit; }
-    pre { background: #8881; padding: .75rem; overflow-x: auto; border-radius: 6px; }
+    button.signout:hover { background: var(--faint); }
+
+    /* ── The pane: body column + margin ─────────────────────────────── */
+    .doc-pane { display: grid; grid-template-columns: minmax(0, 60ch) var(--margin-w);
+                column-gap: var(--gutter); }
+    .doc-body { grid-column: 1; counter-reset: sidenote; }
+    .doc-margin { grid-column: 2; font-family: system-ui, sans-serif; }
+    header.doc .meta { font-size: .8rem; color: var(--muted); }
+    header.doc .meta a, .doc-margin a { color: inherit; }
+    h1 { font-size: 1.7rem; font-weight: 500; line-height: 1.2; margin: 0 0 1rem; }
+    h2 { font-size: 1.3rem; font-weight: 500; font-style: italic; margin: 1.8rem 0 .6rem; }
+    h3 { font-size: 1.05rem; font-weight: 600; font-style: italic; margin: 1.4rem 0 .5rem; }
+    a { text-underline-offset: 2px; text-decoration-color: var(--muted); }
+
+    /* ── Pinned metadata block: the trust signals, sticky at margin top.
+          Solid paper background + z-index so floated sidenotes slide under
+          it rather than colliding when it is stuck mid-scroll. ─────── */
+    .doc-meta { position: sticky; top: 1rem; font-size: .75rem; line-height: 1.5;
+                background: var(--paper); z-index: 1;
+                border-top: 2px solid var(--ink); padding-top: .6rem; }
+    .doc-meta > * { margin: 0 0 .7rem; }
+    .status { display: inline-block; font-size: .65rem; font-weight: 650;
+              letter-spacing: .09em; text-transform: uppercase;
+              padding: .25rem .55rem; border: 1px solid var(--muted);
+              border-radius: 4px; color: var(--muted); }
+    .status-wip      { color: light-dark(#9a6700, #d29922); border-color: currentColor; }
+    .status-accepted { color: light-dark(#1a7f37, #3fb950); border-color: currentColor; }
+    .status-archived { color: var(--muted); border-style: dashed; text-decoration: line-through; }
+    ul.tags { list-style: none; padding: 0; display: flex; flex-wrap: wrap; gap: .3rem .6rem; }
+    ul.tags a { color: var(--muted); }
+    .doc-meta dl { display: grid; grid-template-columns: max-content 1fr; gap: .1rem .6rem; }
+    .doc-meta dt { color: var(--muted); }
+    .doc-meta dd { margin: 0; overflow-wrap: anywhere; }
+    .doc-meta .properties { border-top: 1px solid var(--faint); padding-top: .55rem; }
+    .doc-meta .escape { border-top: 1px solid var(--faint); padding-top: .55rem;
+                        color: var(--muted); }
+    .doc-meta .escape code { font-size: .7rem; display: block; overflow-wrap: anywhere;
+                             margin-bottom: .25rem; }
+
+    /* ── Sidenotes: footnote syntax, floated into the margin. CSS counters
+          number the in-text anchor and the note identically. ────────── */
+    .sidenote-number { counter-increment: sidenote; }
+    .sidenote-number::after { content: counter(sidenote); font-size: .75em; }
+    .sidenote { float: right; clear: right; width: var(--margin-w);
+                margin-right: calc(-1 * (var(--margin-w) + var(--gutter)));
+                margin-top: .15rem; margin-bottom: .8rem;
+                font-family: system-ui, sans-serif; font-size: .74rem; line-height: 1.5;
+                color: var(--muted); }
+    .sidenote::before { content: counter(sidenote) " "; font-size: .85em;
+                        vertical-align: super; }
+
+    /* ── Booktabs tables: heavy top/bottom rules, light rule under the
+          header, no verticals, no row rules. ─────────────────────────── */
+    table { border-collapse: collapse; margin: 1.5rem 0; font-size: .92em;
+            border-top: 2px solid var(--ink); border-bottom: 2px solid var(--ink); }
+    thead th { border-bottom: 1px solid var(--ink); }
+    th, td { text-align: left; padding: .35rem .8rem .35rem 0; border: none; }
+
+    pre { background: var(--faint); padding: .75rem; overflow-x: auto; border-radius: 6px;
+          font-size: .82rem; line-height: 1.45; }
     code { font-family: ui-monospace, monospace; }
     /* GFM alerts (markdown adapter emits .callout structure; colors are
        GitHub's palette via light-dark(), tracking color-scheme above). */
-    .callout { border-left: 3px solid #8886; padding: .1rem 1rem; margin: 1rem 0; }
+    .callout { border-left: 3px solid var(--faint); padding: .1rem 1rem; margin: 1rem 0; }
     .callout-title { display: flex; gap: .5rem; align-items: center; font-weight: 600; }
     .callout-title p { margin: .5rem 0; }
     .callout-body > :first-child { margin-top: .25rem; }
@@ -44,9 +111,6 @@
     .callout-warning   .callout-title { color: light-dark(#9a6700, #d29922); }
     .callout-caution   { border-color: light-dark(#cf222e, #f85149); }
     .callout-caution   .callout-title { color: light-dark(#cf222e, #f85149); }
-    table { border-collapse: collapse; }
-    th, td { text-align: left; padding: .3rem .6rem; border-bottom: 1px solid #8883; }
-    a { text-underline-offset: 2px; }
     .htmx-request#main { opacity: .55; transition: opacity .15s; }
   </style>
 </head>
@@ -55,15 +119,7 @@
 <body hx-boost="true">
   <nav>
     <a class="brand" href="/">demarkus Library</a>
-    <!-- The form makes the catalog work without JS: Enter submits GET /search?q=…
-         and the server renders the full page. htmx enhances it with live,
-         debounced, in-place results (ADR 0003: degrade without JS). -->
-    <form action="/w/{{ .WorldPath }}/search" method="get" role="search">
-      <input type="search" name="q" value="{{ .Query }}" placeholder="search {{ .World }}…"
-             aria-label="Search the catalog" autocomplete="off"
-             hx-get="/w/{{ .WorldPath }}/search" hx-trigger="input changed delay:300ms, search"
-             hx-target="#main" hx-push-url="true">
-    </form>
+    <span class="world">{{ .World }}</span>
     {{- if .Authenticated }}
     <!-- Real form, POST: logout is a state change and works without JS.
          hx-boost off so the redirect to /login is a full page load. -->
