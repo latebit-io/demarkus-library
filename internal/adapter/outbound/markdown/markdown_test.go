@@ -62,3 +62,96 @@ func TestRenderStripsFrontmatter(t *testing.T) {
 		t.Errorf("content lost: %s", html)
 	}
 }
+
+func TestRenderHighlightsFencedCode(t *testing.T) {
+	html, err := NewRenderer().Render("```go\nfunc main() {}\n```")
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	// chroma classes-mode markers must survive sanitization: the <pre>
+	// carries class="chroma" and tokens are classed spans (`kd` is the
+	// keyword-declaration class `func` lands in).
+	if !strings.Contains(html, `class="chroma"`) {
+		t.Errorf("chroma pre class missing: %q", html)
+	}
+	if !strings.Contains(html, `<span class="kd">func</span>`) {
+		t.Errorf("classed token spans missing: %q", html)
+	}
+	if strings.Contains(html, "style=") {
+		t.Errorf("inline styles must not appear (classes mode + sanitizer): %q", html)
+	}
+}
+
+func TestRenderUnknownLanguagePlain(t *testing.T) {
+	html, err := NewRenderer().Render("```nosuchlang-xyz\nplain text\n```")
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(html, "plain text") {
+		t.Errorf("code body lost: %q", html)
+	}
+}
+
+func TestRenderStripsNonChromaClasses(t *testing.T) {
+	// Short tokens (nav, btn, foo1) shape-matched the old `[a-z]{1,3}[0-9]?`
+	// pattern but are not chroma class names — the allowlist is built from
+	// chroma.StandardTypes, so they must be stripped, including when mixed
+	// with a legitimate atom (`bg nav`: the whole attribute value must match).
+	for _, class := range []string{"navbar evil-site-class", "nav", "btn", "foo1", "bg nav"} {
+		html, err := NewRenderer().Render(`hi <span class="` + class + `">x</span>`)
+		if err != nil {
+			t.Fatalf("Render(%q): %v", class, err)
+		}
+		if strings.Contains(html, "class=") {
+			t.Errorf("non-chroma class %q survived sanitization: %q", class, html)
+		}
+	}
+}
+
+func TestRenderGFMAlerts(t *testing.T) {
+	html, err := NewRenderer().Render("> [!WARNING]\n> Careful here.")
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	for _, want := range []string{
+		`class="callout callout-warning"`,
+		`class="callout-title"`,
+		`<p class="callout-title-text">Warning</p>`,
+		`class="callout-body"`,
+		"Careful here.",
+		"⚠️",
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("missing %q in %q", want, html)
+		}
+	}
+	if strings.Contains(html, "data-callout") {
+		t.Errorf("data-callout should be stripped by the sanitizer: %q", html)
+	}
+	if strings.Contains(html, "<svg") {
+		t.Errorf("no svg expected with the emoji icon set: %q", html)
+	}
+}
+
+func TestRenderEmojiShortcode(t *testing.T) {
+	html, err := NewRenderer().Render("ship it :rocket:")
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(html, "\U0001F680") && !strings.Contains(html, "&#x1f680;") {
+		t.Errorf("rocket emoji missing: %q", html)
+	}
+}
+
+func TestRenderPlainBlockquoteUntouched(t *testing.T) {
+	html, err := NewRenderer().Render("> just a quote")
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(html, "<blockquote>") {
+		t.Errorf("plain blockquote should stay a blockquote: %q", html)
+	}
+	if strings.Contains(html, "callout") {
+		t.Errorf("plain blockquote must not become an alert: %q", html)
+	}
+}
