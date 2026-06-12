@@ -7,8 +7,10 @@ package markdown
 import (
 	"bytes"
 	"regexp"
+	"sort"
 	"strings"
 
+	"github.com/alecthomas/chroma/v2"
 	chromahtml "github.com/alecthomas/chroma/v2/formatters/html"
 	"github.com/latebit-io/demarkus-library/internal/core/port"
 	"github.com/microcosm-cc/bluemonday"
@@ -28,13 +30,36 @@ type Renderer struct {
 // compile-time check that Renderer satisfies the outbound port.
 var _ port.Renderer = (*Renderer)(nil)
 
-// chromaClasses matches the class attribute values chroma's HTML
-// formatter emits in classes mode: `chroma` on the <pre>, structural
-// classes (`line`, `cl`, line-number variants), and short lowercase
-// token codes (`k`, `nf`, `s2`, `c1`, …). Space-separated combinations
-// allowed. Anything else — site classes, javascript: smuggling via
-// exotic values — is stripped by the sanitizer.
-var chromaClasses = regexp.MustCompile(`^(?:chroma|line|cl|ln|hl|lntable|lntd|lnlinks|[a-z]{1,3}[0-9]?)(?: (?:chroma|line|cl|ln|hl|lntable|lntd|lnlinks|[a-z]{1,3}[0-9]?))*$`)
+// chromaClasses matches exactly the class attribute values chroma's
+// HTML formatter can emit in classes mode. The alternation is built
+// from chroma.StandardTypes — the same table the formatter reads its
+// class names from — so the allowlist is exact by construction: every
+// token code (`k`, `nf`, `s2`, …) and structural class (`chroma`,
+// `line`, `cl`, line-number variants) passes, and nothing else does.
+// A shape-based pattern was rejected in review: `[a-z]{1,3}` also
+// matched author-controlled non-chroma tokens like `nav` and `btn`.
+// Space-separated combinations of allowed atoms are accepted.
+var chromaClasses = chromaClassPattern()
+
+func chromaClassPattern() *regexp.Regexp {
+	names := make([]string, 0, len(chroma.StandardTypes))
+	for _, name := range chroma.StandardTypes {
+		if name != "" {
+			names = append(names, regexp.QuoteMeta(name))
+		}
+	}
+	// Longest-first so alternation can't shadow longer names sharing a
+	// prefix (regexp alternation is leftmost-match); sorted for
+	// determinism.
+	sort.Slice(names, func(i, j int) bool {
+		if len(names[i]) != len(names[j]) {
+			return len(names[i]) > len(names[j])
+		}
+		return names[i] < names[j]
+	})
+	atom := "(?:" + strings.Join(names, "|") + ")"
+	return regexp.MustCompile("^" + atom + "(?: " + atom + ")*$")
+}
 
 // calloutClasses matches what gm-alert-callouts emits: the wrapper div
 // (`callout callout-<kind>` — kind derives from the author's [!KIND]

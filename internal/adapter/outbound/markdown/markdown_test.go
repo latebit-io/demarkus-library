@@ -93,12 +93,18 @@ func TestRenderUnknownLanguagePlain(t *testing.T) {
 }
 
 func TestRenderStripsNonChromaClasses(t *testing.T) {
-	html, err := NewRenderer().Render(`hi <span class="navbar evil-site-class">x</span>`)
-	if err != nil {
-		t.Fatalf("Render: %v", err)
-	}
-	if strings.Contains(html, "navbar") {
-		t.Errorf("non-chroma class survived sanitization: %q", html)
+	// Short tokens (nav, btn, foo1) shape-matched the old `[a-z]{1,3}[0-9]?`
+	// pattern but are not chroma class names — the allowlist is built from
+	// chroma.StandardTypes, so they must be stripped, including when mixed
+	// with a legitimate atom (`bg nav`: the whole attribute value must match).
+	for _, class := range []string{"navbar evil-site-class", "nav", "btn", "foo1", "bg nav"} {
+		html, err := NewRenderer().Render(`hi <span class="` + class + `">x</span>`)
+		if err != nil {
+			t.Fatalf("Render(%q): %v", class, err)
+		}
+		if strings.Contains(html, "class=") {
+			t.Errorf("non-chroma class %q survived sanitization: %q", class, html)
+		}
 	}
 }
 
