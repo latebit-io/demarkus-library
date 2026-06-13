@@ -70,6 +70,28 @@ func TestParseTrailFloorToWorldRootListing(t *testing.T) {
 	}
 }
 
+func TestPaneAddrFromRouteWorldRoot(t *testing.T) {
+	// The trailize pass (/w/ route decode) must agree with parsePaneChunk
+	// (/t/ chunk parse) on the world-root listing, or a doc linking to a
+	// world root renders an un-trailized link.
+	got, frag, ok := paneAddrFromRoute("/w/world-a/d/")
+	if !ok || frag != "" {
+		t.Fatalf("paneAddrFromRoute(/w/world-a/d/) = (_, %q, %v)", frag, ok)
+	}
+	want := paneAddr{Kind: paneDoc, World: "world-a", Value: "/"}
+	if got != want {
+		t.Errorf("got %+v, want %+v", got, want)
+	}
+	// A subdir route still decodes (regression guard for the non-empty case).
+	if a, _, ok := paneAddrFromRoute("/w/world-a/d/plans/"); !ok || a.Value != "/plans/" {
+		t.Errorf("subdir route = %+v ok=%v", a, ok)
+	}
+	// An empty tag route is still rejected.
+	if _, _, ok := paneAddrFromRoute("/w/world-a/tags/"); ok {
+		t.Errorf("empty tag route should be rejected")
+	}
+}
+
 func TestParseTrailRejectsMalformed(t *testing.T) {
 	for _, rest := range []string{
 		"",                   // no panes

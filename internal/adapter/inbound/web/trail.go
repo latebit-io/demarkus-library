@@ -96,29 +96,44 @@ func parsePaneChunk(chunk string) (paneAddr, error) {
 		world = dec
 	}
 	// The "/" after the kind must be present (real chunks are always
-	// "<kind>/<value>"), but value itself may be empty per kind below.
+	// "<kind>/<value>"); paneAddrFromParts owns the per-kind value rules.
 	kind, value, ok := strings.Cut(rest, "/")
 	if !ok {
 		return paneAddr{}, errBadTrail
 	}
+	addr, ok := paneAddrFromParts(world, kind, value)
+	if !ok {
+		return paneAddr{}, errBadTrail
+	}
+	return addr, nil
+}
+
+// paneAddrFromParts builds a pane address from an already-unescaped world, a
+// kind segment, and the raw value segment after it. This is the single
+// source of truth for what a doc vs tag chunk means, shared by both the
+// trail-chunk parser (/t/...) and the route decoder (/w/...) so the two
+// can't drift — they diverged once on the world-root listing, which is the
+// bug this consolidation removes. Returns false for an unknown kind or an
+// invalid tag.
+func paneAddrFromParts(world, kind, value string) (paneAddr, bool) {
 	switch kind {
 	case paneDoc:
-		// An empty value is the world-root listing: chunk "<world>/d/"
-		// means path "/" (the stacks), which the floor's world node and
-		// any link to a world root produce. Value carries the leading
-		// slash back, so "" → "/".
-		return paneAddr{Kind: paneDoc, World: world, Value: "/" + value}, nil
+		// An empty value is the world-root listing: "<world>/d/" means
+		// path "/" (the stacks), which the floor's world node and any link
+		// to a world root produce. Value carries the leading slash, "" → "/".
+		// Doc paths keep raw slashes (no %2F), so they are not unescaped.
+		return paneAddr{Kind: paneDoc, World: world, Value: "/" + value}, true
 	case paneTag:
-		// A tag is a single non-empty segment.
+		// A tag is a single, PathEscape'd, non-empty segment.
 		if value == "" || strings.Contains(value, "/") {
-			return paneAddr{}, errBadTrail
+			return paneAddr{}, false
 		}
 		if dec, err := url.PathUnescape(value); err == nil {
 			value = dec
 		}
-		return paneAddr{Kind: paneTag, World: world, Value: value}, nil
+		return paneAddr{Kind: paneTag, World: world, Value: value}, true
 	default:
-		return paneAddr{}, errBadTrail
+		return paneAddr{}, false
 	}
 }
 
