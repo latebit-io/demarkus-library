@@ -13,7 +13,7 @@ source.
 
 ## Format
 
-```
+```text
 /t/<pane>/~/<pane>/~/<pane>?focus=<i>
 ```
 
@@ -36,7 +36,7 @@ source.
 
 Example — the floor, a tag page, and a document, attention on the tag page:
 
-```
+```text
 /t/u/~/root/tags/adr/~/root/d/adr/0005.md?focus=1
 ```
 
