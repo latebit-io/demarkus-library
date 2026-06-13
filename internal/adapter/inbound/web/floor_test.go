@@ -67,6 +67,37 @@ func TestFloorSVGNodesAndLinks(t *testing.T) {
 	}
 }
 
+func TestFloorSVGEdgesAndPortals(t *testing.T) {
+	floor := domain.Floor{
+		Worlds: []domain.FloorWorld{
+			{World: domain.WorldInfo{Name: "root", URL: "mark://root"}},
+			{World: domain.WorldInfo{Name: "world-a"}},
+			{World: domain.WorldInfo{Name: "wiki.example.org", URL: "mark://wiki.example.org"}, Portal: true},
+		},
+		Edges: []domain.Edge{
+			{From: domain.Ref{World: "root"}, To: domain.Ref{World: "world-a"}},
+			{From: domain.Ref{World: "world-a"}, To: domain.Ref{World: "wiki.example.org"}},
+		},
+	}
+	svg := string(floorSVG(floor, trail{Panes: []paneAddr{{Kind: paneFloor}}, Focus: 0}, 0))
+
+	for _, want := range []string{
+		`class="floor-edge"`,        // world-level edges drawn
+		`class="floor-portal-node"`, // external host as a portal node
+		// Portal click opens that host's root (federation resolves the host).
+		`href="/t/u/~/wiki.example.org/d/"`,
+		"wiki.example.org",
+	} {
+		if !strings.Contains(svg, want) {
+			t.Errorf("floor svg missing %q", want)
+		}
+	}
+	// Two edges → two <line> elements.
+	if n := strings.Count(svg, "floor-edge"); n != 2 {
+		t.Errorf("edge count = %d, want 2", n)
+	}
+}
+
 func TestFloorSVGEscapesContent(t *testing.T) {
 	floor := domain.Floor{Worlds: []domain.FloorWorld{
 		{World: domain.WorldInfo{Name: "w"},

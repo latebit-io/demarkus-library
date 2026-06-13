@@ -57,6 +57,14 @@ type Neighborhood struct {
 	In     []Ref
 }
 
+// Edge is a directed link between two documents in the knowledge graph. The
+// floor renders these between world clusters (and to portal nodes); they come
+// from the durable hub graph export unioned with the R3 observed-links map.
+type Edge struct {
+	From Ref
+	To   Ref
+}
+
 // WorldInfo is one world of the universe: a mark_worlds row in broker mode,
 // or the home world in single-world QUIC mode. URL is the world's public
 // mark:// address and may be empty — Name remains the addressing primitive.
@@ -78,17 +86,26 @@ type FloorDoc struct {
 // top-importance documents, and whether the catalog read failed (an
 // unreachable world still renders — dimmed, satellite-less — rather than
 // hiding; absence would read as nonexistence).
+//
+// Portal marks a world that is not in the authorized set but appears as the
+// far end of an observed/hub edge — an externally-linked host, the extensional
+// universe made visible (ADR 0005 §16, plans addendum). A portal renders as a
+// small rim node with no satellites.
 type FloorWorld struct {
-	World WorldInfo
-	Docs  []FloorDoc
-	Err   bool
+	World  WorldInfo
+	Docs   []FloorDoc
+	Err    bool
+	Portal bool
 }
 
-// Floor is the universe view's data: every visible world cluster (ADR 0005
-// decision 4 — the floor is pane zero). Derived entirely from MCP-readable
-// channels (decision 11): mark_worlds + per-world catalog lookups.
+// Floor is the universe view's data: every visible world cluster plus the
+// edges between them (ADR 0005 decision 4 — the floor is pane zero). Derived
+// entirely from MCP-readable channels (decision 11): mark_worlds + per-world
+// catalog lookups for nodes, the hub graph export ∪ the observed-links map for
+// edges. Edges are world-level: a link from any doc in From to any doc in To.
 type Floor struct {
 	Worlds []FloorWorld
+	Edges  []Edge
 }
 
 // Document is a rendered, display-ready document. HTML is already sanitized; the

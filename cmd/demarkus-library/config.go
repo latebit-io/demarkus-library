@@ -30,6 +30,14 @@ type AppConfig struct {
 	// working as intended; turn it off to pin readers to the home worlds.
 	Federation bool
 
+	// Hub names the world whose published topology documents (the federation
+	// agent's hash index + graph export) are the floor's durable universe map
+	// (decision 11; plans "Floor enrichment"). Empty ⇒ no hub: the floor falls
+	// back to mark_worlds + per-world lookup. In quic mode it defaults to the
+	// home world (the world can be its own hub); in broker mode it is set
+	// explicitly (the cluster's fixed-name `root`).
+	Hub string
+
 	// TLS serves the library itself over HTTPS when both are set. In the
 	// cluster the ingress terminates TLS and these stay empty; locally they
 	// let the broker's https-only redirect rule be satisfied without a
@@ -92,6 +100,7 @@ func NewAppConfig() (*AppConfig, error) {
 		ReadToken:  getEnv("DEMARKUS_AUTH", ""),
 		Insecure:   getEnvAsBool("DEMARKUS_INSECURE", true),
 		DefaultDoc: getEnv("DEMARKUS_DEFAULT_DOC", "/index.md"),
+		Hub:        strings.TrimSpace(getEnv("DEMARKUS_HUB", "")),
 
 		BrokerURL:    getEnv("DEMARKUS_BROKER_URL", ""),
 		ClientID:     getEnv("DEMARKUS_CLIENT_ID", ""),
@@ -109,7 +118,13 @@ func NewAppConfig() (*AppConfig, error) {
 
 	switch cfg.Transport {
 	case TransportQUIC:
-		// Phase 0/1a defaults are complete.
+		// Phase 0/1a defaults are complete. The home world can be its own
+		// hub: default DEMARKUS_HUB to it so a single-world deployment reads
+		// its own published topology (if an agent put one there) without extra
+		// config. An operator points elsewhere by setting DEMARKUS_HUB.
+		if cfg.Hub == "" {
+			cfg.Hub = cfg.Host
+		}
 	case TransportBroker:
 		var missing []string
 		for _, kv := range []struct{ key, val string }{

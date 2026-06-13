@@ -163,6 +163,11 @@
     .floor-system.gone circle { stroke-dasharray: 4 3; opacity: .5; }
     svg.floor a:hover circle { stroke-width: 3; }
     .floor-empty { color: var(--muted); font-style: italic; }
+    /* World-level edges (hub graph ∪ observed map) + portal nodes for
+       externally-linked hosts (the extensional universe). */
+    .floor-edge { stroke: var(--faint); stroke-width: 1.5; }
+    .floor-portal-node { fill: var(--paper); stroke: var(--muted);
+                         stroke-width: 1.5; stroke-dasharray: 3 2; }
 
     /* ── Backlinks: the observed-links map made visible (R3). Last margin
           block; empty ⇒ absent (decision 8). ────────────────────────── */

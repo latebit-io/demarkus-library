@@ -19,6 +19,7 @@ type fakeGateway struct {
 	filter    *string // records the Lookup filter argument
 	worlds    []domain.WorldInfo
 	worldsErr error
+	fetchBody map[string]string // path → body for Fetch (e.g. the hub /graph.md); falls back to raw
 }
 
 func (f fakeGateway) record(name string) {
@@ -27,8 +28,11 @@ func (f fakeGateway) record(name string) {
 	}
 }
 
-func (f fakeGateway) Fetch(context.Context, string, string) (domain.RawDocument, error) {
+func (f fakeGateway) Fetch(_ context.Context, _, path string) (domain.RawDocument, error) {
 	f.record("Fetch")
+	if body, ok := f.fetchBody[path]; ok {
+		return domain.RawDocument{Path: path, Body: body}, nil
+	}
 	return f.raw, f.err
 }
 func (f fakeGateway) List(context.Context, string, string) (domain.RawDocument, error) {
