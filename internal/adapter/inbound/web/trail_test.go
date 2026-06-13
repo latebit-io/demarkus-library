@@ -20,6 +20,8 @@ func TestTrailRoundTrip(t *testing.T) {
 			"/t/root/d/adr/0005-x.md"},
 		{"listing pane (trailing slash)", trail{Panes: []paneAddr{doc("root", "/plans/")}, Focus: 0},
 			"/t/root/d/plans/"},
+		{"world-root listing (path /)", trail{Panes: []paneAddr{doc("world-a", "/")}, Focus: 0},
+			"/t/world-a/d/"},
 		{"multi pane mixed kinds", trail{Panes: []paneAddr{
 			doc("soul.demarkus.io", "/index.md"), tag("root", "adr"), doc("root", "/adr/1.md")}, Focus: 2},
 			"/t/soul.demarkus.io/d/index.md/~/root/tags/adr/~/root/d/adr/1.md"},
@@ -46,6 +48,25 @@ func TestTrailRoundTrip(t *testing.T) {
 				t.Errorf("%s: pane %d = %+v, want %+v", tc.name, i, parsed.Panes[i], tc.trail.Panes[i])
 			}
 		}
+	}
+}
+
+func TestParseTrailFloorToWorldRootListing(t *testing.T) {
+	// Regression: the floor's world node links to the world-root listing,
+	// producing the chunk "<world>/d/" (path "/"). This whole trail must
+	// parse — an empty doc value is a root listing, not malformed.
+	tr, err := parseTrail("u/~/world-a/d/", "")
+	if err != nil {
+		t.Fatalf("parseTrail(floor→world-root): %v", err)
+	}
+	if len(tr.Panes) != 2 {
+		t.Fatalf("panes = %d, want 2", len(tr.Panes))
+	}
+	if tr.Panes[0].Kind != paneFloor {
+		t.Errorf("pane 0 = %+v, want floor", tr.Panes[0])
+	}
+	if tr.Panes[1] != (paneAddr{Kind: paneDoc, World: "world-a", Value: "/"}) {
+		t.Errorf("pane 1 = %+v, want world-a root listing", tr.Panes[1])
 	}
 }
 

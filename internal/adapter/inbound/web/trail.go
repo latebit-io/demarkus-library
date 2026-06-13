@@ -95,15 +95,22 @@ func parsePaneChunk(chunk string) (paneAddr, error) {
 	if dec, err := url.PathUnescape(world); err == nil {
 		world = dec
 	}
+	// The "/" after the kind must be present (real chunks are always
+	// "<kind>/<value>"), but value itself may be empty per kind below.
 	kind, value, ok := strings.Cut(rest, "/")
-	if !ok || value == "" {
+	if !ok {
 		return paneAddr{}, errBadTrail
 	}
 	switch kind {
 	case paneDoc:
+		// An empty value is the world-root listing: chunk "<world>/d/"
+		// means path "/" (the stacks), which the floor's world node and
+		// any link to a world root produce. Value carries the leading
+		// slash back, so "" → "/".
 		return paneAddr{Kind: paneDoc, World: world, Value: "/" + value}, nil
 	case paneTag:
-		if strings.Contains(value, "/") {
+		// A tag is a single non-empty segment.
+		if value == "" || strings.Contains(value, "/") {
 			return paneAddr{}, errBadTrail
 		}
 		if dec, err := url.PathUnescape(value); err == nil {
