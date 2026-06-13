@@ -205,7 +205,7 @@ func (h *ReadingHandler) paneView(t trail, i int, addr paneAddr, doc domain.Docu
 	}
 	// previewize runs on /w/ hrefs (it derives each card's source from them),
 	// then trailizeLinks rewrites those hrefs to post-click trail URLs.
-	vm.Content = template.HTML(trailizeLinks(previewize(content), t, i)) //nolint:gosec // sanitized in the markdown adapter; link passes only edit links
+	vm.Content = template.HTML(trailizeLinks(previewize(content), t, i)) //nolint:gosec // sanitized in the markdown adapter; these passes only rewrite/wrap links, adding no unescaped content
 
 	if focused && addr.Kind == paneDoc && !strings.HasSuffix(addr.Value, "/") {
 		vm.HasMargin = true
