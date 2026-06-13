@@ -66,6 +66,14 @@ spec:
               value: {{ .Values.library.federation | quote }}
             - name: DEMARKUS_DEFAULT_DOC
               value: {{ .Values.library.defaultDoc | quote }}
+            {{- /* DEMARKUS_HUB names the world whose published topology
+                   (the agent's graph export at /graph.md) drives the floor's
+                   durable edges + portal nodes. Transport-agnostic; omitted
+                   when empty (the floor falls back to the observed-links map). */}}
+            {{- with .Values.library.hub }}
+            - name: DEMARKUS_HUB
+              value: {{ . | quote }}
+            {{- end }}
             {{- /* DEMARKUS_INSECURE governs every direct QUIC dial —
                    the quic transport's home world and broker-mode
                    federation link-following alike — so it renders in

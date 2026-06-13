@@ -76,6 +76,26 @@ tests:
             name: DEMARKUS_FEDERATION
             value: "true"
 
+  - it: renders DEMARKUS_HUB when library.hub is set
+    template: deployment.yaml
+    set:
+      library.hub: root
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DEMARKUS_HUB
+            value: "root"
+
+  - it: omits DEMARKUS_HUB when library.hub is empty (default)
+    template: deployment.yaml
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DEMARKUS_HUB
+            value: ""
+
   - it: cleartext clientSecret flows via the chart-managed Secret and rolls the pod on change
     template: deployment.yaml
     asserts:
