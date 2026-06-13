@@ -54,10 +54,10 @@ func (h *ReadingHandler) GraphPage(c *echo.Context) error {
 // floor, the graph carries no margin — its signals are on the nodes.
 func (h *ReadingHandler) graphPaneView(t trail, i int, addr paneAddr) paneVM {
 	mode := "spine"
-	switch {
-	case i == t.Focus:
+	switch i {
+	case t.Focus:
 		mode = "focused"
-	case i == t.Focus-1:
+	case t.Focus - 1:
 		mode = "body"
 	}
 	vm := paneVM{
