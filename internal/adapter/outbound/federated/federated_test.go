@@ -24,6 +24,10 @@ func (f *fakeGW) Lookup(_ context.Context, world, scope, query, filter string) (
 	return domain.RawDocument{Source: f.name}, nil
 }
 
+func (f *fakeGW) Worlds(context.Context) ([]domain.WorldInfo, error) {
+	return []domain.WorldInfo{{Name: f.name}}, nil
+}
+
 func TestRouting(t *testing.T) {
 	names := &fakeGW{name: "names"}
 	hosts := &fakeGW{name: "hosts"}

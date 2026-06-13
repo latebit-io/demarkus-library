@@ -63,6 +63,19 @@ func (h *ReadingHandler) Trail(c *echo.Context) error {
 	}
 	for i, addr := range t.Panes {
 		focused := i == t.Focus
+		if addr.Kind == paneFloor {
+			pane, err := h.floorPaneView(ctx, t, i)
+			if err != nil {
+				if focused {
+					return presentError(c, err, "universe", "/")
+				}
+				vm.Panes[i] = paneVM{Mode: "spine", Kind: paneFloor, Gone: true,
+					FocusURL: trailURL(trailFocused(t, i)), Title: "Universe"}
+				continue
+			}
+			vm.Panes[i] = pane
+			continue
+		}
 		doc, err := h.readPane(ctx, addr, focused)
 		switch {
 		case err != nil && focused:
@@ -86,6 +99,42 @@ func (h *ReadingHandler) Trail(c *echo.Context) error {
 	vm.Title = focusedPane.Title
 	vm.World = focusedPane.World
 	return c.Render(http.StatusOK, "canvas", vm)
+}
+
+// floorPaneView builds the universe pane: floor data (focused-live like
+// every pane), rendered as trail-aware SVG. The floor has no margin — its
+// trust signals are ON the nodes (status strokes, importance sizing).
+func (h *ReadingHandler) floorPaneView(ctx context.Context, t trail, i int) (paneVM, error) {
+	focused := i == t.Focus
+	var floor domain.Floor
+	var err error
+	if focused {
+		floor, err = h.reading.Floor(ctx)
+	} else {
+		floor, err = h.reading.FloorCached(ctx)
+	}
+	if err != nil {
+		return paneVM{}, err
+	}
+
+	mode := "spine"
+	switch {
+	case focused:
+		mode = "focused"
+	case i == t.Focus-1:
+		mode = "body"
+	}
+	vm := paneVM{
+		Mode:     mode,
+		Kind:     paneFloor,
+		FocusURL: trailURL(trailFocused(t, i)),
+		Title:    "Universe",
+		World:    "universe",
+	}
+	if mode != "spine" {
+		vm.Content = floorSVG(floor, t, i)
+	}
+	return vm, nil
 }
 
 // readPane reads one pane address: live for the focused pane, cached for

@@ -83,12 +83,11 @@ type viewOpts struct {
 	catalog bool   // linkify the LOOKUP catalog table's Path column
 }
 
-// Root sends the reader to the default trail: the default world's default
-// document as pane zero. Reading from home builds a trail from the first
-// click (ADR 0005 decision 4 — until the universe view lands, the default
-// doc is the floor).
+// Root sends the reader to the floor: the universe view as pane zero
+// (ADR 0005 decision 4). Reading starts at the map; the first click into a
+// world begins the trail.
 func (h *ReadingHandler) Root(c *echo.Context) error {
-	home := trail{Panes: []paneAddr{{Kind: paneDoc, World: h.defaultWorld, Value: h.defaultDoc}}, Focus: 0}
+	home := trail{Panes: []paneAddr{{Kind: paneFloor}}, Focus: 0}
 	return c.Redirect(http.StatusFound, trailURL(home))
 }
 

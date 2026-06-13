@@ -399,3 +399,35 @@ func TestPoolEviction(t *testing.T) {
 		t.Errorf("pool size = %d, want <= %d", size, maxPool)
 	}
 }
+
+func TestWorldsParsesTable(t *testing.T) {
+	fc := &fakeCaller{text: "status: ok\ncount: 2\n\n| world | url |\n|-------|-----|\n| team-a | mark://team-a.example.org:6309 |\n| hub |  |\n"}
+	g := &Gateway{caller: fc}
+	worlds, err := g.Worlds(authedCtx(t))
+	if err != nil {
+		t.Fatalf("Worlds: %v", err)
+	}
+	if fc.gotTool != "mark_worlds" {
+		t.Errorf("tool = %q", fc.gotTool)
+	}
+	if len(worlds) != 2 || worlds[0] != (domain.WorldInfo{Name: "team-a", URL: "mark://team-a.example.org:6309"}) ||
+		worlds[1] != (domain.WorldInfo{Name: "hub"}) {
+		t.Errorf("worlds = %+v", worlds)
+	}
+}
+
+func TestWorldsNoBearerIsUnauthorized(t *testing.T) {
+	g := &Gateway{caller: &fakeCaller{}}
+	if _, err := g.Worlds(t.Context()); !errors.Is(err, domain.ErrUnauthorized) {
+		t.Errorf("err = %v, want ErrUnauthorized", err)
+	}
+}
+
+func TestWorldsEmptyUniverse(t *testing.T) {
+	fc := &fakeCaller{text: "status: ok\ncount: 0\n"}
+	g := &Gateway{caller: fc}
+	worlds, err := g.Worlds(authedCtx(t))
+	if err != nil || worlds != nil {
+		t.Errorf("got (%v, %v), want (nil, nil)", worlds, err)
+	}
+}

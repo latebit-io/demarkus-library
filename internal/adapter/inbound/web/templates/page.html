@@ -148,6 +148,21 @@
     /* Active-link highlight: the open links ARE the breadcrumb. */
     a.active-link { background: var(--faint); border-radius: 3px;
                     padding: 0 .2rem; text-decoration-thickness: 2px; }
+
+    /* ── The floor: SSR-SVG universe map (pane zero). Trust signals ride
+          the nodes — status as stroke color, importance as radius. ──── */
+    svg.floor { max-width: 100%; height: auto; }
+    svg.floor text { fill: var(--muted); font-family: system-ui, sans-serif; }
+    .floor-world-label { font-size: 15px; font-weight: 600; }
+    .floor-doc-label { font-size: 10.5px; }
+    .floor-world { fill: var(--faint); stroke: var(--muted); stroke-width: 1.5; }
+    .floor-doc { fill: var(--paper); stroke: var(--muted); stroke-width: 1.5; }
+    .floor-doc.status-accepted { stroke: light-dark(#1a7f37, #3fb950); }
+    .floor-doc.status-wip      { stroke: light-dark(#9a6700, #d29922); }
+    .floor-doc.status-archived { stroke-dasharray: 3 2; opacity: .6; }
+    .floor-system.gone circle { stroke-dasharray: 4 3; opacity: .5; }
+    svg.floor a:hover circle { stroke-width: 3; }
+    .floor-empty { color: var(--muted); font-style: italic; }
   </style>
 </head>{{end}}
 

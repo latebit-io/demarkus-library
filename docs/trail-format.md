@@ -21,6 +21,9 @@ source.
   - document: `<world>/d/<path>` — e.g. `soul.demarkus.io/d/adr/0005.md`
   - listing: `<world>/d/<dir>/` (trailing slash) — e.g. `root/d/plans/`
   - tag page: `<world>/tags/<tag>` — e.g. `root/tags/architecture`
+  - the floor: the single segment `u` — the universe view (pane zero), no
+    world part because the floor IS the whole universe. `/` redirects to
+    `/t/u`.
 - **`~`** — the reserved separator: a path segment that is exactly `~`
   between consecutive pane chunks.
 - **`focus`** — 0-based index of the focused pane (full render + margin +

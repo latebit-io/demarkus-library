@@ -85,6 +85,18 @@ func (g *Gateway) Lookup(ctx context.Context, w, scope, query, filter string) (d
 	return gw.Lookup(ctx, w, scope, query, filter)
 }
 
+// Worlds enumerates the universe: the broker's authorization-filtered list
+// when a name resolver is wired, otherwise the QUIC side's home world.
+func (g *Gateway) Worlds(ctx context.Context) ([]domain.WorldInfo, error) {
+	if g.cfg.Names != nil {
+		return g.cfg.Names.Worlds(ctx)
+	}
+	if g.cfg.Hosts != nil {
+		return g.cfg.Hosts.Worlds(ctx)
+	}
+	return nil, nil
+}
+
 // route picks the transport for a world identifier. No route → ErrNotFound:
 // to the reader an unroutable world is indistinguishable from a world with
 // nothing at that path, and the error page already speaks that language.

@@ -13,10 +13,12 @@ import (
 // is non-nil each method records its own name, so tests can assert that a service
 // method routes to the right gateway verb.
 type fakeGateway struct {
-	raw    domain.RawDocument
-	err    error
-	called *string
-	filter *string // records the Lookup filter argument
+	raw       domain.RawDocument
+	err       error
+	called    *string
+	filter    *string // records the Lookup filter argument
+	worlds    []domain.WorldInfo
+	worldsErr error
 }
 
 func (f fakeGateway) record(name string) {
@@ -43,6 +45,10 @@ func (f fakeGateway) Lookup(_ context.Context, _, _, _, filter string) (domain.R
 		*f.filter = filter
 	}
 	return f.raw, f.err
+}
+func (f fakeGateway) Worlds(context.Context) ([]domain.WorldInfo, error) {
+	f.record("Worlds")
+	return f.worlds, f.worldsErr
 }
 
 type fakeRenderer struct {
