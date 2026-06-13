@@ -99,6 +99,55 @@ func (g *Gateway) Versions(ctx context.Context, world, path string) (domain.RawD
 	return g.read(ctx, "mark_versions", world, path, map[string]any{"url": markURL(world, path)})
 }
 
+// Worlds enumerates the knowledge system's worlds through mark_worlds —
+// the authorization-filtered list for the reader's bearer. Parses the
+// tool's markdown table (| world | url |) into WorldInfo rows.
+func (g *Gateway) Worlds(ctx context.Context) ([]domain.WorldInfo, error) {
+	token := bearer.FromContext(ctx)
+	if token == "" {
+		return nil, domain.ErrUnauthorized
+	}
+	text, isToolError, err := g.caller.callTool(ctx, token, "mark_worlds", nil)
+	if err != nil {
+		if errors.Is(err, transport.ErrUnauthorized) {
+			return nil, domain.ErrUnauthorized
+		}
+		return nil, fmt.Errorf("broker: mark_worlds: %w", err)
+	}
+	if isToolError {
+		return nil, mapToolError(text)
+	}
+	return parseWorldsTable(text), nil
+}
+
+// parseWorldsTable extracts WorldInfo rows from mark_worlds' markdown
+// table. Header and separator rows are skipped by shape (first cell
+// "world" or dashes); anything unparseable is dropped rather than failing
+// the universe.
+func parseWorldsTable(text string) []domain.WorldInfo {
+	var out []domain.WorldInfo
+	for line := range strings.SplitSeq(text, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "|") {
+			continue
+		}
+		cells := strings.Split(strings.Trim(line, "|"), "|")
+		if len(cells) < 1 {
+			continue
+		}
+		name := strings.TrimSpace(cells[0])
+		if name == "" || name == "world" || strings.HasPrefix(name, "-") {
+			continue
+		}
+		url := ""
+		if len(cells) > 1 {
+			url = strings.TrimSpace(cells[1])
+		}
+		out = append(out, domain.WorldInfo{Name: name, URL: url})
+	}
+	return out
+}
+
 // Lookup queries the catalog under scope through mark_lookup. A non-empty
 // filter rides along as the tool's comma-separated key=value predicate.
 func (g *Gateway) Lookup(ctx context.Context, world, scope, query, filter string) (domain.RawDocument, error) {

@@ -45,6 +45,13 @@ type ReadingService interface {
 	ReadCached(ctx context.Context, world, path string) (domain.Document, error)
 	BrowseCached(ctx context.Context, world, path string) (domain.Document, error)
 	TagCached(ctx context.Context, world, tag string) (domain.Document, error)
+
+	// Floor assembles the universe view's data (ADR 0005 decision 4):
+	// the authorized worlds and each world's top-importance catalog
+	// entries. Live rebuild; FloorCached serves the last build when the
+	// floor pane is unfocused (the same focused-live policy as documents).
+	Floor(ctx context.Context) (domain.Floor, error)
+	FloorCached(ctx context.Context) (domain.Floor, error)
 }
 
 // WorldGateway is an outbound (driven) port — read from demarkus worlds. The
@@ -59,8 +66,15 @@ type WorldGateway interface {
 	Versions(ctx context.Context, world, path string) (domain.RawDocument, error)
 	// Lookup queries the catalog for query under scope. filter is the
 	// catalog's comma-separated key=value predicate string ("" for none) —
-	// tag pages use tag=<tag>.
+	// tag pages use tag=<tag>. The query "*" is the match-all form (whole
+	// catalog under scope, importance order) on servers ≥ the match-all
+	// release; older servers reject it.
 	Lookup(ctx context.Context, world, scope, query, filter string) (domain.RawDocument, error)
+	// Worlds enumerates the universe this gateway can reach: the broker's
+	// mark_worlds (authorization-filtered) or the single home world over
+	// QUIC. The non-brokered universe is extensional — one world — so an
+	// empty or single-element answer is correct there, not degraded.
+	Worlds(ctx context.Context) ([]domain.WorldInfo, error)
 }
 
 // Renderer is an outbound (driven) port — markdown to sanitized HTML plus

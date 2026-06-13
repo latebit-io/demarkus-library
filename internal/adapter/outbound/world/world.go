@@ -75,6 +75,18 @@ func (g *Gateway) Lookup(_ context.Context, world, scope, query, filter string) 
 	return g.toRawDocument(res, host, scope, err)
 }
 
+// Worlds returns the single-world universe: the home world, when this
+// gateway has one. A homeless gateway (broker-mode federation duty) has no
+// universe of its own — empty, not an error. The non-brokered universe is
+// extensional (the home world plus whatever it links to); enumeration
+// beyond home is discovery's job, not this adapter's.
+func (g *Gateway) Worlds(_ context.Context) ([]domain.WorldInfo, error) {
+	if g.home == "" {
+		return nil, nil
+	}
+	return []domain.WorldInfo{{Name: g.home, URL: "mark://" + g.home}}, nil
+}
+
 // tokenFor scopes the read token to the home host. Any other host in the
 // distributed graph gets an anonymous read — public documents only.
 func (g *Gateway) tokenFor(host string) string {

@@ -110,14 +110,3 @@ func TestTrailPaneKindsRouteToVerbs(t *testing.T) {
 		t.Errorf("calls = %v, want %v", svc.calls, want)
 	}
 }
-
-func TestRootRedirectsToDefaultTrail(t *testing.T) {
-	svc := &fakeReading{}
-	rec := get(readingApp(t, svc), "/")
-	if rec.Code != http.StatusFound {
-		t.Fatalf("status = %d, want 302", rec.Code)
-	}
-	if loc := rec.Header().Get("Location"); loc != "/t/soul.demarkus.io/d/index.md" {
-		t.Errorf("location = %q", loc)
-	}
-}

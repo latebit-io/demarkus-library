@@ -13,7 +13,7 @@ source.
 
 ## Format
 
-```
+```text
 /t/<pane>/~/<pane>/~/<pane>?focus=<i>
 ```
 
@@ -21,6 +21,9 @@ source.
   - document: `<world>/d/<path>` — e.g. `soul.demarkus.io/d/adr/0005.md`
   - listing: `<world>/d/<dir>/` (trailing slash) — e.g. `root/d/plans/`
   - tag page: `<world>/tags/<tag>` — e.g. `root/tags/architecture`
+  - the floor: the single segment `u` — the universe view (pane zero), no
+    world part because the floor IS the whole universe. `/` redirects to
+    `/t/u`.
 - **`~`** — the reserved separator: a path segment that is exactly `~`
   between consecutive pane chunks.
 - **`focus`** — 0-based index of the focused pane (full render + margin +
@@ -31,10 +34,10 @@ source.
 - **Depth cap: 10 panes.** URLs with more are rejected (400). When a click
   would push past the cap, the room drops the oldest pane.
 
-Example — three panes, attention on the middle one:
+Example — the floor, a tag page, and a document, attention on the tag page:
 
-```
-/t/root/d/index.md/~/root/tags/adr/~/root/d/adr/0005.md?focus=1
+```text
+/t/u/~/root/tags/adr/~/root/d/adr/0005.md?focus=1
 ```
 
 ## Semantics (what the room guarantees)
@@ -47,6 +50,9 @@ Example — three panes, attention on the middle one:
 - Every link the room renders already carries its post-click trail URL, so
   fetching a trail page and following hrefs is itself a valid way for an
   agent to walk the space of next states.
+- The floor pane renders the same data an agent reads via `mark_worlds`
+  plus per-world `mark_lookup` with the match-all query `*` (importance
+  order) — the projection adds layout, never information.
 
 ## Minting (agent → human)
 
@@ -56,13 +62,15 @@ Concatenate route tails with `/~/`, set `focus` if not last. Rules:
   pane renders as a tombstone, the trail survives; an unreadable focused
   pane is the page's error).
 - Order IS the argument: pane 0 is where the reasoning starts, focus is
-  where you want the reader's attention to land.
+  where you want the reader's attention to land. Starting at `u` hands the
+  reader the map before the path.
 - Don't percent-encode slashes; do percent-encode characters that are not
   valid in a URL path segment.
 
 ## Parsing (human → agent)
 
 Split the path after `/t/` on `/~/`; each chunk is `<world>/<kind>/<value>`
-where kind `d` ⇒ document path `/<value>`, kind `tags` ⇒ tag page. Read the
-documents over mark:// (`mark://<world>/<path>`) in order — that ordered
-list, plus the focus index, is the reader's current context.
+(kind `d` ⇒ document path `/<value>`, kind `tags` ⇒ tag page) or the bare
+`u` floor chunk (a single token, no world/kind/value — the universe view).
+Read the documents over mark:// (`mark://<world>/<path>`) in order — that
+ordered list, plus the focus index, is the reader's current context.

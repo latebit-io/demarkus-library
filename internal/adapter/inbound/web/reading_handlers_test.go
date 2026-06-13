@@ -16,14 +16,16 @@ import (
 // tag ("Read /x.md"). docs maps a path/tag to its scripted document
 // (fallback: doc); errs maps a path/tag to a scripted error.
 type fakeReading struct {
-	doc    domain.Document
-	docs   map[string]domain.Document
-	errs   map[string]error
-	raw    domain.RawDocument
-	err    error
-	called string
-	calls  []string
-	gotTag string
+	doc      domain.Document
+	docs     map[string]domain.Document
+	errs     map[string]error
+	raw      domain.RawDocument
+	err      error
+	floor    domain.Floor
+	floorErr error
+	called   string
+	calls    []string
+	gotTag   string
 }
 
 func (f *fakeReading) record(method, key string) (domain.Document, error) {
@@ -75,6 +77,18 @@ func (f *fakeReading) BrowseCached(_ context.Context, _, path string) (domain.Do
 func (f *fakeReading) TagCached(_ context.Context, _, tag string) (domain.Document, error) {
 	f.gotTag = tag
 	return f.record("TagCached", tag)
+}
+
+func (f *fakeReading) Floor(context.Context) (domain.Floor, error) {
+	f.called = "Floor"
+	f.calls = append(f.calls, "Floor")
+	return f.floor, f.floorErr
+}
+
+func (f *fakeReading) FloorCached(context.Context) (domain.Floor, error) {
+	f.called = "FloorCached"
+	f.calls = append(f.calls, "FloorCached")
+	return f.floor, f.floorErr
 }
 
 func readingApp(t *testing.T, svc *fakeReading) *echo.Echo {

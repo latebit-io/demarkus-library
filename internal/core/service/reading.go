@@ -19,6 +19,7 @@ type ReadingService struct {
 	world    port.WorldGateway
 	renderer port.Renderer
 	cache    port.DocumentCache
+	floor    floorCache
 }
 
 // compile-time check that ReadingService satisfies the inbound port.

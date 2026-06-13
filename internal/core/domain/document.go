@@ -37,6 +37,40 @@ type Rendered struct {
 	Properties []Property
 }
 
+// WorldInfo is one world of the universe: a mark_worlds row in broker mode,
+// or the home world in single-world QUIC mode. URL is the world's public
+// mark:// address and may be empty — Name remains the addressing primitive.
+type WorldInfo struct {
+	Name string
+	URL  string
+}
+
+// FloorDoc is one catalogued document rendered on the floor: a world's
+// satellite, weighted by catalog importance, badged by status.
+type FloorDoc struct {
+	Path       string
+	Title      string
+	Importance float64
+	Status     string
+}
+
+// FloorWorld is one world's cluster on the floor: its identity, its
+// top-importance documents, and whether the catalog read failed (an
+// unreachable world still renders — dimmed, satellite-less — rather than
+// hiding; absence would read as nonexistence).
+type FloorWorld struct {
+	World WorldInfo
+	Docs  []FloorDoc
+	Err   bool
+}
+
+// Floor is the universe view's data: every visible world cluster (ADR 0005
+// decision 4 — the floor is pane zero). Derived entirely from MCP-readable
+// channels (decision 11): mark_worlds + per-world catalog lookups.
+type Floor struct {
+	Worlds []FloorWorld
+}
+
 // Document is a rendered, display-ready document. HTML is already sanitized; the
 // inbound web adapter is responsible for marking it safe for its template.
 //
