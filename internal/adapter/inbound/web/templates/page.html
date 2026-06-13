@@ -3,9 +3,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ .Title }} — demarkus Library</title>
   <script src="/static/htmx.min.js"></script>
-  <!-- Islands loader (ADR 0003 concessions: mermaid + KaTeX) + the trail
-       canvas's scroll-focused-pane-into-view snippet. Tiny; the heavy
-       vendored libs load lazily, only on pages that need them. -->
+  <!-- Islands loader — every scripted concession in one file: mermaid +
+       KaTeX (ADR 0003) and the trail canvas's scroll-focused-pane-into-view
+       snippet (pre-agreed in ADR 0005's consequences as the trail engine's
+       only new JS). Tiny; the heavy vendored libs load lazily, only on
+       pages that need them. -->
   <script src="/static/islands.js" defer></script>
   <link rel="stylesheet" href="/static/chroma.css">
   <style>
