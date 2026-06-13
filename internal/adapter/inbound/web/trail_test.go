@@ -20,6 +20,8 @@ func TestTrailRoundTrip(t *testing.T) {
 			"/t/root/d/adr/0005-x.md"},
 		{"listing pane (trailing slash)", trail{Panes: []paneAddr{doc("root", "/plans/")}, Focus: 0},
 			"/t/root/d/plans/"},
+		{"world-root listing (path /)", trail{Panes: []paneAddr{doc("world-a", "/")}, Focus: 0},
+			"/t/world-a/d/"},
 		{"multi pane mixed kinds", trail{Panes: []paneAddr{
 			doc("soul.demarkus.io", "/index.md"), tag("root", "adr"), doc("root", "/adr/1.md")}, Focus: 2},
 			"/t/soul.demarkus.io/d/index.md/~/root/tags/adr/~/root/d/adr/1.md"},
@@ -46,6 +48,65 @@ func TestTrailRoundTrip(t *testing.T) {
 				t.Errorf("%s: pane %d = %+v, want %+v", tc.name, i, parsed.Panes[i], tc.trail.Panes[i])
 			}
 		}
+	}
+}
+
+func TestParseTrailFloorToWorldRootListing(t *testing.T) {
+	// Regression: the floor's world node links to the world-root listing,
+	// producing the chunk "<world>/d/" (path "/"). This whole trail must
+	// parse — an empty doc value is a root listing, not malformed.
+	tr, err := parseTrail("u/~/world-a/d/", "")
+	if err != nil {
+		t.Fatalf("parseTrail(floor→world-root): %v", err)
+	}
+	if len(tr.Panes) != 2 {
+		t.Fatalf("panes = %d, want 2", len(tr.Panes))
+	}
+	if tr.Panes[0].Kind != paneFloor {
+		t.Errorf("pane 0 = %+v, want floor", tr.Panes[0])
+	}
+	if tr.Panes[1] != (paneAddr{Kind: paneDoc, World: "world-a", Value: "/"}) {
+		t.Errorf("pane 1 = %+v, want world-a root listing", tr.Panes[1])
+	}
+}
+
+func TestPaneAddrFromRouteWorldRoot(t *testing.T) {
+	// The trailize pass (/w/ route decode) must agree with parsePaneChunk
+	// (/t/ chunk parse) on the world-root listing, or a doc linking to a
+	// world root renders an un-trailized link.
+	got, frag, ok := paneAddrFromRoute("/w/world-a/d/")
+	if !ok || frag != "" {
+		t.Fatalf("paneAddrFromRoute(/w/world-a/d/) = (_, %q, %v)", frag, ok)
+	}
+	want := paneAddr{Kind: paneDoc, World: "world-a", Value: "/"}
+	if got != want {
+		t.Errorf("got %+v, want %+v", got, want)
+	}
+	// A subdir route still decodes (regression guard for the non-empty case).
+	if a, _, ok := paneAddrFromRoute("/w/world-a/d/plans/"); !ok || a.Value != "/plans/" {
+		t.Errorf("subdir route = %+v ok=%v", a, ok)
+	}
+	// An empty tag route is still rejected.
+	if _, _, ok := paneAddrFromRoute("/w/world-a/tags/"); ok {
+		t.Errorf("empty tag route should be rejected")
+	}
+}
+
+func TestTagSlashRejectedAfterUnescape(t *testing.T) {
+	// A raw "foo%2Fbar" has no literal slash but unescapes to "foo/bar" —
+	// it must be rejected as a multi-segment tag by BOTH decoders, not
+	// silently accepted because the check ran before unescaping.
+	if _, err := parseTrail("root/tags/foo%2Fbar", ""); err == nil {
+		t.Errorf("chunk parser accepted escaped-slash tag")
+	}
+	if _, _, ok := paneAddrFromRoute("/w/root/tags/foo%2Fbar"); ok {
+		t.Errorf("route decoder accepted escaped-slash tag")
+	}
+	// A legitimately escaped tag (no slash) still decodes — e.g. the axis
+	// colon in "category:reference".
+	a, err := parseTrail("root/tags/category%3Areference", "")
+	if err != nil || a.Panes[0] != (paneAddr{Kind: paneTag, World: "root", Value: "category:reference"}) {
+		t.Errorf("escaped non-slash tag = %+v, err=%v", a.Panes, err)
 	}
 }
 

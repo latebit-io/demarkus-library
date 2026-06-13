@@ -79,24 +79,17 @@ func paneAddrFromRoute(href string) (paneAddr, string, bool) {
 	if dec, err := url.PathUnescape(world); err == nil {
 		world = dec
 	}
+	// Same per-kind value rules as the /t/ chunk parser — shared via
+	// paneAddrFromParts so the two decoders stay in lockstep.
 	kind, value, ok := strings.Cut(tail, "/")
-	if !ok || value == "" {
+	if !ok {
 		return paneAddr{}, "", false
 	}
-	switch kind {
-	case paneDoc:
-		return paneAddr{Kind: paneDoc, World: world, Value: "/" + value}, u.Fragment, true
-	case paneTag:
-		if strings.Contains(value, "/") {
-			return paneAddr{}, "", false
-		}
-		if dec, err := url.PathUnescape(value); err == nil {
-			value = dec
-		}
-		return paneAddr{Kind: paneTag, World: world, Value: value}, u.Fragment, true
-	default:
+	addr, ok := paneAddrFromParts(world, kind, value)
+	if !ok {
 		return paneAddr{}, "", false
 	}
+	return addr, u.Fragment, true
 }
 
 // setClass appends a class to the anchor (post-sanitizer injection — this
