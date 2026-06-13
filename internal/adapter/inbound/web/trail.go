@@ -124,12 +124,15 @@ func paneAddrFromParts(world, kind, value string) (paneAddr, bool) {
 		// Doc paths keep raw slashes (no %2F), so they are not unescaped.
 		return paneAddr{Kind: paneDoc, World: world, Value: "/" + value}, true
 	case paneTag:
-		// A tag is a single, PathEscape'd, non-empty segment.
-		if value == "" || strings.Contains(value, "/") {
-			return paneAddr{}, false
-		}
+		// A tag is a single, PathEscape'd, non-empty segment. Validate the
+		// DECODED value: a raw "foo%2Fbar" has no literal slash but unescapes
+		// to "foo/bar", which would break the single-segment invariant — so
+		// the empty/slash checks must run after unescaping.
 		if dec, err := url.PathUnescape(value); err == nil {
 			value = dec
+		}
+		if value == "" || strings.Contains(value, "/") {
+			return paneAddr{}, false
 		}
 		return paneAddr{Kind: paneTag, World: world, Value: value}, true
 	default:

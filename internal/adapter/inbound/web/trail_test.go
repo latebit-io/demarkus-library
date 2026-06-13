@@ -92,6 +92,24 @@ func TestPaneAddrFromRouteWorldRoot(t *testing.T) {
 	}
 }
 
+func TestTagSlashRejectedAfterUnescape(t *testing.T) {
+	// A raw "foo%2Fbar" has no literal slash but unescapes to "foo/bar" —
+	// it must be rejected as a multi-segment tag by BOTH decoders, not
+	// silently accepted because the check ran before unescaping.
+	if _, err := parseTrail("root/tags/foo%2Fbar", ""); err == nil {
+		t.Errorf("chunk parser accepted escaped-slash tag")
+	}
+	if _, _, ok := paneAddrFromRoute("/w/root/tags/foo%2Fbar"); ok {
+		t.Errorf("route decoder accepted escaped-slash tag")
+	}
+	// A legitimately escaped tag (no slash) still decodes — e.g. the axis
+	// colon in "category:reference".
+	a, err := parseTrail("root/tags/category%3Areference", "")
+	if err != nil || a.Panes[0] != (paneAddr{Kind: paneTag, World: "root", Value: "category:reference"}) {
+		t.Errorf("escaped non-slash tag = %+v, err=%v", a.Panes, err)
+	}
+}
+
 func TestParseTrailRejectsMalformed(t *testing.T) {
 	for _, rest := range []string{
 		"",                   // no panes
