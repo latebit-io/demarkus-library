@@ -37,6 +37,26 @@ type Rendered struct {
 	Properties []Property
 }
 
+// Ref is a knowledge-graph coordinate: a document addressed by (world, path).
+// It is comparable, so it serves as a map key in the link graph. Edges are
+// observed at render time (rewriteLinks already resolves every link to its
+// target world+path), giving backlinks and the graph pane a transport-
+// symmetric source with no broker dependency (R3 decision; ADR 0005 §16).
+type Ref struct {
+	World string
+	Path  string
+}
+
+// Neighborhood is the graph pane's data (ADR 0005 decision 4): one document
+// and its observed edges — Out are documents Center links to, In are
+// documents that link to Center. Derived from the render-time observed-links
+// map, so a never-rendered neighbor is simply absent (honest cold state).
+type Neighborhood struct {
+	Center Ref
+	Out    []Ref
+	In     []Ref
+}
+
 // WorldInfo is one world of the universe: a mark_worlds row in broker mode,
 // or the home world in single-world QUIC mode. URL is the world's public
 // mark:// address and may be empty — Name remains the addressing primitive.

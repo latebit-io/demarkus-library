@@ -63,9 +63,10 @@ func TestTrailLinksCarryPostClickState(t *testing.T) {
 	body := get(readingApp(t, svc), "/t/w.io/d/a.md/~/w.io/d/b.md?focus=0").Body.String()
 
 	// The link to the pane already open to the right: same path, focus
-	// jumps (dedup) — and it is the highlighted breadcrumb.
-	if !strings.Contains(body, `href="/t/w.io/d/a.md/~/w.io/d/b.md" class="active-link"`) &&
-		!strings.Contains(body, `class="active-link" href="/t/w.io/d/a.md/~/w.io/d/b.md"`) {
+	// jumps (dedup) — and it is the highlighted breadcrumb. (previewize adds
+	// hover attrs between href and class, so assert both, not their adjacency.)
+	if !strings.Contains(body, `href="/t/w.io/d/a.md/~/w.io/d/b.md"`) ||
+		!strings.Contains(body, `class="active-link"`) {
 		t.Errorf("active link to open pane missing: %s", body)
 	}
 	// A link to a new doc from pane 0 truncates pane 1 away and appends.

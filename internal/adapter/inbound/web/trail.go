@@ -37,6 +37,11 @@ const (
 	paneDoc   = "d"
 	paneTag   = "tags"
 	paneFloor = "u"
+	// paneGraph is the graph neighborhood pane (R3; ADR 0005 decisions 4/5):
+	// a document and its observed links/backlinks, rendered as SSR SVG, that
+	// continues the trail. Same value rule as paneDoc — the chunk tail is
+	// <world>/g/<path>.
+	paneGraph = "g"
 )
 
 // paneAddr addresses one pane: a document (or listing) in a world, or a
@@ -117,12 +122,13 @@ func parsePaneChunk(chunk string) (paneAddr, error) {
 // invalid tag.
 func paneAddrFromParts(world, kind, value string) (paneAddr, bool) {
 	switch kind {
-	case paneDoc:
+	case paneDoc, paneGraph:
 		// An empty value is the world-root listing: "<world>/d/" means
 		// path "/" (the stacks), which the floor's world node and any link
 		// to a world root produce. Value carries the leading slash, "" → "/".
-		// Doc paths keep raw slashes (no %2F), so they are not unescaped.
-		return paneAddr{Kind: paneDoc, World: world, Value: "/" + value}, true
+		// Doc paths keep raw slashes (no %2F), so they are not unescaped. The
+		// graph pane shares the rule — its value is the same document path.
+		return paneAddr{Kind: kind, World: world, Value: "/" + value}, true
 	case paneTag:
 		// A tag is a single, PathEscape'd, non-empty segment. Validate the
 		// DECODED value: a raw "foo%2Fbar" has no literal slash but unescapes
@@ -161,6 +167,8 @@ func paneChunk(p paneAddr) string {
 		return paneFloor
 	case paneTag:
 		return url.PathEscape(p.World) + "/" + paneTag + "/" + url.PathEscape(p.Value)
+	case paneGraph:
+		return url.PathEscape(p.World) + "/" + paneGraph + p.Value
 	default:
 		return url.PathEscape(p.World) + "/" + paneDoc + p.Value
 	}

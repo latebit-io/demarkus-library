@@ -7,7 +7,9 @@ import "github.com/labstack/echo/v5"
 //   - /                          the default trail (default world's default doc)
 //   - /t/<trail>                 the trail canvas (ADR 0005; format in trail.go)
 //   - /w/:world/d/<path>         a document, or the stacks when path ends in /
+//   - /w/:world/g/<path>         the graph neighborhood (links + backlinks)
 //   - /w/:world/tags/:tag        lookup-backed tag page (the lateral exit)
+//   - /w/:world/preview/<path>   hover-card fragment for a document (R3)
 //   - /w/:world/raw/<path>       unrendered source — the protocol escape
 //   - /w/:world/search?q=        the card catalog (LOOKUP) in that world
 //   - /w/:world/versions/<path>  edition history
@@ -20,7 +22,9 @@ func ReadingRoutes(e *echo.Echo, handler ReadingHandler, middleware ...echo.Midd
 	e.GET("/", handler.Root, middleware...)
 	e.GET("/t/*", handler.Trail, middleware...)
 	e.GET("/w/:world/d/*", handler.Doc, middleware...)
+	e.GET("/w/:world/g/*", handler.GraphPage, middleware...)
 	e.GET("/w/:world/tags/:tag", handler.TagPage, middleware...)
+	e.GET("/w/:world/preview/*", handler.Preview, middleware...)
 	e.GET("/w/:world/raw/*", handler.RawSource, middleware...)
 	e.GET("/w/:world/search", handler.Search, middleware...)
 	e.GET("/w/:world/versions/*", handler.History, middleware...)

@@ -1,8 +1,11 @@
 package web
 
 import (
+	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/latebit-io/demarkus-library/internal/core/domain"
 )
 
 func TestRewriteHref(t *testing.T) {
@@ -32,7 +35,7 @@ func TestRewriteHref(t *testing.T) {
 		{"mark world no path", "mark://team-a", "/index.md", "/w/team-a/d/"},
 	}
 	for _, tc := range cases {
-		if got := rewriteHref(tc.href, world, tc.base); got != tc.want {
+		if got, _, _ := rewriteHref(tc.href, world, tc.base); got != tc.want {
 			t.Errorf("%s: rewriteHref(%q, %q, %q) = %q, want %q", tc.name, tc.href, world, tc.base, got, tc.want)
 		}
 	}
@@ -56,7 +59,7 @@ func TestLinkifyCatalogPaths(t *testing.T) {
 
 func TestRewriteLinksInFragment(t *testing.T) {
 	in := `<p>see <a href="architecture.md">arch</a>, <a href="mark://team-a/x.md">far</a>, and <a href="https://x.com">ext</a></p>`
-	out := rewriteLinks(in, "soul", "/index.md")
+	out, _ := rewriteLinks(in, "soul", "/index.md")
 	if !strings.Contains(out, `href="/w/soul/d/architecture.md"`) {
 		t.Errorf("internal link not rewritten: %s", out)
 	}
@@ -65,5 +68,40 @@ func TestRewriteLinksInFragment(t *testing.T) {
 	}
 	if !strings.Contains(out, `href="https://x.com"`) {
 		t.Errorf("external link should be untouched: %s", out)
+	}
+}
+
+// rewriteLinks also returns the observed document edges (R3): document
+// targets only — external links, in-page anchors, and listings (dirs) are
+// not edges, and duplicates collapse.
+func TestRewriteLinksReturnsDocumentEdges(t *testing.T) {
+	in := `<p>` +
+		`<a href="architecture.md">a</a> ` +
+		`<a href="architecture.md">a again</a> ` + // duplicate → collapses
+		`<a href="mark://team-a/x.md">cross</a> ` +
+		`<a href="plans/">dir</a> ` + // listing → not an edge
+		`<a href="#sec">anchor</a> ` + // anchor → not an edge
+		`<a href="https://x.com">ext</a>` + // external → not an edge
+		`</p>`
+	_, edges := rewriteLinks(in, "soul", "/index.md")
+	want := []domain.Ref{
+		{World: "soul", Path: "/architecture.md"},
+		{World: "team-a", Path: "/x.md"},
+	}
+	if !reflect.DeepEqual(edges, want) {
+		t.Errorf("edges = %v, want %v", edges, want)
+	}
+}
+
+func TestRewriteHrefReportsDocVsListing(t *testing.T) {
+	if _, ref, isDoc := rewriteHref("architecture.md", "soul", "/index.md"); !isDoc ||
+		ref != (domain.Ref{World: "soul", Path: "/architecture.md"}) {
+		t.Errorf("doc link: isDoc=%v ref=%v", isDoc, ref)
+	}
+	if _, _, isDoc := rewriteHref("plans/", "soul", "/index.md"); isDoc {
+		t.Errorf("listing should not be a document edge")
+	}
+	if _, _, isDoc := rewriteHref("https://x.com", "soul", "/index.md"); isDoc {
+		t.Errorf("external should not be a document edge")
 	}
 }

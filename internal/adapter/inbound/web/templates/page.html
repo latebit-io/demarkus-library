@@ -163,6 +163,45 @@
     .floor-system.gone circle { stroke-dasharray: 4 3; opacity: .5; }
     svg.floor a:hover circle { stroke-width: 3; }
     .floor-empty { color: var(--muted); font-style: italic; }
+
+    /* ── Backlinks: the observed-links map made visible (R3). Last margin
+          block; empty ⇒ absent (decision 8). ────────────────────────── */
+    .doc-meta .backlinks { border-top: 1px solid var(--faint); padding-top: .55rem; }
+    .backlinks-head { color: var(--muted); letter-spacing: .03em; margin-bottom: .35rem; }
+    .backlinks ul { list-style: none; padding: 0; margin: 0;
+                    display: flex; flex-direction: column; gap: .3rem; }
+    .backlinks a { color: inherit; }
+
+    /* ── Hover preview cards (R3): pure htmx + CSS. The card is fetched on
+          hover into .preview-card and revealed only once it has content, so
+          there is no empty flash and no JS. ─────────────────────────── */
+    .preview-host { position: relative; }
+    .preview-card { display: none; position: absolute; top: 1.5em; left: 0;
+                    z-index: 10; width: max-content; max-width: 22rem;
+                    background: var(--paper); color: var(--ink);
+                    border: 1px solid var(--muted); border-radius: 6px;
+                    padding: .6rem .7rem; box-shadow: 0 4px 14px #00000028;
+                    font-family: system-ui, sans-serif; font-size: .76rem;
+                    line-height: 1.45; white-space: normal; }
+    .preview-host:hover .preview-card:not(:empty) { display: block; }
+    .preview-inner { display: flex; flex-direction: column; gap: .35rem; }
+    .preview-title a { font-weight: 600; color: inherit; }
+    .preview-snippet { color: var(--muted); }
+    .preview-mark { font-size: .68rem; color: var(--muted); overflow-wrap: anywhere; }
+
+    /* ── Graph neighborhood pane (R3): SSR SVG, same family as the floor.
+          Backlinks left, outbound right, center in the middle. ──────── */
+    svg.graph { max-width: 100%; height: auto; }
+    svg.graph text { fill: var(--muted); font-family: system-ui, sans-serif; }
+    .graph-edge { stroke: var(--faint); stroke-width: 1.5; }
+    .graph-center { fill: var(--ink); stroke: var(--ink); }
+    .graph-center-label { font-size: 13px; font-weight: 600; fill: var(--ink); }
+    .graph-node { fill: var(--paper); stroke: var(--muted); stroke-width: 1.5; }
+    .graph-node.graph-in  { stroke: light-dark(#0969da, #4493f8); }
+    .graph-node.graph-out { stroke: light-dark(#1a7f37, #3fb950); }
+    .graph-node-label { font-size: 11px; }
+    svg.graph a:hover circle { stroke-width: 3; }
+    .graph-empty { color: var(--muted); font-style: italic; }
   </style>
 </head>{{end}}
 

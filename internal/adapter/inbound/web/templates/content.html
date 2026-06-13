@@ -21,12 +21,39 @@
         {{- end }}
       </dl>
       {{- end }}
+      {{- if .Backlinks }}
+      <div class="backlinks">
+        <p class="backlinks-head">referenced by</p>
+        <ul>
+          {{- range .Backlinks }}
+          <li>{{template "preview-link" .}}</li>
+          {{- end }}
+        </ul>
+      </div>
+      {{- end }}
       <div class="escape">
         <code>{{ .MarkURL }}</code>
         <a href="/w/{{ .WorldPath }}/raw{{ .Path }}">source</a>
         · <a href="/w/{{ .WorldPath }}/versions{{ .Path }}">editions</a>
+        {{- if .GraphURL }} · <a href="{{ .GraphURL }}">graph</a>{{ end }}
       </div>
 </div>{{end}}
+
+{{/* preview-link: a link that loads a hover card (R3). The same component for
+     backlink entries and (via previewize) outbound body links — build once,
+     both directions. mouseenter overrides the anchor's default click trigger,
+     so click still navigates. */}}
+{{define "preview-link"}}<span class="preview-host"><a href="{{ .URL }}"
+  hx-get="{{ .PreviewURL }}" hx-trigger="mouseenter delay:300ms once"
+  hx-target="next .preview-card" hx-swap="innerHTML">{{ .Title }}</a><span class="preview-card" role="tooltip"></span></span>{{end}}
+
+{{/* preview: the hover card fragment served at /w/:world/preview/<path>. */}}
+{{define "preview"}}<span class="preview-inner">
+  <span class="preview-title"><a href="{{ .DocURL }}">{{ .Title }}</a></span>
+  {{- if .Status }} <span class="status status-{{ .Status }}">{{ .Status }}</span>{{ end }}
+  {{- if .Snippet }}<span class="preview-snippet">{{ .Snippet }}</span>{{ end }}
+  <code class="preview-mark">{{ .MarkURL }}</code>
+</span>{{end}}
 
 {{define "content"}}{{if .IsDoc}}<div class="doc-pane">
   <article class="doc-body">
