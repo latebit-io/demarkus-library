@@ -5,8 +5,9 @@ import (
 	"testing"
 )
 
-func doc(world, path string) paneAddr { return paneAddr{Kind: paneDoc, World: world, Value: path} }
-func tag(world, t string) paneAddr    { return paneAddr{Kind: paneTag, World: world, Value: t} }
+func doc(world, path string) paneAddr   { return paneAddr{Kind: paneDoc, World: world, Value: path} }
+func tag(world, t string) paneAddr      { return paneAddr{Kind: paneTag, World: world, Value: t} }
+func graph(world, path string) paneAddr { return paneAddr{Kind: paneGraph, World: world, Value: path} }
 
 func TestTrailRoundTrip(t *testing.T) {
 	cases := []struct {
@@ -30,6 +31,11 @@ func TestTrailRoundTrip(t *testing.T) {
 			"/t/a.io/d/x.md/~/a.io/d/y.md?focus=0"},
 		{"host world with port", trail{Panes: []paneAddr{doc("w.example.org:6310", "/x.md")}, Focus: 0},
 			"/t/w.example.org:6310/d/x.md"},
+		{"graph neighborhood pane (R3)", trail{Panes: []paneAddr{graph("root", "/adr/0005-x.md")}, Focus: 0},
+			"/t/root/g/adr/0005-x.md"},
+		{"doc then its graph", trail{Panes: []paneAddr{
+			doc("root", "/x.md"), graph("root", "/x.md")}, Focus: 1},
+			"/t/root/d/x.md/~/root/g/x.md"},
 	}
 	for _, tc := range cases {
 		if got := trailURL(tc.trail); got != tc.url {

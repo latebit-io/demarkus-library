@@ -20,6 +20,7 @@ type ReadingService struct {
 	renderer port.Renderer
 	cache    port.DocumentCache
 	floor    floorCache
+	graph    linkGraph
 }
 
 // compile-time check that ReadingService satisfies the inbound port.

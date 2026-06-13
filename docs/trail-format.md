@@ -20,6 +20,9 @@ source.
 - **Pane chunk** — the tail of the pane's standalone `/w/` route:
   - document: `<world>/d/<path>` — e.g. `soul.demarkus.io/d/adr/0005.md`
   - listing: `<world>/d/<dir>/` (trailing slash) — e.g. `root/d/plans/`
+  - graph: `<world>/g/<path>` — the document's graph neighborhood (its links
+    and backlinks) as a pane, e.g. `root/g/adr/0005.md`. Same value rule as a
+    document; clicking a node continues the trail.
   - tag page: `<world>/tags/<tag>` — e.g. `root/tags/architecture`
   - the floor: the single segment `u` — the universe view (pane zero), no
     world part because the floor IS the whole universe. `/` redirects to
@@ -70,7 +73,8 @@ Concatenate route tails with `/~/`, set `focus` if not last. Rules:
 ## Parsing (human → agent)
 
 Split the path after `/t/` on `/~/`; each chunk is `<world>/<kind>/<value>`
-(kind `d` ⇒ document path `/<value>`, kind `tags` ⇒ tag page) or the bare
-`u` floor chunk (a single token, no world/kind/value — the universe view).
-Read the documents over mark:// (`mark://<world>/<path>`) in order — that
-ordered list, plus the focus index, is the reader's current context.
+(kind `d` ⇒ document path `/<value>`, kind `g` ⇒ that document's graph
+neighborhood, kind `tags` ⇒ tag page) or the bare `u` floor chunk (a single
+token, no world/kind/value — the universe view). Read the documents over
+mark:// (`mark://<world>/<path>`) in order — that ordered list, plus the focus
+index, is the reader's current context.

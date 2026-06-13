@@ -47,6 +47,8 @@ type paneVM struct {
 	Version    string
 	Agent      string
 	MarkURL    string
+	GraphURL   string       // margin affordance: open this doc's graph pane
+	Backlinks  []backlinkVM // "referenced by" — the observed-links map
 }
 
 // Trail renders the canvas for the trail encoded at /t/*.
@@ -74,6 +76,12 @@ func (h *ReadingHandler) Trail(c *echo.Context) error {
 				continue
 			}
 			vm.Panes[i] = pane
+			continue
+		}
+		if addr.Kind == paneGraph {
+			// The graph pane is store-only (no world read), so it never errors
+			// and needs no live/cached split — it renders the same in both.
+			vm.Panes[i] = h.graphPaneView(t, i, addr)
 			continue
 		}
 		doc, err := h.readPane(ctx, addr, focused)
@@ -184,11 +192,20 @@ func (h *ReadingHandler) paneView(t trail, i int, addr paneAddr, doc domain.Docu
 		return vm // spines carry title + status only; no body is rendered
 	}
 
-	content := rewriteLinks(doc.HTML, addr.World, doc.Path)
+	content, edges := rewriteLinks(doc.HTML, addr.World, doc.Path)
+	if addr.Kind == paneDoc && !strings.HasSuffix(addr.Value, "/") {
+		// Feed the observed-links map (R3) from real document panes only —
+		// listings and tag pages are not edge sources. This runs for the
+		// focused pane and its body-only parent, so a doc's edges are recorded
+		// just before its graph/backlinks pane (to the right) reads them.
+		h.reading.RecordLinks(addr.World, doc.Path, edges)
+	}
 	if addr.Kind == paneTag {
 		content = linkifyCatalogPaths(content, addr.World)
 	}
-	vm.Content = template.HTML(trailizeLinks(content, t, i)) //nolint:gosec // sanitized in the markdown adapter; link passes only edit links
+	// previewize runs on /w/ hrefs (it derives each card's source from them),
+	// then trailizeLinks rewrites those hrefs to post-click trail URLs.
+	vm.Content = template.HTML(trailizeLinks(previewize(content), t, i)) //nolint:gosec // sanitized in the markdown adapter; link passes only edit links
 
 	if focused && addr.Kind == paneDoc && !strings.HasSuffix(addr.Value, "/") {
 		vm.HasMargin = true
@@ -198,6 +215,10 @@ func (h *ReadingHandler) paneView(t trail, i int, addr paneAddr, doc domain.Docu
 		vm.Version = doc.Version
 		vm.Agent = doc.Agent
 		vm.MarkURL = "mark://" + addr.World + doc.Path
+		vm.GraphURL = trailURL(trailAfterClick(t, i, paneAddr{Kind: paneGraph, World: addr.World, Value: addr.Value}))
+		vm.Backlinks = backlinkLinks(h.reading.Backlinks(addr.World, addr.Value), func(r domain.Ref) string {
+			return trailURL(trailAfterClick(t, i, paneAddr{Kind: paneDoc, World: r.World, Value: r.Path}))
+		})
 	}
 	return vm
 }

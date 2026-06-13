@@ -72,7 +72,20 @@ type page struct {
 	Modified   string            // provenance: response metadata, verbatim
 	Version    string
 	Agent      string
-	MarkURL    string // canonical protocol address — the escape hatch (decision 12)
+	MarkURL    string       // canonical protocol address — the escape hatch (decision 12)
+	GraphURL   string       // margin affordance: open this doc's graph neighborhood
+	Backlinks  []backlinkVM // "referenced by" — the observed-links map (R3)
+}
+
+// backlinkVM is one entry in the margin's "referenced by" block (R3): a
+// document observed linking here. URL navigates to it (a trail URL on the
+// canvas, a /w/ permalink on the single-doc view); PreviewURL feeds the same
+// hover card the outbound body links use (ADR 0005 §margin — one component,
+// both directions).
+type backlinkVM struct {
+	Title      string
+	URL        string
+	PreviewURL string
 }
 
 // viewOpts carries per-view presentation choices into present.
@@ -178,9 +191,15 @@ func (h *ReadingHandler) present(c *echo.Context, doc domain.Document, err error
 	if err != nil {
 		return presentError(c, err, opts.world, opts.path)
 	}
-	content := rewriteLinks(doc.HTML, opts.world, doc.Path)
+	content, edges := rewriteLinks(doc.HTML, opts.world, doc.Path)
 	if opts.catalog {
 		content = linkifyCatalogPaths(content, opts.world)
+	}
+	content = previewize(content)
+	if opts.doc {
+		// Feed the observed-links map (R3): only real documents are edge
+		// sources — listings and catalog views are not.
+		h.reading.RecordLinks(opts.world, doc.Path, edges)
 	}
 	vm := page{
 		Title:         doc.Title,
@@ -200,6 +219,12 @@ func (h *ReadingHandler) present(c *echo.Context, doc domain.Document, err error
 		vm.Version = doc.Version
 		vm.Agent = doc.Agent
 		vm.MarkURL = "mark://" + opts.world + doc.Path
+		// The single-doc permalink view is not a trail, so its backlinks and
+		// graph affordance point at /w/ permalinks rather than trail URLs.
+		vm.GraphURL = "/w/" + vm.WorldPath + "/g" + doc.Path
+		vm.Backlinks = backlinkLinks(h.reading.Backlinks(opts.world, doc.Path), func(r domain.Ref) string {
+			return docRoute(r.World, r.Path)
+		})
 	}
 	return c.Render(http.StatusOK, h.templateFor(c), vm)
 }

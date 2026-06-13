@@ -9,6 +9,8 @@ import (
 
 	"golang.org/x/net/html"
 	"golang.org/x/net/html/atom"
+
+	"github.com/latebit-io/demarkus-library/internal/core/domain"
 )
 
 // rewriteLinks turns demarkus links in a rendered HTML fragment into in-app
@@ -23,21 +25,47 @@ import (
 //
 // On any parse failure it returns the fragment unchanged — link rewriting is an
 // enhancement, never a reason to fail a render.
-func rewriteLinks(fragment, world, basePath string) string {
+//
+// It also returns the in-universe document targets it resolved — the
+// render-time observed-links map (R3; ADR 0005 §16). Resolution is already
+// done here, so collecting the edges is free; the caller feeds them to the
+// core's edge store, which backs backlinks and the graph pane without any
+// broker dependency. Listings (dirs), anchors, and external links are not
+// document edges and are omitted.
+func rewriteLinks(fragment, world, basePath string) (string, []domain.Ref) {
 	ctx := &html.Node{Type: html.ElementNode, Data: "body", DataAtom: atom.Body}
 	nodes, err := html.ParseFragment(strings.NewReader(fragment), ctx)
 	if err != nil {
-		return fragment
+		return fragment, nil
 	}
 
 	var buf bytes.Buffer
+	var edges []domain.Ref
 	for _, n := range nodes {
-		rewriteNode(n, world, basePath)
+		rewriteNode(n, world, basePath, &edges)
 		if err := html.Render(&buf, n); err != nil {
-			return fragment
+			return fragment, nil
 		}
 	}
-	return buf.String()
+	return buf.String(), dedupeRefs(edges)
+}
+
+// dedupeRefs collapses repeated targets (a document often links the same place
+// more than once) while preserving first-seen order.
+func dedupeRefs(refs []domain.Ref) []domain.Ref {
+	if len(refs) == 0 {
+		return nil
+	}
+	seen := make(map[domain.Ref]struct{}, len(refs))
+	out := refs[:0]
+	for _, r := range refs {
+		if _, ok := seen[r]; ok {
+			continue
+		}
+		seen[r] = struct{}{}
+		out = append(out, r)
+	}
+	return out
 }
 
 // catalogPath matches a bare world path (no whitespace, leading slash) — the
@@ -82,24 +110,31 @@ func linkifyNode(n *html.Node, world string) {
 	}
 }
 
-func rewriteNode(n *html.Node, world, basePath string) {
+func rewriteNode(n *html.Node, world, basePath string, edges *[]domain.Ref) {
 	if n.Type == html.ElementNode && n.DataAtom == atom.A {
 		for i, attr := range n.Attr {
 			if attr.Key == "href" {
-				n.Attr[i].Val = rewriteHref(attr.Val, world, basePath)
+				route, ref, isDoc := rewriteHref(attr.Val, world, basePath)
+				n.Attr[i].Val = route
+				if isDoc {
+					*edges = append(*edges, ref)
+				}
 			}
 		}
 	}
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
-		rewriteNode(c, world, basePath)
+		rewriteNode(c, world, basePath, edges)
 	}
 }
 
 // rewriteHref maps a single href to an in-app route, or returns it unchanged
-// if it is external or not a demarkus link.
-func rewriteHref(href, world, basePath string) string {
+// if it is external or not a demarkus link. It also returns the resolved
+// in-universe document target and whether the link is one: isDoc is true only
+// for a document (not a listing/dir, anchor, or external link), so the caller
+// records a clean document-to-document edge for the observed-links map.
+func rewriteHref(href, world, basePath string) (string, domain.Ref, bool) {
 	if href == "" || strings.HasPrefix(href, "#") {
-		return href
+		return href, domain.Ref{}, false
 	}
 
 	// VERSIONS emits percent-encoded paths (e.g. %2Fdoc.md/v2); decode first.
@@ -109,12 +144,12 @@ func rewriteHref(href, world, basePath string) string {
 
 	u, err := url.Parse(href)
 	if err != nil {
-		return href
+		return href, domain.Ref{}, false
 	}
 
 	// Leave anything with a non-demarkus scheme alone (http, https, mailto, tel).
 	if u.Scheme != "" && u.Scheme != "mark" {
-		return href
+		return href, domain.Ref{}, false
 	}
 
 	targetWorld := world
@@ -151,7 +186,10 @@ func rewriteHref(href, world, basePath string) string {
 	if u.Fragment != "" {
 		rewritten += "#" + u.Fragment
 	}
-	return rewritten
+	// A document edge is a concrete path (not a listing/dir, which ends in a
+	// slash) — those are the nodes backlinks and the graph pane connect.
+	isDoc := !strings.HasSuffix(worldPath, "/")
+	return rewritten, domain.Ref{World: targetWorld, Path: worldPath}, isDoc
 }
 
 // docRoute builds the in-app document route for (world, path). The world

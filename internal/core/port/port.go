@@ -46,6 +46,23 @@ type ReadingService interface {
 	BrowseCached(ctx context.Context, world, path string) (domain.Document, error)
 	TagCached(ctx context.Context, world, tag string) (domain.Document, error)
 
+	// RecordLinks records the in-universe document links observed in the
+	// rendered document at (world, path), replacing any prior observation
+	// (R3; ADR 0005 §16). The web adapter calls this after resolving links
+	// (rewriteLinks owns the URL scheme); the core owns the edge store. This
+	// is the render-time observed-links map that feeds Backlinks and
+	// Neighborhood — transport-symmetric, no broker graph store required.
+	RecordLinks(world, path string, targets []domain.Ref)
+	// Backlinks returns the documents observed linking to (world, path) — the
+	// margin's "referenced by" block and the graph pane's inbound edges.
+	// Best-effort: empty when nothing has been observed linking here yet (the
+	// correct cold state, ADR 0005 decision 8), never an error.
+	Backlinks(world, path string) []domain.Ref
+	// Neighborhood assembles the graph pane's data (ADR 0005 decision 4): the
+	// document plus its observed outbound and inbound edges. Store-only (zero
+	// world reads), so it works cold in both transports.
+	Neighborhood(world, path string) domain.Neighborhood
+
 	// Floor assembles the universe view's data (ADR 0005 decision 4):
 	// the authorized worlds and each world's top-importance catalog
 	// entries. Live rebuild; FloorCached serves the last build when the

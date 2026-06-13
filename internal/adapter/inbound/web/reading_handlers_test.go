@@ -23,6 +23,9 @@ type fakeReading struct {
 	err      error
 	floor    domain.Floor
 	floorErr error
+	backlink map[string][]domain.Ref // keyed by path; the graph store's reverse edges
+	neighbor map[string]domain.Neighborhood
+	recorded map[string][]domain.Ref // path → links RecordLinks captured
 	called   string
 	calls    []string
 	gotTag   string
@@ -77,6 +80,23 @@ func (f *fakeReading) BrowseCached(_ context.Context, _, path string) (domain.Do
 func (f *fakeReading) TagCached(_ context.Context, _, tag string) (domain.Document, error) {
 	f.gotTag = tag
 	return f.record("TagCached", tag)
+}
+
+// RecordLinks is a write, not a read: it stays out of calls/called so the
+// focused-live read-budget assertions keep measuring only world reads.
+func (f *fakeReading) RecordLinks(_, path string, targets []domain.Ref) {
+	if f.recorded == nil {
+		f.recorded = map[string][]domain.Ref{}
+	}
+	f.recorded[path] = targets
+}
+
+func (f *fakeReading) Backlinks(_, path string) []domain.Ref {
+	return f.backlink[path]
+}
+
+func (f *fakeReading) Neighborhood(_, path string) domain.Neighborhood {
+	return f.neighbor[path]
 }
 
 func (f *fakeReading) Floor(context.Context) (domain.Floor, error) {
