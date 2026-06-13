@@ -1,0 +1,35 @@
+{{define "pane"}}{{if eq .Mode "spine"}}<a class="pane spine{{if .Gone}} gone{{end}}" href="{{ .FocusURL }}" title="{{ .Title }}">
+  <span class="spine-title">{{ .Title }}</span>
+  {{- if .Gone }}<span class="status">gone</span>
+  {{- else if .Status }}<span class="status status-{{ .Status }}">{{ .Status }}</span>{{ end }}
+</a>{{else}}<section class="pane {{ .Mode }}">
+  <header class="pane-head"><a href="{{ .FocusURL }}"><code>{{ .World }}{{ .Path }}</code></a></header>
+  <div class="pane-cols">
+    <article class="doc-body">
+      <h1>{{ .Title }}</h1>
+      {{ .Content }}
+    </article>
+    {{- if .HasMargin }}
+    <aside class="doc-margin">
+      {{template "doc-meta" .}}
+    </aside>
+    {{- end }}
+  </div>
+</section>{{end}}{{end}}
+
+{{define "canvas"}}<!doctype html>
+<html lang="en">
+{{template "head" .}}
+<!-- The trail canvas (ADR 0005): the whole spatial state renders from the
+     URL; every link already carries its post-click trail, so hx-boost'd
+     clicks are plain page swaps and browser back/forward is temporal
+     history over spatial states. -->
+<body hx-boost="true" class="canvas-page">
+  {{template "nav" .}}
+  <main id="main" class="canvas">
+    {{- range .Panes }}
+    {{template "pane" .}}
+    {{- end }}
+  </main>
+</body>
+</html>{{end}}

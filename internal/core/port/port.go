@@ -35,6 +35,16 @@ type ReadingService interface {
 	// Raw returns the unrendered source of the document at (world, path) —
 	// the projection's escape to protocol (ADR 0005 decision 12).
 	Raw(ctx context.Context, world, path string) (domain.RawDocument, error)
+
+	// ReadCached, BrowseCached, and TagCached are the trail engine's
+	// unfocused-pane reads (ADR 0005 decision 9): served from the
+	// rendered-document cache, reading through on a miss. The focused pane
+	// uses the live methods, which refresh the cache — so a trail click
+	// costs exactly one world read. Without a cache wired they behave as
+	// their live counterparts.
+	ReadCached(ctx context.Context, world, path string) (domain.Document, error)
+	BrowseCached(ctx context.Context, world, path string) (domain.Document, error)
+	TagCached(ctx context.Context, world, tag string) (domain.Document, error)
 }
 
 // WorldGateway is an outbound (driven) port — read from demarkus worlds. The
@@ -57,4 +67,14 @@ type WorldGateway interface {
 // the properties parsed from a leading frontmatter fence.
 type Renderer interface {
 	Render(markdown string) (domain.Rendered, error)
+}
+
+// DocumentCache is an outbound (driven) port — the rendered-document cache
+// the trail engine requires (ADR 0005 decision 9). Keys are the service's
+// kind-prefixed addresses; values are display-ready Documents. Staleness is
+// bounded by the focused-live policy, not by the cache: every render
+// refreshes the pane the reader is looking at.
+type DocumentCache interface {
+	Get(key string) (domain.Document, bool)
+	Put(key string, doc domain.Document)
 }

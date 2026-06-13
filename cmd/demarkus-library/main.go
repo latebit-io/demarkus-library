@@ -36,6 +36,7 @@ import (
 	"github.com/latebit-io/demarkus-library/internal/adapter/inbound/web"
 	"github.com/latebit-io/demarkus-library/internal/adapter/inbound/web/session"
 	"github.com/latebit-io/demarkus-library/internal/adapter/outbound/broker"
+	"github.com/latebit-io/demarkus-library/internal/adapter/outbound/cache"
 	"github.com/latebit-io/demarkus-library/internal/adapter/outbound/federated"
 	"github.com/latebit-io/demarkus-library/internal/adapter/outbound/markdown"
 	"github.com/latebit-io/demarkus-library/internal/adapter/outbound/oauth"
@@ -145,7 +146,9 @@ func main() {
 	}
 
 	// Application core (the hexagon) + the reading room, same in both modes.
-	reading := service.NewReadingService(gateway, renderer)
+	// The rendered-document cache backs the trail engine's 1-read-per-click
+	// budget (ADR 0005 decision 9).
+	reading := service.NewReadingService(gateway, renderer, cache.NewMemory(0))
 	web.ReadingRoutes(app, web.NewReadingHandler(reading, defaultWorld, config.DefaultDoc), turnstile...)
 
 	logger.Info("demarkus Library reading room starting",
