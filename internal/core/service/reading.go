@@ -21,6 +21,7 @@ type ReadingService struct {
 	cache    port.DocumentCache
 	floor    floorCache
 	graph    linkGraph
+	hub      string // topology-source world (DEMARKUS_HUB); "" disables hub enrichment
 }
 
 // compile-time check that ReadingService satisfies the inbound port.
@@ -29,6 +30,15 @@ var _ port.ReadingService = (*ReadingService)(nil)
 // NewReadingService wires the outbound ports into the core. cache may be nil.
 func NewReadingService(world port.WorldGateway, renderer port.Renderer, cache port.DocumentCache) *ReadingService {
 	return &ReadingService{world: world, renderer: renderer, cache: cache}
+}
+
+// WithHub sets the topology-source world for floor enrichment (DEMARKUS_HUB)
+// and returns the service for chaining at the composition root. Empty leaves
+// the floor on its mark_worlds + observed-links baseline. Kept off the
+// constructor so existing callers (and tests) are untouched.
+func (s *ReadingService) WithHub(hub string) *ReadingService {
+	s.hub = hub
+	return s
 }
 
 // Read fetches a document from the world and renders it to sanitized HTML

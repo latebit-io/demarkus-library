@@ -101,6 +101,20 @@ func (g *linkGraph) links(src domain.Ref) []domain.Ref {
 	return sortedRefs(g.out[src])
 }
 
+// allEdges returns every observed forward edge — the floor unions these with
+// the durable hub graph so edges show even before (or without) a hub.
+func (g *linkGraph) allEdges() []domain.Edge {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	var out []domain.Edge
+	for src, tos := range g.out {
+		for to := range tos {
+			out = append(out, domain.Edge{From: src, To: to})
+		}
+	}
+	return out
+}
+
 // sortedRefs flattens a ref set into a deterministically ordered slice.
 func sortedRefs(set map[domain.Ref]struct{}) []domain.Ref {
 	if len(set) == 0 {

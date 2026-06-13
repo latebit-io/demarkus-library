@@ -50,6 +50,19 @@ func (s *ReadingService) Floor(ctx context.Context) (domain.Floor, error) {
 	if err != nil {
 		return domain.Floor{}, err
 	}
+
+	// Authorization + addressing baseline (the permission mask): which worlds
+	// the reader may see and the host→name map that joins host-keyed topology
+	// back to authorized names.
+	authorized := make(map[string]bool, len(worlds))
+	host2name := make(map[string]string, len(worlds))
+	for _, w := range worlds {
+		authorized[w.Name] = true
+		if h := hostOf(w.URL); h != "" {
+			host2name[h] = w.Name
+		}
+	}
+
 	floor := domain.Floor{Worlds: make([]domain.FloorWorld, 0, len(worlds))}
 	for _, w := range worlds {
 		fw := domain.FloorWorld{World: w}
@@ -66,6 +79,21 @@ func (s *ReadingService) Floor(ctx context.Context) (domain.Floor, error) {
 		}
 		floor.Worlds = append(floor.Worlds, fw)
 	}
+
+	// Topology enrichment (decision 11): the durable hub graph export unioned
+	// with the R3 observed-links map, aggregated to world-level edges and
+	// masked by the authorized set. Portal worlds are externally-linked hosts
+	// with no authorized name (the extensional universe; ADR 0005 §16). All of
+	// this degrades to nothing when no hub is published and nothing observed.
+	hub := s.readHub(ctx, s.hub)
+	edges, portals := worldEdges(append(hub.edges, s.graph.allEdges()...), host2name, authorized)
+	floor.Edges = edges
+	for _, p := range portals {
+		floor.Worlds = append(floor.Worlds, domain.FloorWorld{
+			World: domain.WorldInfo{Name: p, URL: "mark://" + p}, Portal: true,
+		})
+	}
+
 	s.floor.put(floor)
 	return floor, nil
 }
