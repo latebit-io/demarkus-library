@@ -145,6 +145,36 @@ func TestFloorEnrichedWithHubEdgesAndPortals(t *testing.T) {
 	}
 }
 
+func TestFloorJoinsCrossWorldEdgeViaAddress(t *testing.T) {
+	// Worlds carry their internal dial Address (mark_worlds' address column),
+	// which is how the hub graph keys their nodes. A cross-world edge between
+	// two authorized worlds must then join cluster-to-cluster (name→name) with
+	// NO portal — the host↔name join the address column exists to enable.
+	graph := "# Document Graph\n\n## Edges\n\n| From | To |\n|------|----|\n" +
+		"| mark://world-a.world-a.svc:6309/index.md | mark://root.root.svc:6309/index.md |\n"
+	gw := fakeGateway{
+		worlds: []domain.WorldInfo{
+			{Name: "root", Address: "mark://root.root.svc:6309"},
+			{Name: "world-a", Address: "mark://world-a.world-a.svc:6309"},
+		},
+		raw:       domain.RawDocument{Body: lookupTable},
+		fetchBody: map[string]string{hubGraphPath: graph},
+	}
+	floor, err := NewReadingService(gw, fakeRenderer{}, nil).WithHub("root").Floor(t.Context())
+	if err != nil {
+		t.Fatalf("Floor: %v", err)
+	}
+	if len(floor.Edges) != 1 ||
+		floor.Edges[0] != (domain.Edge{From: domain.Ref{World: "world-a"}, To: domain.Ref{World: "root"}}) {
+		t.Errorf("edges = %+v, want one world-a→root (joined by address)", floor.Edges)
+	}
+	for _, w := range floor.Worlds {
+		if w.Portal {
+			t.Errorf("unexpected portal %q — crawl host should have joined its cluster", w.World.Name)
+		}
+	}
+}
+
 func TestFloorNoHubDegradesToBaseline(t *testing.T) {
 	// No hub set → no fetch of a graph doc, no edges, no portals; the floor is
 	// exactly the mark_worlds + lookup baseline.

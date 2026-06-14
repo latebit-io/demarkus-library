@@ -58,7 +58,13 @@ func (s *ReadingService) Floor(ctx context.Context) (domain.Floor, error) {
 	host2name := make(map[string]string, len(worlds))
 	for _, w := range worlds {
 		authorized[w.Name] = true
-		if h := hostOf(w.URL); h != "" {
+		// Join key is the world's dial Address (what the topology graph keys
+		// its nodes by); fall back to URL for older brokers / QUIC mode.
+		joinAddr := w.Address
+		if joinAddr == "" {
+			joinAddr = w.URL
+		}
+		if h := hostOf(joinAddr); h != "" {
 			host2name[h] = w.Name
 		}
 	}

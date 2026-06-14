@@ -401,7 +401,10 @@ func TestPoolEviction(t *testing.T) {
 }
 
 func TestWorldsParsesTable(t *testing.T) {
-	fc := &fakeCaller{text: "status: ok\ncount: 2\n\n| world | url |\n|-------|-----|\n| team-a | mark://team-a.example.org:6309 |\n| hub |  |\n"}
+	// Three-column form: world | url | address. The address (internal dial
+	// host) is the topology-graph join key; url is the optional public address.
+	fc := &fakeCaller{text: "status: ok\ncount: 2\n\n| world | url | address |\n|-------|-----|---------|\n" +
+		"| team-a | mark://team-a.example.org:6309 | mark://team-a.team-a.svc.cluster.local:6309 |\n| hub |  | mark://hub.hub.svc.cluster.local:6309 |\n"}
 	g := &Gateway{caller: fc}
 	worlds, err := g.Worlds(authedCtx(t))
 	if err != nil {
@@ -410,8 +413,23 @@ func TestWorldsParsesTable(t *testing.T) {
 	if fc.gotTool != "mark_worlds" {
 		t.Errorf("tool = %q", fc.gotTool)
 	}
-	if len(worlds) != 2 || worlds[0] != (domain.WorldInfo{Name: "team-a", URL: "mark://team-a.example.org:6309"}) ||
-		worlds[1] != (domain.WorldInfo{Name: "hub"}) {
+	if len(worlds) != 2 ||
+		worlds[0] != (domain.WorldInfo{Name: "team-a", URL: "mark://team-a.example.org:6309", Address: "mark://team-a.team-a.svc.cluster.local:6309"}) ||
+		worlds[1] != (domain.WorldInfo{Name: "hub", Address: "mark://hub.hub.svc.cluster.local:6309"}) {
+		t.Errorf("worlds = %+v", worlds)
+	}
+}
+
+func TestWorldsParsesLegacyTwoColumnTable(t *testing.T) {
+	// Older brokers emit only world | url; address is absent (empty), and the
+	// floor falls back to URL as the join key.
+	fc := &fakeCaller{text: "status: ok\ncount: 1\n\n| world | url |\n|-------|-----|\n| team-a | mark://team-a.example.org:6309 |\n"}
+	g := &Gateway{caller: fc}
+	worlds, err := g.Worlds(authedCtx(t))
+	if err != nil {
+		t.Fatalf("Worlds: %v", err)
+	}
+	if len(worlds) != 1 || worlds[0] != (domain.WorldInfo{Name: "team-a", URL: "mark://team-a.example.org:6309"}) {
 		t.Errorf("worlds = %+v", worlds)
 	}
 }
