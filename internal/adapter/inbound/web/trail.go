@@ -127,9 +127,14 @@ func parsePaneChunk(chunk string) (paneAddr, error) {
 func paneAddrFromParts(world, kind, value string) (paneAddr, bool) {
 	switch kind {
 	case paneFloor:
-		// "<world>/u/" — a world map (the floor one zoom in). Value is unused;
-		// the world IS the address. The bare "u" floor never reaches here
+		// "<world>/u/" — a world map (the floor one zoom in). The world IS the
+		// address, so the value must be empty (spec: trailing slash, no value);
+		// a non-empty "<world>/u/junk" is malformed and rejected like any other
+		// bad chunk, not silently ignored. The bare "u" floor never reaches here
 		// (parsePaneChunk short-circuits it before any world split).
+		if value != "" {
+			return paneAddr{}, false
+		}
 		return paneAddr{Kind: paneFloor, World: world}, true
 	case paneDoc, paneGraph:
 		// An empty value is the world-root listing: "<world>/d/" means

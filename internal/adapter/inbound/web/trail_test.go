@@ -134,6 +134,7 @@ func TestParseTrailRejectsMalformed(t *testing.T) {
 		"~/d/x.md",           // separator as world
 		"soul/d/x.md/~/",     // trailing separator → empty chunk
 		"soul/d/x.md/~/soul", // second chunk malformed
+		"soul/u/junk",        // world map takes no value (spec: <world>/u/)
 	} {
 		if _, err := parseTrail(rest, ""); err == nil {
 			t.Errorf("parseTrail(%q) accepted", rest)
