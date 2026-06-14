@@ -36,6 +36,13 @@ func TestTrailRoundTrip(t *testing.T) {
 		{"doc then its graph", trail{Panes: []paneAddr{
 			doc("root", "/x.md"), graph("root", "/x.md")}, Focus: 1},
 			"/t/root/d/x.md/~/root/g/x.md"},
+		{"universe floor (bare u)", trail{Panes: []paneAddr{{Kind: paneFloor}}, Focus: 0},
+			"/t/u"},
+		{"world map (world-scoped u)", trail{Panes: []paneAddr{{Kind: paneFloor, World: "world-a"}}, Focus: 0},
+			"/t/world-a/u/"},
+		{"floor then world map", trail{Panes: []paneAddr{
+			{Kind: paneFloor}, {Kind: paneFloor, World: "root"}}, Focus: 1},
+			"/t/u/~/root/u/"},
 	}
 	for _, tc := range cases {
 		if got := trailURL(tc.trail); got != tc.url {
@@ -127,6 +134,7 @@ func TestParseTrailRejectsMalformed(t *testing.T) {
 		"~/d/x.md",           // separator as world
 		"soul/d/x.md/~/",     // trailing separator → empty chunk
 		"soul/d/x.md/~/soul", // second chunk malformed
+		"soul/u/junk",        // world map takes no value (spec: <world>/u/)
 	} {
 		if _, err := parseTrail(rest, ""); err == nil {
 			t.Errorf("parseTrail(%q) accepted", rest)

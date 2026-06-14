@@ -34,8 +34,12 @@ const (
 // decision 4): a single-segment chunk with no world — the floor IS the
 // whole universe.
 const (
-	paneDoc   = "d"
-	paneTag   = "tags"
+	paneDoc = "d"
+	paneTag = "tags"
+	// paneFloor is the universe view (pane zero, ADR 0005 decision 4). The
+	// bare "u" chunk (no world) is the whole-universe floor; "<world>/u/" is
+	// that world's map — the same component one zoom in (the world-view zoom
+	// level). World distinguishes the two.
 	paneFloor = "u"
 	// paneGraph is the graph neighborhood pane (R3; ADR 0005 decisions 4/5):
 	// a document and its observed links/backlinks, rendered as SSR SVG, that
@@ -122,6 +126,16 @@ func parsePaneChunk(chunk string) (paneAddr, error) {
 // invalid tag.
 func paneAddrFromParts(world, kind, value string) (paneAddr, bool) {
 	switch kind {
+	case paneFloor:
+		// "<world>/u/" — a world map (the floor one zoom in). The world IS the
+		// address, so the value must be empty (spec: trailing slash, no value);
+		// a non-empty "<world>/u/junk" is malformed and rejected like any other
+		// bad chunk, not silently ignored. The bare "u" floor never reaches here
+		// (parsePaneChunk short-circuits it before any world split).
+		if value != "" {
+			return paneAddr{}, false
+		}
+		return paneAddr{Kind: paneFloor, World: world}, true
 	case paneDoc, paneGraph:
 		// An empty value is the world-root listing: "<world>/d/" means
 		// path "/" (the stacks), which the floor's world node and any link
@@ -164,7 +178,10 @@ func trailURL(t trail) string {
 func paneChunk(p paneAddr) string {
 	switch p.Kind {
 	case paneFloor:
-		return paneFloor
+		if p.World == "" {
+			return paneFloor
+		}
+		return url.PathEscape(p.World) + "/" + paneFloor + "/"
 	case paneTag:
 		return url.PathEscape(p.World) + "/" + paneTag + "/" + url.PathEscape(p.Value)
 	case paneGraph:

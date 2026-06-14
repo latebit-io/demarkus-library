@@ -23,12 +23,15 @@ type fakeReading struct {
 	err      error
 	floor    domain.Floor
 	floorErr error
-	backlink map[string][]domain.Ref // keyed by path; the graph store's reverse edges
-	neighbor map[string]domain.Neighborhood
-	recorded map[string][]domain.Ref // path → links RecordLinks captured
-	called   string
-	calls    []string
-	gotTag   string
+
+	worldMap    domain.WorldMap
+	worldMapErr error
+	backlink    map[string][]domain.Ref // keyed by path; the graph store's reverse edges
+	neighbor    map[string]domain.Neighborhood
+	recorded    map[string][]domain.Ref // path → links RecordLinks captured
+	called      string
+	calls       []string
+	gotTag      string
 }
 
 func (f *fakeReading) record(method, key string) (domain.Document, error) {
@@ -111,6 +114,18 @@ func (f *fakeReading) FloorCached(context.Context) (domain.Floor, error) {
 	return f.floor, f.floorErr
 }
 
+func (f *fakeReading) WorldMap(_ context.Context, _ string) (domain.WorldMap, error) {
+	f.called = "WorldMap"
+	f.calls = append(f.calls, "WorldMap")
+	return f.worldMap, f.worldMapErr
+}
+
+func (f *fakeReading) WorldMapCached(_ context.Context, _ string) (domain.WorldMap, error) {
+	f.called = "WorldMapCached"
+	f.calls = append(f.calls, "WorldMapCached")
+	return f.worldMap, f.worldMapErr
+}
+
 func readingApp(t *testing.T, svc *fakeReading) *echo.Echo {
 	t.Helper()
 	app := echo.New()
@@ -154,6 +169,8 @@ func TestDocRendersMargin(t *testing.T) {
 		"mark://soul.demarkus.io/adr/0007.md",
 		`href="/w/soul.demarkus.io/raw/adr/0007.md"`,
 		`href="/w/soul.demarkus.io/versions/adr/0007.md"`,
+		`href="/w/soul.demarkus.io/g/adr/0007.md">graph`,
+		`href="/w/soul.demarkus.io/u">map`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("doc page missing %q", want)

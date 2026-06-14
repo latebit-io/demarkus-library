@@ -105,6 +105,30 @@ type FloorWorld struct {
 	Portal bool
 }
 
+// WorldCluster is one top-level directory of a world's catalog on the world
+// map (zoom level 2; plans §"Universe-view research"). Dir is the first path
+// segment (the heading "plans/"); Docs are the top-importance documents drawn
+// as labeled nodes; More is how many further docs the dir holds beyond Docs —
+// rendered as a "+N more" aggregate bubble that links to ListPath (the dir's
+// listing pane, the stacks). Dir "" collects the world-root documents.
+type WorldCluster struct {
+	Dir      string
+	Docs     []FloorDoc
+	More     int
+	ListPath string
+}
+
+// WorldMap is one world's catalog zoomed in (ADR 0005 decision 4 — the floor
+// at one zoom in): its documents grouped into directory clusters, plus the
+// intra-world edges among the rendered (labeled) documents. Derived from the
+// same MCP-readable channel the floor uses (mark_lookup "*"), so the projection
+// adds layout, never information.
+type WorldMap struct {
+	World    WorldInfo
+	Clusters []WorldCluster
+	Edges    []Edge
+}
+
 // Floor is the universe view's data: every visible world cluster plus the
 // edges between them (ADR 0005 decision 4 — the floor is pane zero). Derived
 // entirely from MCP-readable channels (decision 11): mark_worlds + per-world

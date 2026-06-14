@@ -91,8 +91,8 @@ func floorSVG(floor domain.Floor, t trail, idx int) template.HTML {
 	return template.HTML(b.String()) //nolint:gosec // built here from escaped parts; node text/attrs all pass html.EscapeString
 }
 
-// floorSystem renders one authorized world: the world node (links to its
-// stacks) plus its top-importance documents as satellites on an orbit ring.
+// floorSystem renders one authorized world: the world node (zooms into the
+// world map) plus its top-importance documents as satellites on an orbit ring.
 func floorSystem(b *strings.Builder, fw domain.FloorWorld, c floorPoint, t trail, idx int) {
 	worldR := 30 + 2*len(fw.Docs)
 	cls := "floor-system"
@@ -101,7 +101,9 @@ func floorSystem(b *strings.Builder, fw domain.FloorWorld, c floorPoint, t trail
 	}
 	fmt.Fprintf(b, `<g class="%s">`, cls)
 
-	worldHref := trailURL(trailAfterClick(t, idx, paneAddr{Kind: paneDoc, World: fw.World.Name, Value: "/"}))
+	// Clicking a world zooms one level in to its map (the world-view zoom
+	// level); the stacks stay one click further via the map's dir aggregates.
+	worldHref := trailURL(trailAfterClick(t, idx, paneAddr{Kind: paneFloor, World: fw.World.Name}))
 	fmt.Fprintf(b, `<a href="%s"><circle class="floor-world" cx="%d" cy="%d" r="%d"/>`,
 		html.EscapeString(worldHref), c.x, c.y, worldR)
 	fmt.Fprintf(b, `<text class="floor-world-label" x="%d" y="%d" text-anchor="middle">%s</text>`,

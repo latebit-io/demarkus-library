@@ -69,6 +69,14 @@ type ReadingService interface {
 	// floor pane is unfocused (the same focused-live policy as documents).
 	Floor(ctx context.Context) (domain.Floor, error)
 	FloorCached(ctx context.Context) (domain.Floor, error)
+
+	// WorldMap assembles the world-view zoom (ADR 0005 decision 4 — the floor
+	// one zoom in): one world's catalog grouped into directory clusters with
+	// the intra-world edges among the rendered documents. Live rebuild;
+	// WorldMapCached serves the last build for an unfocused/parent pane (the
+	// focused-live policy every pane follows).
+	WorldMap(ctx context.Context, world string) (domain.WorldMap, error)
+	WorldMapCached(ctx context.Context, world string) (domain.WorldMap, error)
 }
 
 // WorldGateway is an outbound (driven) port — read from demarkus worlds. The

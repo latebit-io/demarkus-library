@@ -27,6 +27,10 @@ source.
   - the floor: the single segment `u` — the universe view (pane zero), no
     world part because the floor IS the whole universe. `/` redirects to
     `/t/u`.
+  - world map: `<world>/u/` (trailing slash, no value) — the floor zoomed into
+    one world: its catalog as directory clusters, e.g. `root/u/`. The same `u`
+    kind as the floor, distinguished by the world part; clicking a world on the
+    floor opens its map, a directory's aggregate opens that listing.
 - **`~`** — the reserved separator: a path segment that is exactly `~`
   between consecutive pane chunks.
 - **`focus`** — 0-based index of the focused pane (full render + margin +
@@ -74,7 +78,8 @@ Concatenate route tails with `/~/`, set `focus` if not last. Rules:
 
 Split the path after `/t/` on `/~/`; each chunk is `<world>/<kind>/<value>`
 (kind `d` ⇒ document path `/<value>`, kind `g` ⇒ that document's graph
-neighborhood, kind `tags` ⇒ tag page) or the bare `u` floor chunk (a single
-token, no world/kind/value — the universe view). Read the documents over
+neighborhood, kind `u` with a world ⇒ that world's map, kind `tags` ⇒ tag page)
+or the bare `u` floor chunk (a single token, no world/kind/value — the universe
+view). Read the documents over
 mark:// (`mark://<world>/<path>`) in order — that ordered list, plus the focus
 index, is the reader's current context.
