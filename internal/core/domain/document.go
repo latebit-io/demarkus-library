@@ -68,9 +68,16 @@ type Edge struct {
 // WorldInfo is one world of the universe: a mark_worlds row in broker mode,
 // or the home world in single-world QUIC mode. URL is the world's public
 // mark:// address and may be empty — Name remains the addressing primitive.
+//
+// Address is the world's internal dial address (the broker's mark_worlds
+// `address` column): the host:port the broker routes to and the federation
+// agent crawls by, which is therefore how the topology graph keys this world's
+// nodes. The floor uses it to join host-keyed graph edges back to Name. Empty
+// for older brokers / QUIC mode, where URL is the join host instead.
 type WorldInfo struct {
-	Name string
-	URL  string
+	Name    string
+	URL     string
+	Address string
 }
 
 // FloorDoc is one catalogued document rendered on the floor: a world's

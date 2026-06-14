@@ -143,7 +143,13 @@ func parseWorldsTable(text string) []domain.WorldInfo {
 		if len(cells) > 1 {
 			url = strings.TrimSpace(cells[1])
 		}
-		out = append(out, domain.WorldInfo{Name: name, URL: url})
+		// The `address` column (internal dial host) was added after the
+		// original two-column table; tolerate its absence for older brokers.
+		address := ""
+		if len(cells) > 2 {
+			address = strings.TrimSpace(cells[2])
+		}
+		out = append(out, domain.WorldInfo{Name: name, URL: url, Address: address})
 	}
 	return out
 }
