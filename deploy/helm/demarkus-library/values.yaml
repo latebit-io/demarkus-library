@@ -42,6 +42,13 @@ library:
   # Document served at / (DEMARKUS_DEFAULT_DOC).
   defaultDoc: /index.md
 
+  # World whose published topology (the federation agent's graph export at
+  # /graph.md) is the floor's durable universe map — edges + portal nodes
+  # (DEMARKUS_HUB). Empty ⇒ no hub: the floor falls back to mark_worlds +
+  # the per-pod observed-links map. In a knowledge system this is the hub
+  # world (e.g. "root"); in quic mode it defaults to the home world.
+  hub: ""
+
   # Skip TLS verification on direct QUIC dials (DEMARKUS_INSECURE) —
   # quic-mode home world and federation targets alike. Defaults true to
   # match the binary: demarkus worlds commonly run self-signed certs
