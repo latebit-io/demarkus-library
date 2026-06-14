@@ -24,6 +24,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -165,6 +166,79 @@ func (g *Gateway) Lookup(ctx context.Context, world, scope, query, filter string
 		args["filter"] = filter
 	}
 	return g.read(ctx, "mark_lookup", world, scope, args)
+}
+
+// Publish writes a document through mark_publish — the cataloging desk's write
+// path (Phase 3). Metadata travels in the tool's metadata object (never a body
+// fence; ADR 0005 decision 11). on_conflict is "fail" so an expected_version
+// mismatch returns a strict conflict the desk surfaces as a reload prompt
+// (the structural-merge flow is a later slice). Returns the new version.
+func (g *Gateway) Publish(ctx context.Context, world, path, body string, meta domain.PublishMeta, expectedVersion int) (int, error) {
+	token := bearer.FromContext(ctx)
+	if token == "" {
+		return 0, domain.ErrUnauthorized
+	}
+	metadata := map[string]any{}
+	if meta.Title != "" {
+		metadata["title"] = meta.Title
+	}
+	if len(meta.Tags) > 0 {
+		metadata["tags"] = strings.Join(meta.Tags, ",")
+	}
+	if meta.Importance != "" {
+		metadata["importance"] = meta.Importance
+	}
+	args := map[string]any{
+		"url":              markURL(world, path),
+		"body":             body,
+		"expected_version": expectedVersion,
+		"on_conflict":      "fail",
+	}
+	if len(metadata) > 0 {
+		args["metadata"] = metadata
+	}
+
+	text, isToolError, err := g.caller.callTool(ctx, token, "mark_publish", args)
+	if err != nil {
+		if errors.Is(err, transport.ErrUnauthorized) {
+			return 0, domain.ErrUnauthorized
+		}
+		return 0, fmt.Errorf("broker: mark_publish: %w", err)
+	}
+	if isToolError {
+		return 0, mapWriteError(text)
+	}
+	return parsePublishedVersion(text), nil
+}
+
+// mapWriteError maps mark_publish error payloads to domain errors. A version
+// mismatch (the broker's conflict status) becomes ErrConflict so the desk
+// prompts a reload; not-authorized stays ErrUnauthorized.
+func mapWriteError(text string) error {
+	low := strings.ToLower(text)
+	switch {
+	case strings.Contains(low, "conflict") || strings.Contains(low, "expected version") || strings.Contains(low, "version mismatch"):
+		return domain.ErrConflict
+	case strings.Contains(low, "not authorized") || strings.Contains(low, "not permitted"):
+		return domain.ErrUnauthorized
+	default:
+		return errors.New("broker write error: " + text)
+	}
+}
+
+// parsePublishedVersion best-effort reads the new version from the publish
+// result ("version: N" line). The desk re-reads the document live after a
+// publish, so a missed parse (0) is harmless — the re-read carries the truth.
+func parsePublishedVersion(text string) int {
+	for line := range strings.SplitSeq(text, "\n") {
+		line = strings.TrimSpace(line)
+		if rest, ok := strings.CutPrefix(line, "version:"); ok {
+			if v, err := strconv.Atoi(strings.TrimSpace(rest)); err == nil {
+				return v
+			}
+		}
+	}
+	return 0
 }
 
 // read runs one tool call and maps the outcome into the domain.

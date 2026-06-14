@@ -75,6 +75,7 @@ type page struct {
 	MarkURL    string       // canonical protocol address — the escape hatch (decision 12)
 	GraphURL   string       // margin affordance: open this doc's graph neighborhood
 	MapURL     string       // margin affordance: open this world's map (zoom level 2)
+	EditURL    string       // margin affordance: edit this doc (Phase 3); only when authed
 	Backlinks  []backlinkVM // "referenced by" — the observed-links map (R3)
 }
 
@@ -224,6 +225,11 @@ func (h *ReadingHandler) present(c *echo.Context, doc domain.Document, err error
 		// graph affordance point at /w/ permalinks rather than trail URLs.
 		vm.GraphURL = "/w/" + vm.WorldPath + "/g" + doc.Path
 		vm.MapURL = "/w/" + vm.WorldPath + "/u"
+		// Edit affordance only behind the turnstile (writes need an identity);
+		// in tokenless QUIC mode it stays hidden — writes are unsupported there.
+		if vm.Authenticated {
+			vm.EditURL = "/w/" + vm.WorldPath + "/edit" + doc.Path
+		}
 		vm.Backlinks = backlinkLinks(h.reading.Backlinks(opts.world, doc.Path), func(r domain.Ref) string {
 			return docRoute(r.World, r.Path)
 		})
