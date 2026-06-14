@@ -26,12 +26,19 @@ type fakeReading struct {
 
 	worldMap    domain.WorldMap
 	worldMapErr error
-	backlink    map[string][]domain.Ref // keyed by path; the graph store's reverse edges
-	neighbor    map[string]domain.Neighborhood
-	recorded    map[string][]domain.Ref // path → links RecordLinks captured
-	called      string
-	calls       []string
-	gotTag      string
+
+	draft      domain.EditDraft
+	editErr    error
+	publishErr error
+	gotBody    string
+	gotMeta    domain.PublishMeta
+	gotVersion int
+	backlink   map[string][]domain.Ref // keyed by path; the graph store's reverse edges
+	neighbor   map[string]domain.Neighborhood
+	recorded   map[string][]domain.Ref // path → links RecordLinks captured
+	called     string
+	calls      []string
+	gotTag     string
 }
 
 func (f *fakeReading) record(method, key string) (domain.Document, error) {
@@ -124,6 +131,33 @@ func (f *fakeReading) WorldMapCached(_ context.Context, _ string) (domain.WorldM
 	f.called = "WorldMapCached"
 	f.calls = append(f.calls, "WorldMapCached")
 	return f.worldMap, f.worldMapErr
+}
+
+func (f *fakeReading) EditDraft(_ context.Context, _, path string) (domain.EditDraft, error) {
+	f.called = "EditDraft"
+	f.calls = append(f.calls, "EditDraft "+path)
+	if f.editErr != nil {
+		return domain.EditDraft{}, f.editErr
+	}
+	return f.draft, nil
+}
+
+func (f *fakeReading) Preview(markdown string) (domain.Rendered, error) {
+	f.called = "Preview"
+	f.gotBody = markdown
+	return domain.Rendered{HTML: "<p>" + markdown + "</p>"}, nil
+}
+
+func (f *fakeReading) Publish(_ context.Context, _, path, body string, meta domain.PublishMeta, expectedVersion int) (domain.Document, error) {
+	f.called = "Publish"
+	f.calls = append(f.calls, "Publish "+path)
+	f.gotBody = body
+	f.gotMeta = meta
+	f.gotVersion = expectedVersion
+	if f.publishErr != nil {
+		return domain.Document{}, f.publishErr
+	}
+	return f.doc, nil
 }
 
 func readingApp(t *testing.T, svc *fakeReading) *echo.Echo {

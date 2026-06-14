@@ -449,3 +449,52 @@ func TestWorldsEmptyUniverse(t *testing.T) {
 		t.Errorf("got (%v, %v), want (nil, nil)", worlds, err)
 	}
 }
+
+func TestPublishBuildsArgsAndParsesVersion(t *testing.T) {
+	fc := &fakeCaller{text: "status: ok\nversion: 8\n"}
+	g := &Gateway{caller: fc}
+
+	v, err := g.Publish(authedCtx(t), "root", "/adr/7.md", "# body",
+		domain.PublishMeta{Title: "ADR 7", Tags: []string{"adr", "status:accepted"}, Importance: "0.9"}, 7)
+	if err != nil {
+		t.Fatalf("Publish: %v", err)
+	}
+	if v != 8 {
+		t.Errorf("new version = %d, want 8", v)
+	}
+	if fc.gotTool != "mark_publish" || fc.gotToken != "tok-123" {
+		t.Errorf("tool/token = %q/%q", fc.gotTool, fc.gotToken)
+	}
+	if fc.gotArgs["url"] != "mark://root/adr/7.md" || fc.gotArgs["body"] != "# body" {
+		t.Errorf("url/body args = %v / %v", fc.gotArgs["url"], fc.gotArgs["body"])
+	}
+	if fc.gotArgs["expected_version"] != 7 {
+		t.Errorf("expected_version = %v, want 7", fc.gotArgs["expected_version"])
+	}
+	if fc.gotArgs["on_conflict"] != "fail" {
+		t.Errorf("on_conflict = %v, want fail", fc.gotArgs["on_conflict"])
+	}
+	// Metadata travels in the metadata object, never the body.
+	meta, ok := fc.gotArgs["metadata"].(map[string]any)
+	if !ok {
+		t.Fatalf("metadata arg = %T, want map", fc.gotArgs["metadata"])
+	}
+	if meta["title"] != "ADR 7" || meta["tags"] != "adr,status:accepted" || meta["importance"] != "0.9" {
+		t.Errorf("metadata = %v", meta)
+	}
+}
+
+func TestPublishMapsConflict(t *testing.T) {
+	fc := &fakeCaller{text: "expected version 5 but current is 6", isToolErr: true}
+	g := &Gateway{caller: fc}
+	if _, err := g.Publish(authedCtx(t), "root", "/x.md", "b", domain.PublishMeta{}, 5); !errors.Is(err, domain.ErrConflict) {
+		t.Errorf("err = %v, want ErrConflict", err)
+	}
+}
+
+func TestPublishNoBearerIsUnauthorized(t *testing.T) {
+	g := &Gateway{caller: &fakeCaller{}}
+	if _, err := g.Publish(t.Context(), "root", "/x.md", "b", domain.PublishMeta{}, 0); !errors.Is(err, domain.ErrUnauthorized) {
+		t.Errorf("err = %v, want ErrUnauthorized", err)
+	}
+}

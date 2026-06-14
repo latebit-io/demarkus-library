@@ -85,6 +85,17 @@ func (g *Gateway) Lookup(ctx context.Context, w, scope, query, filter string) (d
 	return gw.Lookup(ctx, w, scope, query, filter)
 }
 
+// Publish routes the write to the world's transport (Phase 3): knowledge-system
+// names go to the broker (mark_publish), bare hosts to the QUIC side (which
+// degrades to ErrWriteUnsupported — read-only).
+func (g *Gateway) Publish(ctx context.Context, w, path, body string, meta domain.PublishMeta, expectedVersion int) (int, error) {
+	gw, err := g.route(w)
+	if err != nil {
+		return 0, err
+	}
+	return gw.Publish(ctx, w, path, body, meta, expectedVersion)
+}
+
 // Worlds enumerates the universe: the broker's authorization-filtered list
 // when a name resolver is wired, otherwise the QUIC side's home world.
 func (g *Gateway) Worlds(ctx context.Context) ([]domain.WorldInfo, error) {

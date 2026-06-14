@@ -49,6 +49,7 @@ type paneVM struct {
 	MarkURL    string
 	GraphURL   string       // margin affordance: open this doc's graph pane
 	MapURL     string       // margin affordance: open this world's map (zoom level 2)
+	EditURL    string       // margin affordance: edit this doc (Phase 3); only when authed
 	Backlinks  []backlinkVM // "referenced by" — the observed-links map
 }
 
@@ -110,7 +111,7 @@ func (h *ReadingHandler) Trail(c *echo.Context) error {
 				Title:    paneFallbackTitle(addr),
 			}
 		default:
-			vm.Panes[i] = h.paneView(t, i, addr, doc)
+			vm.Panes[i] = h.paneView(t, i, addr, doc, c.Get(authedKey) != nil)
 		}
 	}
 
@@ -178,7 +179,7 @@ func (h *ReadingHandler) readPane(ctx context.Context, addr paneAddr, live bool)
 // paneView builds one pane's view model: display mode by distance from
 // focus (decision 3), links trail-ized so every href carries its post-click
 // state, margin only where attention is.
-func (h *ReadingHandler) paneView(t trail, i int, addr paneAddr, doc domain.Document) paneVM {
+func (h *ReadingHandler) paneView(t trail, i int, addr paneAddr, doc domain.Document, authed bool) paneVM {
 	focused := i == t.Focus
 
 	mode := "spine"
@@ -228,6 +229,11 @@ func (h *ReadingHandler) paneView(t trail, i int, addr paneAddr, doc domain.Docu
 		vm.MarkURL = "mark://" + addr.World + doc.Path
 		vm.GraphURL = trailURL(trailAfterClick(t, i, paneAddr{Kind: paneGraph, World: addr.World, Value: addr.Value}))
 		vm.MapURL = trailURL(trailAfterClick(t, i, paneAddr{Kind: paneFloor, World: addr.World}))
+		// Edit leaves the canvas into the dedicated editor page (a focused-pane
+		// mode, not a trail chunk); only behind the turnstile.
+		if authed {
+			vm.EditURL = "/w/" + url.PathEscape(addr.World) + "/edit" + addr.Value
+		}
 		vm.Backlinks = backlinkLinks(h.reading.Backlinks(addr.World, addr.Value), func(r domain.Ref) string {
 			return trailURL(trailAfterClick(t, i, paneAddr{Kind: paneDoc, World: r.World, Value: r.Path}))
 		})

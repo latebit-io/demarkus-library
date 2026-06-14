@@ -27,6 +27,9 @@ func (f *fakeGW) Lookup(_ context.Context, world, scope, query, filter string) (
 func (f *fakeGW) Worlds(context.Context) ([]domain.WorldInfo, error) {
 	return []domain.WorldInfo{{Name: f.name}}, nil
 }
+func (f *fakeGW) Publish(_ context.Context, _, _, _ string, _ domain.PublishMeta, _ int) (int, error) {
+	return 0, nil
+}
 
 func TestRouting(t *testing.T) {
 	names := &fakeGW{name: "names"}
