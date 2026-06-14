@@ -16,12 +16,13 @@ import (
 // renderer, and an optional rendered-document cache (nil = uncached; the
 // *Cached methods then read live).
 type ReadingService struct {
-	world    port.WorldGateway
-	renderer port.Renderer
-	cache    port.DocumentCache
-	floor    floorCache
-	graph    linkGraph
-	hub      string // topology-source world (DEMARKUS_HUB); "" disables hub enrichment
+	world     port.WorldGateway
+	renderer  port.Renderer
+	cache     port.DocumentCache
+	floor     floorCache
+	worldMaps worldMapCache
+	graph     linkGraph
+	hub       string // topology-source world (DEMARKUS_HUB); "" disables hub enrichment
 }
 
 // compile-time check that ReadingService satisfies the inbound port.

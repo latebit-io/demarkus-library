@@ -74,6 +74,7 @@ type page struct {
 	Agent      string
 	MarkURL    string       // canonical protocol address — the escape hatch (decision 12)
 	GraphURL   string       // margin affordance: open this doc's graph neighborhood
+	MapURL     string       // margin affordance: open this world's map (zoom level 2)
 	Backlinks  []backlinkVM // "referenced by" — the observed-links map (R3)
 }
 
@@ -222,6 +223,7 @@ func (h *ReadingHandler) present(c *echo.Context, doc domain.Document, err error
 		// The single-doc permalink view is not a trail, so its backlinks and
 		// graph affordance point at /w/ permalinks rather than trail URLs.
 		vm.GraphURL = "/w/" + vm.WorldPath + "/g" + doc.Path
+		vm.MapURL = "/w/" + vm.WorldPath + "/u"
 		vm.Backlinks = backlinkLinks(h.reading.Backlinks(opts.world, doc.Path), func(r domain.Ref) string {
 			return docRoute(r.World, r.Path)
 		})

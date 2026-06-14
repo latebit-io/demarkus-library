@@ -49,8 +49,8 @@ func TestFloorSVGNodesAndLinks(t *testing.T) {
 
 	for _, want := range []string{
 		`class="floor-world"`,
-		// World node click → its stacks, appended to the trail.
-		`href="/t/u/~/team-a/d/"`,
+		// World node click → its map (the world-view zoom), appended to the trail.
+		`href="/t/u/~/team-a/u/"`,
 		// Doc node click → the document pane.
 		`href="/t/u/~/team-a/d/index.md"`,
 		`class="floor-doc status-accepted"`,

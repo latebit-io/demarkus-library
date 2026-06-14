@@ -48,6 +48,7 @@ type paneVM struct {
 	Agent      string
 	MarkURL    string
 	GraphURL   string       // margin affordance: open this doc's graph pane
+	MapURL     string       // margin affordance: open this world's map (zoom level 2)
 	Backlinks  []backlinkVM // "referenced by" — the observed-links map
 }
 
@@ -66,13 +67,23 @@ func (h *ReadingHandler) Trail(c *echo.Context) error {
 	for i, addr := range t.Panes {
 		focused := i == t.Focus
 		if addr.Kind == paneFloor {
-			pane, err := h.floorPaneView(ctx, t, i)
+			// Bare "u" is the universe floor; "<world>/u/" is that world's map
+			// (the same component one zoom in).
+			var pane paneVM
+			var err error
+			scope := "universe"
+			if addr.World == "" {
+				pane, err = h.floorPaneView(ctx, t, i)
+			} else {
+				scope = addr.World
+				pane, err = h.worldMapPaneView(ctx, t, i, addr)
+			}
 			if err != nil {
 				if focused {
-					return presentError(c, err, "universe", "/")
+					return presentError(c, err, scope, "/")
 				}
 				vm.Panes[i] = paneVM{Mode: "spine", Kind: paneFloor, Gone: true,
-					FocusURL: trailURL(trailFocused(t, i)), Title: "Universe"}
+					FocusURL: trailURL(trailFocused(t, i)), Title: floorSpineTitle(addr)}
 				continue
 			}
 			vm.Panes[i] = pane
@@ -216,6 +227,7 @@ func (h *ReadingHandler) paneView(t trail, i int, addr paneAddr, doc domain.Docu
 		vm.Agent = doc.Agent
 		vm.MarkURL = "mark://" + addr.World + doc.Path
 		vm.GraphURL = trailURL(trailAfterClick(t, i, paneAddr{Kind: paneGraph, World: addr.World, Value: addr.Value}))
+		vm.MapURL = trailURL(trailAfterClick(t, i, paneAddr{Kind: paneFloor, World: addr.World}))
 		vm.Backlinks = backlinkLinks(h.reading.Backlinks(addr.World, addr.Value), func(r domain.Ref) string {
 			return trailURL(trailAfterClick(t, i, paneAddr{Kind: paneDoc, World: r.World, Value: r.Path}))
 		})

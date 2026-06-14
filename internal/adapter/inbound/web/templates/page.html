@@ -168,6 +168,10 @@
     .floor-edge { stroke: var(--faint); stroke-width: 1.5; }
     .floor-portal-node { fill: var(--paper); stroke: var(--muted);
                          stroke-width: 1.5; stroke-dasharray: 3 2; }
+    /* World map (zoom level 2): the "+N more" aggregate bubble opens a dir's
+       listing pane. Directory hubs reuse .floor-world; docs reuse .floor-doc. */
+    .world-map-more { fill: var(--faint); stroke: var(--muted); stroke-width: 1.5; }
+    .world-map .floor-doc-label { fill: var(--ink); }
 
     /* ── Backlinks: the observed-links map made visible (R3). Last margin
           block; empty ⇒ absent (decision 8). ────────────────────────── */
