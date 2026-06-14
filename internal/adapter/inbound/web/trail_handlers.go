@@ -50,6 +50,7 @@ type paneVM struct {
 	GraphURL   string       // margin affordance: open this doc's graph pane
 	MapURL     string       // margin affordance: open this world's map (zoom level 2)
 	EditURL    string       // margin affordance: edit this doc (Phase 3); only when authed
+	NewURL     string       // margin affordance: create a doc in this folder (Phase 3); only when authed
 	Backlinks  []backlinkVM // "referenced by" — the observed-links map
 }
 
@@ -233,6 +234,7 @@ func (h *ReadingHandler) paneView(t trail, i int, addr paneAddr, doc domain.Docu
 		// mode, not a trail chunk); only behind the turnstile.
 		if authed {
 			vm.EditURL = "/w/" + url.PathEscape(addr.World) + "/edit" + addr.Value
+			vm.NewURL = "/w/" + url.PathEscape(addr.World) + "/new?dir=" + url.QueryEscape(dirOf(addr.Value))
 		}
 		vm.Backlinks = backlinkLinks(h.reading.Backlinks(addr.World, addr.Value), func(r domain.Ref) string {
 			return trailURL(trailAfterClick(t, i, paneAddr{Kind: paneDoc, World: r.World, Value: r.Path}))
