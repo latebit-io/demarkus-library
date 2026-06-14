@@ -168,6 +168,9 @@ func editErrorStatus(err error) int {
 	case errors.Is(err, domain.ErrNotFound):
 		return http.StatusNotFound
 	default:
-		return http.StatusOK
+		// An unmapped write error is an unexpected backend failure, not a
+		// success — fall back to 502 (matching presentError), while still
+		// re-rendering the form so the reader's text is preserved.
+		return http.StatusBadGateway
 	}
 }

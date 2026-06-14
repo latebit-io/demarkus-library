@@ -1,6 +1,7 @@
 package web
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -131,6 +132,18 @@ func TestSaveEditNotFoundMaps404(t *testing.T) {
 	rec := postForm(authedApp(t, svc), "/w/root/edit/x.md", form)
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want 404 (ErrNotFound)", rec.Code)
+	}
+}
+
+func TestSaveEditUnknownErrorMaps502(t *testing.T) {
+	svc := &fakeReading{publishErr: errors.New("broker exploded")}
+	form := url.Values{"version": {"2"}, "body": {"# keep me"}}
+	rec := postForm(authedApp(t, svc), "/w/root/edit/x.md", form)
+	if rec.Code != http.StatusBadGateway {
+		t.Errorf("status = %d, want 502 (unmapped error)", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "keep me") {
+		t.Errorf("submitted body must be preserved on an unexpected error")
 	}
 }
 
