@@ -38,6 +38,7 @@
         {{- if .GraphURL }} · <a href="{{ .GraphURL }}">graph</a>{{ end }}
         {{- if .MapURL }} · <a href="{{ .MapURL }}">map</a>{{ end }}
         {{- if .EditURL }} · <a href="{{ .EditURL }}" hx-boost="false" class="edit-link">edit</a>{{ end }}
+        {{- if .NewURL }} · <a href="{{ .NewURL }}" hx-boost="false" class="edit-link">new</a>{{ end }}
       </div>
 </div>{{end}}
 

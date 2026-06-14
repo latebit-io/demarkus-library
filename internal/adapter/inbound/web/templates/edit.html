@@ -6,22 +6,35 @@
   <main id="main">
     <div class="edit-pane">
       <header class="doc">
+        {{- if .Create }}
+        <div class="meta"><code>mark://{{ .World }}/</code> · new document</div>
+        <h1>New document in {{ .World }}</h1>
+        {{- else }}
         <div class="meta"><code>mark://{{ .World }}{{ .Path }}</code> · edition {{ .Version }}</div>
         <h1>Edit {{ .Path }}</h1>
+        {{- end }}
       </header>
 
       {{- if .Error }}
       <p class="edit-error" role="alert">{{ .Error }}</p>
       {{- end }}
 
-      <!-- Real POST (hx-boost off): save redirects back to the document.
+      <!-- Real POST (hx-boost off): save/create redirects to the document.
            Metadata rides dedicated fields → the mark_publish metadata object,
            never a body frontmatter fence (ADR 0005 decision 11). -->
       <form class="edit-form" method="post"
-            action="/w/{{ .WorldPath }}/edit{{ .Path }}" hx-boost="false">
+            action="/w/{{ .WorldPath }}/{{ if .Create }}new{{ else }}edit{{ .Path }}{{ end }}" hx-boost="false">
+        {{- if not .Create }}
         <input type="hidden" name="version" value="{{ .Version }}">
+        {{- end }}
 
         <div class="edit-meta">
+          {{- if .Create }}
+          <label>path
+            <input type="text" name="path" value="{{ .Path }}" required
+                   placeholder="/notes/idea.md">
+          </label>
+          {{- end }}
           <label>title
             <input type="text" name="title" value="{{ .DocTitle }}"
                    placeholder="document title">
@@ -55,9 +68,9 @@
         </div>
 
         <div class="edit-actions">
-          <button type="submit" class="edit-save">save</button>
-          <a class="edit-cancel" href="/w/{{ .WorldPath }}/d{{ .Path }}"
-             hx-boost="false">cancel</a>
+          <button type="submit" class="edit-save">{{ if .Create }}create{{ else }}save{{ end }}</button>
+          <a class="edit-cancel" hx-boost="false"
+             href="/w/{{ .WorldPath }}/{{ if .Create }}u{{ else }}d{{ .Path }}{{ end }}">cancel</a>
         </div>
       </form>
     </div>
