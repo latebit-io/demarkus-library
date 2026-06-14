@@ -87,6 +87,13 @@ func (g *Gateway) Worlds(_ context.Context) ([]domain.WorldInfo, error) {
 	return []domain.WorldInfo{{Name: g.home, URL: "mark://" + g.home}}, nil
 }
 
+// Publish has no path on this adapter: the library's QUIC fetch client is
+// read-only (no write token wired), so writes degrade honestly rather than
+// silently failing (Phase 3; broker-mode worlds write through mark_publish).
+func (g *Gateway) Publish(_ context.Context, _, _, _ string, _ domain.PublishMeta, _ int) (int, error) {
+	return 0, domain.ErrWriteUnsupported
+}
+
 // tokenFor scopes the read token to the home host. Any other host in the
 // distributed graph gets an anonymous read — public documents only.
 func (g *Gateway) tokenFor(host string) string {

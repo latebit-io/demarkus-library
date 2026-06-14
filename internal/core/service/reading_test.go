@@ -20,6 +20,9 @@ type fakeGateway struct {
 	worlds    []domain.WorldInfo
 	worldsErr error
 	fetchBody map[string]string // path → body for Fetch (e.g. the hub /graph.md); falls back to raw
+
+	publishVersion int
+	publishErr     error
 }
 
 func (f fakeGateway) record(name string) {
@@ -53,6 +56,10 @@ func (f fakeGateway) Lookup(_ context.Context, _, _, _, filter string) (domain.R
 func (f fakeGateway) Worlds(context.Context) ([]domain.WorldInfo, error) {
 	f.record("Worlds")
 	return f.worlds, f.worldsErr
+}
+func (f fakeGateway) Publish(_ context.Context, _, _, _ string, _ domain.PublishMeta, _ int) (int, error) {
+	f.record("Publish")
+	return f.publishVersion, f.publishErr
 }
 
 type fakeRenderer struct {

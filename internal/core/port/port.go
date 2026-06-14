@@ -77,6 +77,20 @@ type ReadingService interface {
 	// focused-live policy every pane follows).
 	WorldMap(ctx context.Context, world string) (domain.WorldMap, error)
 	WorldMapCached(ctx context.Context, world string) (domain.WorldMap, error)
+
+	// EditDraft fetches the source view for the cataloging desk's edit form
+	// (Phase 3): the document's raw markdown plus its current metadata and
+	// version, so the editor pre-fills exactly what the catalog holds.
+	EditDraft(ctx context.Context, world, path string) (domain.EditDraft, error)
+	// Preview renders edit-buffer markdown to sanitized HTML for the desk's
+	// live preview — the same renderer the reader uses, so what you see is what
+	// publishes. No fetch, no write.
+	Preview(markdown string) (domain.Rendered, error)
+	// Publish writes the document at (world, path) and returns the re-read,
+	// display-ready result (focused-live: the write refreshes the cache).
+	// expectedVersion guards the write (0 to create); a mismatch is
+	// domain.ErrConflict.
+	Publish(ctx context.Context, world, path, body string, meta domain.PublishMeta, expectedVersion int) (domain.Document, error)
 }
 
 // WorldGateway is an outbound (driven) port — read from demarkus worlds. The
@@ -100,6 +114,14 @@ type WorldGateway interface {
 	// QUIC. The non-brokered universe is extensional — one world — so an
 	// empty or single-element answer is correct there, not degraded.
 	Worlds(ctx context.Context) ([]domain.WorldInfo, error)
+
+	// Publish writes (creates or updates) the document at (world, path) — the
+	// cataloging desk's write path (Phase 3), over mark_publish in broker mode.
+	// body is pure markdown; meta is the out-of-band metadata (never a body
+	// fence). expectedVersion guards the write (0 to create); a mismatch returns
+	// domain.ErrConflict. Gateways with no write path (direct QUIC, no write
+	// token) return domain.ErrWriteUnsupported. Returns the new version.
+	Publish(ctx context.Context, world, path, body string, meta domain.PublishMeta, expectedVersion int) (int, error)
 }
 
 // Renderer is an outbound (driven) port — markdown to sanitized HTML plus

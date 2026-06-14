@@ -13,6 +13,41 @@ var ErrNotFound = errors.New("document not found")
 // not-permitted). Phase 1 turns this into an OAuth challenge.
 var ErrUnauthorized = errors.New("not authorized to read document")
 
+// ErrConflict means a write's expected_version no longer matches the world's
+// current version — the document changed since the editor opened it (Phase 3
+// cataloging desk). The reader reloads and reapplies rather than overwriting.
+var ErrConflict = errors.New("document changed since it was opened")
+
+// ErrWriteUnsupported means the gateway has no write path for this world — a
+// direct QUIC world reached without a write token (Phase 3). Broker-mode worlds
+// write through mark_publish; this keeps the read-only degradation honest.
+var ErrWriteUnsupported = errors.New("writing not supported for this world")
+
+// PublishMeta is the out-of-band metadata a write carries (ADR 0005 decision
+// 11; the demarkus metadata channel). It maps to mark_publish's metadata object
+// — never a body frontmatter fence. Status rides Tags as the status: axis, so
+// it is not a separate field here. Importance is the raw 0–1 string (empty ⇒
+// omitted) so the editor round-trips exactly what the catalog holds.
+type PublishMeta struct {
+	Title      string
+	Tags       []string
+	Importance string
+}
+
+// EditDraft is the source view the cataloging desk edits: a document's raw
+// markdown body plus its current out-of-band metadata and version, fetched to
+// pre-fill the edit form. Version guards the write (expected_version); Status is
+// split out of Tags for the form's status picker.
+type EditDraft struct {
+	Path       string
+	Body       string
+	Title      string
+	Tags       []string // ordinary tags, status: axis removed
+	Importance string
+	Status     string
+	Version    int
+}
+
 // RawDocument is a document as fetched from a world, before rendering.
 type RawDocument struct {
 	Source   string            // world identity, e.g. host:port
