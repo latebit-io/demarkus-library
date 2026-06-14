@@ -165,6 +165,8 @@ func editErrorStatus(err error) int {
 		return http.StatusConflict
 	case errors.Is(err, domain.ErrUnauthorized):
 		return http.StatusUnauthorized
+	case errors.Is(err, domain.ErrNotFound):
+		return http.StatusNotFound
 	default:
 		return http.StatusOK
 	}

@@ -125,6 +125,15 @@ func TestSaveEditRejectsMalformedVersion(t *testing.T) {
 	}
 }
 
+func TestSaveEditNotFoundMaps404(t *testing.T) {
+	svc := &fakeReading{publishErr: domain.ErrNotFound}
+	form := url.Values{"version": {"2"}, "body": {"# gone"}}
+	rec := postForm(authedApp(t, svc), "/w/root/edit/x.md", form)
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404 (ErrNotFound)", rec.Code)
+	}
+}
+
 func TestEditPreviewRendersFragment(t *testing.T) {
 	svc := &fakeReading{}
 	rec := postForm(authedApp(t, svc), "/w/root/preview", url.Values{"body": {"hello"}})
