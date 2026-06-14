@@ -84,7 +84,14 @@ func (h *ReadingHandler) EditPreview(c *echo.Context) error {
 func (h *ReadingHandler) SaveEdit(c *echo.Context) error {
 	world := c.Param("world")
 	p := "/" + c.Param("*")
-	version, _ := strconv.Atoi(c.FormValue("version"))
+	// version is the hidden field the edit form rendered from EditDraft, so a
+	// non-integer here is a bug or a tampered request — reject it rather than
+	// letting it default to 0 (the create sentinel), which would bypass the
+	// conflict guard on an existing document.
+	version, err := strconv.Atoi(c.FormValue("version"))
+	if err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid version")
+	}
 	body := c.FormValue("body")
 	meta := domain.PublishMeta{
 		Title:      strings.TrimSpace(c.FormValue("title")),
@@ -92,7 +99,7 @@ func (h *ReadingHandler) SaveEdit(c *echo.Context) error {
 		Importance: strings.TrimSpace(c.FormValue("importance")),
 	}
 
-	_, err := h.reading.Publish(c.Request().Context(), world, p, body, meta, version)
+	_, err = h.reading.Publish(c.Request().Context(), world, p, body, meta, version)
 	if err == nil {
 		// Real POST (the form opts out of hx-boost), so a 303 is a normal
 		// browser redirect back to the freshly written document.

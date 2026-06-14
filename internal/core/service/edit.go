@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -23,7 +24,13 @@ func (s *ReadingService) EditDraft(ctx context.Context, world, path string) (dom
 		return domain.EditDraft{}, err
 	}
 	ordinary, status := splitStatusAxis(splitTags(raw.Metadata["tags"]))
-	version, _ := strconv.Atoi(strings.TrimSpace(raw.Metadata["version"]))
+	// A fetched existing document always carries a version; if it can't be read
+	// we refuse the draft rather than silently using 0 (the create sentinel),
+	// which would bypass the conflict guard on save (don't swallow the error).
+	version, err := strconv.Atoi(strings.TrimSpace(raw.Metadata["version"]))
+	if err != nil {
+		return domain.EditDraft{}, fmt.Errorf("edit draft %q: unreadable version metadata %q: %w", path, raw.Metadata["version"], err)
+	}
 	return domain.EditDraft{
 		Path:       raw.Path,
 		Body:       raw.Body,

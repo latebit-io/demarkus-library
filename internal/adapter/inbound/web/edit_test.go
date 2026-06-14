@@ -113,6 +113,18 @@ func TestSaveEditConflictReRendersWithBanner(t *testing.T) {
 	}
 }
 
+func TestSaveEditRejectsMalformedVersion(t *testing.T) {
+	svc := &fakeReading{}
+	form := url.Values{"version": {"not-a-number"}, "body": {"# x"}}
+	rec := postForm(authedApp(t, svc), "/w/root/edit/x.md", form)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+	if svc.called == "Publish" {
+		t.Errorf("must not publish with an unparseable version")
+	}
+}
+
 func TestEditPreviewRendersFragment(t *testing.T) {
 	svc := &fakeReading{}
 	rec := postForm(authedApp(t, svc), "/w/root/preview", url.Values{"body": {"hello"}})

@@ -36,6 +36,19 @@ func TestEditDraftSplitsMetadataAndVersion(t *testing.T) {
 	}
 }
 
+func TestEditDraftRejectsUnreadableVersion(t *testing.T) {
+	// A fetched doc with missing/malformed version must error, not silently
+	// become version 0 (the create sentinel) and bypass the conflict guard.
+	for _, bad := range []string{"", "nope"} {
+		gw := fakeGateway{raw: domain.RawDocument{
+			Path: "/x.md", Body: "# X", Metadata: map[string]string{"version": bad},
+		}}
+		if _, err := NewReadingService(gw, fakeRenderer{}, nil).EditDraft(t.Context(), "root", "/x.md"); err == nil {
+			t.Errorf("version %q: EditDraft accepted, want error", bad)
+		}
+	}
+}
+
 func TestPublishWritesThenRereadsLive(t *testing.T) {
 	called := ""
 	gw := fakeGateway{
