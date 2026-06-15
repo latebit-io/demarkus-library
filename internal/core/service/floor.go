@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
 )
@@ -16,12 +17,31 @@ import (
 // tagging conventions) as labeled satellites.
 const floorSatellites = 10
 
+// floorTTL bounds how long a freshly built floor is reused before a focused
+// rebuild. The floor is the heaviest read in the room — it fans out a world
+// list + a per-world catalog lookup + the hub graph fetch, several broker
+// requests that the per-subject rate budget is not sized for — and the
+// focused-live policy would otherwise rebuild it on every focus and every
+// refresh. A short window collapses repeated views to one rebuild while
+// keeping worlds/topology current (they move on the order of minutes; the
+// agent re-crawls hourly).
+const floorTTL = 30 * time.Second
+
 // floorCache holds the last assembled floor. One universe per deployment,
-// so a single slot under a mutex — the focused-live policy decides when it
-// refreshes, the cache only remembers.
+// so a single slot under a mutex — getFresh gates the focused rebuild on
+// floorTTL, get always returns the last value (the stale-fallback path).
 type floorCache struct {
-	mu    sync.Mutex
-	floor *domain.Floor
+	mu       sync.Mutex
+	floor    *domain.Floor
+	storedAt time.Time
+	now      func() time.Time // nil ⇒ time.Now (overridable in tests)
+}
+
+func (f *floorCache) clockNow() time.Time {
+	if f.now != nil {
+		return f.now()
+	}
+	return time.Now()
 }
 
 func (f *floorCache) get() (domain.Floor, bool) {
@@ -33,19 +53,56 @@ func (f *floorCache) get() (domain.Floor, bool) {
 	return *f.floor, true
 }
 
+// getFresh returns the cached floor only when it is younger than ttl — the
+// focused path skips its broker fan-out within the window.
+func (f *floorCache) getFresh(ttl time.Duration) (domain.Floor, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.floor == nil || f.clockNow().Sub(f.storedAt) >= ttl {
+		return domain.Floor{}, false
+	}
+	return *f.floor, true
+}
+
 func (f *floorCache) put(floor domain.Floor) {
 	f.mu.Lock()
 	f.floor = &floor
+	f.storedAt = f.clockNow()
 	f.mu.Unlock()
 }
 
-// Floor assembles the universe view's data live: the gateway's world list
+// Floor returns the universe view, rebuilding live only when the cached floor
+// has aged past floorTTL. The focused-live policy still applies — a focused
+// floor is "live" — but live here means "no older than the TTL window," which
+// keeps the floor's heavy broker fan-out from firing on every focus/refresh
+// and overrunning the per-subject rate budget. A transient gateway failure
+// (a rate-limit blip, a flapping world) falls back to the last-good floor
+// rather than erroring the whole page; ErrUnauthorized is exempt — the
+// reader's identity dying must surface as a re-login, never a stale render.
+func (s *ReadingService) Floor(ctx context.Context) (domain.Floor, error) {
+	if floor, ok := s.floor.getFresh(floorTTL); ok {
+		return floor, nil
+	}
+	floor, err := s.buildFloor(ctx)
+	if err != nil {
+		if !errors.Is(err, domain.ErrUnauthorized) {
+			if stale, ok := s.floor.get(); ok {
+				return stale, nil
+			}
+		}
+		return domain.Floor{}, err
+	}
+	s.floor.put(floor)
+	return floor, nil
+}
+
+// buildFloor assembles the universe view's data live: the gateway's world list
 // (mark_worlds in broker mode — the permission mask; the home world over
 // QUIC), then each world's whole-catalog lookup ("*", importance order). A
 // world whose catalog read fails still appears, satellite-less and marked
 // (an old server that rejects match-all, an unreachable world): on the
 // floor, absence would read as nonexistence.
-func (s *ReadingService) Floor(ctx context.Context) (domain.Floor, error) {
+func (s *ReadingService) buildFloor(ctx context.Context) (domain.Floor, error) {
 	worlds, err := s.world.Worlds(ctx)
 	if err != nil {
 		return domain.Floor{}, err
@@ -100,7 +157,6 @@ func (s *ReadingService) Floor(ctx context.Context) (domain.Floor, error) {
 		})
 	}
 
-	s.floor.put(floor)
 	return floor, nil
 }
 
