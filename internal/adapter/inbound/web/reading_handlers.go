@@ -62,6 +62,7 @@ type page struct {
 	World         string        // current world (display)
 	WorldPath     string        // current world, path-escaped for URL building
 	Authenticated bool          // behind the turnstile (broker mode) — shows sign-out
+	User          string        // signed-in identity's email for the nav (empty ⇒ not shown)
 
 	// The margin (documents only — listings and catalog views render
 	// without one; an empty margin is correct, ADR 0005 decision 8).
@@ -214,6 +215,7 @@ func (h *ReadingHandler) present(c *echo.Context, doc domain.Document, err error
 		World:         opts.world,
 		WorldPath:     url.PathEscape(opts.world),
 		Authenticated: c.Get(authedKey) != nil, // set by RequireSession in broker mode
+		User:          userEmail(c),
 	}
 	if opts.doc {
 		vm.IsDoc = true

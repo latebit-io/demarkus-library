@@ -21,6 +21,7 @@ type canvasVM struct {
 	Title         string // focused pane's title (the <title>)
 	World         string // focused pane's world (nav context)
 	Authenticated bool
+	User          string // signed-in identity's email for the nav (empty ⇒ not shown)
 	Panes         []paneVM
 	Reader        *paneVM // the reader overlay (R4); nil when closed
 	CloseURL      string  // ✕ / backdrop / Esc target: the bare trail (no overlay)
@@ -69,6 +70,7 @@ func (h *ReadingHandler) Trail(c *echo.Context) error {
 
 	vm := canvasVM{
 		Authenticated: authed,
+		User:          userEmail(c),
 		Panes:         make([]paneVM, len(t.Panes)),
 	}
 	// The reader overlay (R4) is a lens over whichever pane ?reader= names —

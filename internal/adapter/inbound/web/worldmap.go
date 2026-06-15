@@ -52,6 +52,7 @@ func (h *ReadingHandler) WorldMapPage(c *echo.Context) error {
 		World:         world,
 		WorldPath:     url.PathEscape(world),
 		Authenticated: c.Get(authedKey) != nil,
+		User:          userEmail(c),
 	}
 	return c.Render(http.StatusOK, h.templateFor(c), vm)
 }

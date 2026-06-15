@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -300,6 +301,24 @@ func TestSanitizeReturnTo(t *testing.T) {
 	for _, tc := range cases {
 		if got := sanitizeReturnTo(tc.in); got != tc.want {
 			t.Errorf("sanitizeReturnTo(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestEmailFromIDToken(t *testing.T) {
+	payload := base64.RawURLEncoding.EncodeToString([]byte(`{"email":"fritz@latebit.io","sub":"x"}`))
+	if got := emailFromIDToken("h." + payload + ".sig"); got != "fritz@latebit.io" {
+		t.Errorf("emailFromIDToken = %q, want fritz@latebit.io", got)
+	}
+	// Display-only: malformed or email-less tokens yield "" and never error.
+	for _, bad := range []string{
+		"",
+		"not-a-jwt",
+		"h.@@@bad-base64@@@.s",
+		"h." + base64.RawURLEncoding.EncodeToString([]byte(`{"sub":"x"}`)) + ".s",
+	} {
+		if got := emailFromIDToken(bad); got != "" {
+			t.Errorf("emailFromIDToken(%q) = %q, want empty", bad, got)
 		}
 	}
 }

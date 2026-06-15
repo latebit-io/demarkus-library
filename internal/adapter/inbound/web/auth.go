@@ -2,6 +2,8 @@ package web
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -19,6 +21,41 @@ const sessionCookie = "demarkus_library_session"
 // authedKey marks a request that passed the turnstile, so templates can show
 // the sign-out affordance without the handlers knowing about auth.
 const authedKey = "web.authenticated"
+
+// userEmailKey carries the signed-in identity's email for the nav's "signed in
+// as" label, so a reader can see which account they're on (Workspace SSO
+// silently picks the browser's default account — easy to be on the wrong one).
+const userEmailKey = "web.user-email"
+
+// userEmail returns the signed-in identity's email for the current request, or
+// "" when absent (unauthenticated, or the id_token carried no email claim).
+func userEmail(c *echo.Context) string {
+	if v, ok := c.Get(userEmailKey).(string); ok {
+		return v
+	}
+	return ""
+}
+
+// emailFromIDToken reads the email claim from a JWT id_token for display only.
+// The broker already verified the token when it minted it; this does NOT
+// re-verify — it base64url-decodes the payload to surface the email in the nav.
+func emailFromIDToken(token string) string {
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return ""
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return ""
+	}
+	var claims struct {
+		Email string `json:"email"`
+	}
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		return ""
+	}
+	return claims.Email
+}
 
 // LoginFlow is the slice of the broker OAuth dance the web adapter drives.
 // The composition root implements it over the oauth adapter; the web package
@@ -57,6 +94,9 @@ func RequireSession(mgr *session.Manager) echo.MiddlewareFunc {
 			switch {
 			case err == nil:
 				c.Set(authedKey, true)
+				if email := emailFromIDToken(token); email != "" {
+					c.Set(userEmailKey, email)
+				}
 				r := c.Request()
 				c.SetRequest(r.WithContext(bearer.WithToken(r.Context(), token)))
 				return next(c)
