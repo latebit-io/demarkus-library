@@ -3,7 +3,7 @@
   {{- if .Gone }}<span class="status">gone</span>
   {{- else if .Status }}<span class="status status-{{ .Status }}">{{ .Status }}</span>{{ end }}
 </a>{{else}}<section class="pane {{ .Mode }}">
-  <header class="pane-head"><a href="{{ .FocusURL }}"><code>{{ .World }}{{ .Path }}</code></a></header>
+  <header class="pane-head"><a href="{{ .FocusURL }}"><code>{{ .World }}{{ .Path }}</code></a>{{if .ReaderURL}} <a class="reader-link" href="{{ .ReaderURL }}">reader</a>{{end}}</header>
   <div class="pane-cols">
     <article class="doc-body">
       <h1>{{ .Title }}</h1>
@@ -31,5 +31,30 @@
     {{template "pane" .}}
     {{- end }}
   </main>
+  {{- if .Reader }}
+  {{template "reader" .}}
+  {{- end }}
 </body>
 </html>{{end}}
+
+{{/* The reader overlay (R4): a focus lens over the dimmed trail — the same
+     doc-body + margin as the focused pane, centered. URL state (?reader=i);
+     the scrim and ✕ are <a> links back to the bare trail, so Back, the ✕, a
+     backdrop click, and Esc (islands.js) all close it. SSR + CSS only. */}}
+{{define "reader"}}<div class="reader-backdrop">
+  <a class="reader-scrim" href="{{ .CloseURL }}" aria-label="Close reader"></a>
+  <div class="reader-panel" role="dialog" aria-modal="true" aria-label="Reader">
+    <a class="reader-close" href="{{ .CloseURL }}" title="Close (Esc)" aria-label="Close reader">✕</a>
+    <div class="pane-cols">
+      <article class="doc-body">
+        <h1>{{ .Reader.Title }}</h1>
+        {{ .Reader.Content }}
+      </article>
+      {{- if .Reader.HasMargin }}
+      <aside class="doc-margin">
+        {{template "doc-meta" .Reader}}
+      </aside>
+      {{- end }}
+    </div>
+  </div>
+</div>{{end}}

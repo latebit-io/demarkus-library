@@ -73,6 +73,7 @@ type page struct {
 	Version    string
 	Agent      string
 	MarkURL    string       // canonical protocol address — the escape hatch (decision 12)
+	ReaderURL  string       // unused on the single-doc permalink (reader mode is a trail lens); kept so doc-meta renders for both VMs
 	GraphURL   string       // margin affordance: open this doc's graph neighborhood
 	MapURL     string       // margin affordance: open this world's map (zoom level 2)
 	EditURL    string       // margin affordance: edit this doc (Phase 3); only when authed

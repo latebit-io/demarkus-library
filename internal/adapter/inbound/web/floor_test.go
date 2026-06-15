@@ -20,7 +20,7 @@ func testFloor() domain.Floor {
 }
 
 func TestFloorChunkRoundTrip(t *testing.T) {
-	tr, err := parseTrail("u", "")
+	tr, err := parseTrail("u", "", "")
 	if err != nil {
 		t.Fatalf("parseTrail(u): %v", err)
 	}
@@ -31,7 +31,7 @@ func TestFloorChunkRoundTrip(t *testing.T) {
 		t.Errorf("trailURL = %q", got)
 	}
 	// Floor + doc trail round-trips too.
-	tr2, err := parseTrail("u/~/w.io/d/x.md", "0")
+	tr2, err := parseTrail("u/~/w.io/d/x.md", "0", "")
 	if err != nil {
 		t.Fatalf("parseTrail: %v", err)
 	}

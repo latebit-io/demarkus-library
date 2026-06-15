@@ -22,6 +22,8 @@ type canvasVM struct {
 	World         string // focused pane's world (nav context)
 	Authenticated bool
 	Panes         []paneVM
+	Reader        *paneVM // the reader overlay (R4); nil when closed
+	CloseURL      string  // ✕ / backdrop / Esc target: the bare trail (no overlay)
 }
 
 // paneVM is one pane on the canvas. The margin fields mirror the page VM so
@@ -47,6 +49,7 @@ type paneVM struct {
 	Version    string
 	Agent      string
 	MarkURL    string
+	ReaderURL  string       // header/margin affordance: open this pane in the reader overlay (R4)
 	GraphURL   string       // margin affordance: open this doc's graph pane
 	MapURL     string       // margin affordance: open this world's map (zoom level 2)
 	EditURL    string       // margin affordance: edit this doc (Phase 3); only when authed
@@ -57,16 +60,23 @@ type paneVM struct {
 
 // Trail renders the canvas for the trail encoded at /t/*.
 func (h *ReadingHandler) Trail(c *echo.Context) error {
-	t, err := parseTrail(c.Param("*"), c.QueryParam("focus"))
+	t, err := parseTrail(c.Param("*"), c.QueryParam("focus"), c.QueryParam("reader"))
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "malformed trail")
 	}
 	ctx := c.Request().Context()
+	authed := c.Get(authedKey) != nil
 
 	vm := canvasVM{
-		Authenticated: c.Get(authedKey) != nil,
+		Authenticated: authed,
 		Panes:         make([]paneVM, len(t.Panes)),
 	}
+	// The reader overlay (R4) reuses the focused pane's live document, so a
+	// valid ?reader= forces Focus onto that pane (parseTrail) — capture the
+	// fetched doc here to render the overlay without a second world read.
+	var focusedDoc domain.Document
+	var focusedAddr paneAddr
+	var haveFocusedDoc bool
 	for i, addr := range t.Panes {
 		focused := i == t.Focus
 		if addr.Kind == paneFloor {
@@ -113,13 +123,26 @@ func (h *ReadingHandler) Trail(c *echo.Context) error {
 				Title:    paneFallbackTitle(addr),
 			}
 		default:
-			vm.Panes[i] = h.paneView(t, i, addr, doc, c.Get(authedKey) != nil)
+			if focused {
+				focusedDoc, focusedAddr, haveFocusedDoc = doc, addr, true
+			}
+			vm.Panes[i] = h.paneView(t, i, addr, doc, authed, false)
 		}
 	}
 
 	focusedPane := vm.Panes[t.Focus]
 	vm.Title = focusedPane.Title
 	vm.World = focusedPane.World
+
+	// The reader overlay reuses the focused pane's already-fetched document —
+	// no extra world read (the overlay is pure presentation). Its body links
+	// persist the overlay (reader=true); ✕/backdrop/Esc close to the bare
+	// trail, focus left on the pane just read.
+	if t.Reader >= 0 && haveFocusedDoc {
+		rp := h.paneView(t, t.Reader, focusedAddr, focusedDoc, authed, true)
+		vm.Reader = &rp
+		vm.CloseURL = trailURL(t)
+	}
 	return c.Render(http.StatusOK, "canvas", vm)
 }
 
@@ -181,11 +204,17 @@ func (h *ReadingHandler) readPane(ctx context.Context, addr paneAddr, live bool)
 // paneView builds one pane's view model: display mode by distance from
 // focus (decision 3), links trail-ized so every href carries its post-click
 // state, margin only where attention is.
-func (h *ReadingHandler) paneView(t trail, i int, addr paneAddr, doc domain.Document, authed bool) paneVM {
+// When reader is true the pane is built for the reader overlay (R4): the same
+// focused doc + margin, but body and backlink hrefs persist the overlay
+// (reader-mode links), edges are not re-recorded (the canvas build already
+// did), and the pane carries no "open reader" affordance (it is already open).
+func (h *ReadingHandler) paneView(t trail, i int, addr paneAddr, doc domain.Document, authed, reader bool) paneVM {
 	focused := i == t.Focus
 
 	mode := "spine"
 	switch {
+	case reader:
+		mode = "reader"
 	case focused:
 		mode = "focused"
 	case i == t.Focus-1:
@@ -202,24 +231,33 @@ func (h *ReadingHandler) paneView(t trail, i int, addr paneAddr, doc domain.Docu
 		Path:      doc.Path,
 		Status:    doc.Status,
 	}
+	// A prose pane offers the reader overlay; the overlay itself does not (it
+	// is already open). Floor/graph panes never reach paneView, but guard the
+	// kind anyway so a future caller can't mint a reader link to a non-prose
+	// pane that parseTrail would reject.
+	if !reader && (addr.Kind == paneDoc || addr.Kind == paneTag) {
+		vm.ReaderURL = trailReaderURL(t, i)
+	}
 	if mode == "spine" {
 		return vm // spines carry title + status only; no body is rendered
 	}
 
 	content, edges := rewriteLinks(doc.HTML, addr.World, doc.Path)
-	if addr.Kind == paneDoc && !strings.HasSuffix(addr.Value, "/") {
+	if !reader && addr.Kind == paneDoc && !strings.HasSuffix(addr.Value, "/") {
 		// Feed the observed-links map (R3) from real document panes only —
 		// listings and tag pages are not edge sources. This runs for the
 		// focused pane and its body-only parent, so a doc's edges are recorded
-		// just before its graph/backlinks pane (to the right) reads them.
+		// just before its graph/backlinks pane (to the right) reads them. The
+		// overlay reuses the focused pane, so skip it there (already recorded).
 		h.reading.RecordLinks(addr.World, doc.Path, edges)
 	}
 	if addr.Kind == paneTag {
 		content = linkifyCatalogPaths(content, addr.World)
 	}
 	// previewize runs on /w/ hrefs (it derives each card's source from them),
-	// then trailizeLinks rewrites those hrefs to post-click trail URLs.
-	vm.Content = template.HTML(trailizeLinks(previewize(content), t, i)) //nolint:gosec // sanitized in the markdown adapter; these passes only rewrite/wrap links, adding no unescaped content
+	// then trailizeLinks rewrites those hrefs to post-click trail URLs — in the
+	// overlay (reader=true) those become reader-persisting URLs.
+	vm.Content = template.HTML(trailizeLinks(previewize(content), t, i, reader)) //nolint:gosec // sanitized in the markdown adapter; these passes only rewrite/wrap links, adding no unescaped content
 
 	if focused && addr.Kind == paneDoc && !strings.HasSuffix(addr.Value, "/") {
 		vm.HasMargin = true
@@ -229,6 +267,9 @@ func (h *ReadingHandler) paneView(t trail, i int, addr paneAddr, doc domain.Docu
 		vm.Version = doc.Version
 		vm.Agent = doc.Agent
 		vm.MarkURL = "mark://" + addr.World + doc.Path
+		// Graph/map open non-prose panes, so they exit the overlay (plain
+		// trail URLs) even in reader mode; backlinks point at docs, so they
+		// persist the overlay like any other prose link.
 		vm.GraphURL = trailURL(trailAfterClick(t, i, paneAddr{Kind: paneGraph, World: addr.World, Value: addr.Value}))
 		vm.MapURL = trailURL(trailAfterClick(t, i, paneAddr{Kind: paneFloor, World: addr.World}))
 		// Edit leaves the canvas into the dedicated editor page (a focused-pane
@@ -239,7 +280,11 @@ func (h *ReadingHandler) paneView(t trail, i int, addr paneAddr, doc domain.Docu
 			vm.AppendURL = "/w/" + url.PathEscape(addr.World) + "/append" + addr.Value
 		}
 		vm.Backlinks = backlinkLinks(h.reading.Backlinks(addr.World, addr.Value), func(r domain.Ref) string {
-			return trailURL(trailAfterClick(t, i, paneAddr{Kind: paneDoc, World: r.World, Value: r.Path}))
+			next := trailAfterClick(t, i, paneAddr{Kind: paneDoc, World: r.World, Value: r.Path})
+			if reader {
+				return trailReaderURL(next, next.Focus)
+			}
+			return trailURL(next)
 		})
 	}
 	return vm
