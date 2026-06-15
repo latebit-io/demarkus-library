@@ -93,7 +93,7 @@ func TestAppendWritesThenRereadsLive(t *testing.T) {
 	if called != "Fetch" {
 		t.Errorf("last gateway call = %q, want Fetch (re-read after append)", called)
 	}
-	if doc.Path != "/log.md" {
+	if doc.Path != "/log.md" || doc.HTML != "<h1>Log</h1>" {
 		t.Errorf("re-read doc = %+v", doc)
 	}
 }
