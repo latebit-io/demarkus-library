@@ -49,7 +49,7 @@ func TestTrailRoundTrip(t *testing.T) {
 			t.Errorf("%s: trailURL = %q, want %q", tc.name, got, tc.url)
 		}
 		rest, focus, _ := strings.Cut(strings.TrimPrefix(tc.url, "/t/"), "?focus=")
-		parsed, err := parseTrail(rest, focus)
+		parsed, err := parseTrail(rest, focus, "")
 		if err != nil {
 			t.Fatalf("%s: parseTrail(%q): %v", tc.name, rest, err)
 		}
@@ -68,7 +68,7 @@ func TestParseTrailFloorToWorldRootListing(t *testing.T) {
 	// Regression: the floor's world node links to the world-root listing,
 	// producing the chunk "<world>/d/" (path "/"). This whole trail must
 	// parse — an empty doc value is a root listing, not malformed.
-	tr, err := parseTrail("u/~/world-a/d/", "")
+	tr, err := parseTrail("u/~/world-a/d/", "", "")
 	if err != nil {
 		t.Fatalf("parseTrail(floor→world-root): %v", err)
 	}
@@ -109,7 +109,7 @@ func TestTagSlashRejectedAfterUnescape(t *testing.T) {
 	// A raw "foo%2Fbar" has no literal slash but unescapes to "foo/bar" —
 	// it must be rejected as a multi-segment tag by BOTH decoders, not
 	// silently accepted because the check ran before unescaping.
-	if _, err := parseTrail("root/tags/foo%2Fbar", ""); err == nil {
+	if _, err := parseTrail("root/tags/foo%2Fbar", "", ""); err == nil {
 		t.Errorf("chunk parser accepted escaped-slash tag")
 	}
 	if _, _, ok := paneAddrFromRoute("/w/root/tags/foo%2Fbar"); ok {
@@ -117,7 +117,7 @@ func TestTagSlashRejectedAfterUnescape(t *testing.T) {
 	}
 	// A legitimately escaped tag (no slash) still decodes — e.g. the axis
 	// colon in "category:reference".
-	a, err := parseTrail("root/tags/category%3Areference", "")
+	a, err := parseTrail("root/tags/category%3Areference", "", "")
 	if err != nil || a.Panes[0] != (paneAddr{Kind: paneTag, World: "root", Value: "category:reference"}) {
 		t.Errorf("escaped non-slash tag = %+v, err=%v", a.Panes, err)
 	}
@@ -136,7 +136,7 @@ func TestParseTrailRejectsMalformed(t *testing.T) {
 		"soul/d/x.md/~/soul", // second chunk malformed
 		"soul/u/junk",        // world map takes no value (spec: <world>/u/)
 	} {
-		if _, err := parseTrail(rest, ""); err == nil {
+		if _, err := parseTrail(rest, "", ""); err == nil {
 			t.Errorf("parseTrail(%q) accepted", rest)
 		}
 	}
@@ -147,21 +147,21 @@ func TestParseTrailCapAndFocusClamp(t *testing.T) {
 	for range maxPanes + 1 {
 		chunks = append(chunks, "w.io/d/x.md")
 	}
-	if _, err := parseTrail(strings.Join(chunks, "/~/"), ""); err == nil {
+	if _, err := parseTrail(strings.Join(chunks, "/~/"), "", ""); err == nil {
 		t.Error("over-cap trail accepted")
 	}
 
-	tr, err := parseTrail("a.io/d/x.md/~/a.io/d/y.md", "99")
+	tr, err := parseTrail("a.io/d/x.md/~/a.io/d/y.md", "99", "")
 	if err != nil {
 		t.Fatalf("parseTrail: %v", err)
 	}
 	if tr.Focus != 1 {
 		t.Errorf("focus = %d, want clamped to 1", tr.Focus)
 	}
-	if tr, _ = parseTrail("a.io/d/x.md", "-3"); tr.Focus != 0 {
+	if tr, _ = parseTrail("a.io/d/x.md", "-3", ""); tr.Focus != 0 {
 		t.Errorf("negative focus = %d, want 0", tr.Focus)
 	}
-	if tr, _ = parseTrail("a.io/d/x.md/~/a.io/d/y.md", "junk"); tr.Focus != 1 {
+	if tr, _ = parseTrail("a.io/d/x.md/~/a.io/d/y.md", "junk", ""); tr.Focus != 1 {
 		t.Errorf("junk focus = %d, want default last", tr.Focus)
 	}
 }
@@ -205,6 +205,58 @@ func TestTrailAfterClickDropsOldestPastCap(t *testing.T) {
 	}
 	if got.Panes[maxPanes-1] != doc("w", "/new.md") || got.Focus != maxPanes-1 {
 		t.Errorf("append/focus wrong: %+v", got)
+	}
+}
+
+func TestParseTrailReaderOverlay(t *testing.T) {
+	// A valid reader index opens the overlay AND takes focus: the overlay
+	// reuses the focused pane's already-fetched document (ADR 0005 d9).
+	tr, err := parseTrail("w.io/d/a.md/~/w.io/d/b.md", "", "0")
+	if err != nil {
+		t.Fatalf("parseTrail: %v", err)
+	}
+	if tr.Reader != 0 || tr.Focus != 0 {
+		t.Errorf("reader=%d focus=%d, want 0/0 (reader takes focus)", tr.Reader, tr.Focus)
+	}
+	// reader wins focus when both query params are present.
+	if tr, _ = parseTrail("w.io/d/a.md/~/w.io/d/b.md", "1", "0"); tr.Reader != 0 || tr.Focus != 0 {
+		t.Errorf("reader must override focus: reader=%d focus=%d", tr.Reader, tr.Focus)
+	}
+	// A tag page is prose — it overlays.
+	if tr, _ = parseTrail("w.io/tags/adr", "", "0"); tr.Reader != 0 {
+		t.Errorf("tag pane should overlay: reader=%d", tr.Reader)
+	}
+	// Out-of-range, negative, junk, and absent all ⇒ no overlay (-1) — a
+	// stale shared link degrades to the canvas, never a 400.
+	for _, rp := range []string{"5", "-1", "junk", ""} {
+		if tr, _ := parseTrail("w.io/d/a.md/~/w.io/d/b.md", "", rp); tr.Reader != -1 {
+			t.Errorf("reader=%q: Reader = %d, want -1", rp, tr.Reader)
+		}
+	}
+	// Non-prose panes (floor, graph) do not overlay in v1 — they're just a
+	// bigger SVG. The index is in range but the kind is rejected.
+	if tr, _ = parseTrail("u/~/w.io/d/a.md", "", "0"); tr.Reader != -1 {
+		t.Errorf("floor pane should not overlay: reader=%d", tr.Reader)
+	}
+	if tr, _ = parseTrail("w.io/g/a.md", "", "0"); tr.Reader != -1 {
+		t.Errorf("graph pane should not overlay: reader=%d", tr.Reader)
+	}
+}
+
+func TestTrailReaderURLRoundTrip(t *testing.T) {
+	tr := trail{Panes: []paneAddr{doc("w.io", "/a.md"), doc("w.io", "/b.md")}, Focus: 1, Reader: -1}
+	u := trailReaderURL(tr, 0)
+	if u != "/t/w.io/d/a.md/~/w.io/d/b.md?reader=0" {
+		t.Fatalf("trailReaderURL = %q", u)
+	}
+	rest, q, _ := strings.Cut(strings.TrimPrefix(u, "/t/"), "?reader=")
+	parsed, err := parseTrail(rest, "", q)
+	if err != nil || parsed.Reader != 0 || parsed.Focus != 0 {
+		t.Errorf("round-trip: reader=%d focus=%d err=%v", parsed.Reader, parsed.Focus, err)
+	}
+	// reader < 0 yields the bare trail — the ✕/backdrop/Esc close target.
+	if got := trailReaderURL(tr, -1); got != "/t/w.io/d/a.md/~/w.io/d/b.md" {
+		t.Errorf("close URL = %q", got)
 	}
 }
 

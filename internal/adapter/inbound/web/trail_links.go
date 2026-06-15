@@ -20,7 +20,11 @@ import (
 // Routes that are not pane addresses (versions, raw, external, anchors)
 // pass through untouched — they escape the trail deliberately. Returns the
 // fragment unchanged on any parse failure.
-func trailizeLinks(fragment string, t trail, paneIdx int) string {
+//
+// When reader is set (the overlay's body, R4), prose targets (doc/tag) keep
+// the overlay open on the newly focused pane — persist-on-navigate, the
+// feature's whole point — while non-prose targets (graph/floor) exit it.
+func trailizeLinks(fragment string, t trail, paneIdx int, reader bool) string {
 	ctx := &html.Node{Type: html.ElementNode, Data: "body", DataAtom: atom.Body}
 	nodes, err := html.ParseFragment(strings.NewReader(fragment), ctx)
 	if err != nil {
@@ -29,7 +33,7 @@ func trailizeLinks(fragment string, t trail, paneIdx int) string {
 
 	var buf bytes.Buffer
 	for _, n := range nodes {
-		trailizeNode(n, t, paneIdx)
+		trailizeNode(n, t, paneIdx, reader)
 		if err := html.Render(&buf, n); err != nil {
 			return fragment
 		}
@@ -37,7 +41,7 @@ func trailizeLinks(fragment string, t trail, paneIdx int) string {
 	return buf.String()
 }
 
-func trailizeNode(n *html.Node, t trail, paneIdx int) {
+func trailizeNode(n *html.Node, t trail, paneIdx int, reader bool) {
 	if n.Type == html.ElementNode && n.DataAtom == atom.A {
 		for i, attr := range n.Attr {
 			if attr.Key != "href" {
@@ -47,7 +51,12 @@ func trailizeNode(n *html.Node, t trail, paneIdx int) {
 			if !ok {
 				continue
 			}
-			n.Attr[i].Val = trailURL(trailAfterClick(t, paneIdx, addr))
+			next := trailAfterClick(t, paneIdx, addr)
+			if reader && (addr.Kind == paneDoc || addr.Kind == paneTag) {
+				n.Attr[i].Val = trailReaderURL(next, next.Focus)
+			} else {
+				n.Attr[i].Val = trailURL(next)
+			}
 			if frag != "" {
 				n.Attr[i].Val += "#" + frag
 			}
@@ -57,7 +66,7 @@ func trailizeNode(n *html.Node, t trail, paneIdx int) {
 		}
 	}
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
-		trailizeNode(c, t, paneIdx)
+		trailizeNode(c, t, paneIdx, reader)
 	}
 }
 

@@ -75,6 +75,91 @@ func TestTrailLinksCarryPostClickState(t *testing.T) {
 	}
 }
 
+func TestTrailReaderOverlayRenders(t *testing.T) {
+	svc := &fakeReading{docs: map[string]domain.Document{
+		"/a.md": {Title: "Pane A", Path: "/a.md", HTML: "<p>a</p>", Status: "accepted", Version: "2"},
+	}}
+	body := get(readingApp(t, svc), "/t/w.io/d/a.md?reader=0").Body.String()
+	for _, want := range []string{
+		`class="reader-backdrop"`,
+		`class="reader-scrim"`,
+		`class="reader-panel"`,
+		`class="reader-close"`,
+		`href="/t/w.io/d/a.md"`, // ✕ + scrim close to the bare trail
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("overlay missing %q", want)
+		}
+	}
+	// The canvas still renders behind the overlay — context preserved.
+	if !strings.Contains(body, `class="canvas"`) {
+		t.Error("canvas should still render behind the reader overlay")
+	}
+	// The trust margin renders in the overlay AND on the focused canvas pane.
+	if got := strings.Count(body, `class="doc-meta"`); got != 2 {
+		t.Errorf("doc-meta count = %d, want 2 (focused pane + overlay)", got)
+	}
+}
+
+func TestTrailNoReaderNoOverlay(t *testing.T) {
+	svc := &fakeReading{docs: map[string]domain.Document{
+		"/a.md": {Title: "A", Path: "/a.md", HTML: "<p>a</p>"},
+	}}
+	body := get(readingApp(t, svc), "/t/w.io/d/a.md").Body.String()
+	// (assert the rendered overlay element, not the always-present CSS rule)
+	if strings.Contains(body, `class="reader-backdrop"`) {
+		t.Error("no ?reader ⇒ no overlay (no-regression)")
+	}
+	// The "reader" affordance is still offered, to open it.
+	if !strings.Contains(body, `href="/t/w.io/d/a.md?reader=0"`) {
+		t.Error("reader affordance link missing")
+	}
+}
+
+func TestTrailReaderOutOfRangeIgnored(t *testing.T) {
+	svc := &fakeReading{docs: map[string]domain.Document{
+		"/a.md": {Title: "A", Path: "/a.md", HTML: "<p>a</p>"},
+	}}
+	body := get(readingApp(t, svc), "/t/w.io/d/a.md?reader=9").Body.String()
+	if strings.Contains(body, `class="reader-backdrop"`) {
+		t.Error("out-of-range ?reader must be ignored, not overlaid")
+	}
+}
+
+func TestTrailReaderPersistsOnNavigate(t *testing.T) {
+	svc := &fakeReading{docs: map[string]domain.Document{
+		"/a.md": {Title: "A", Path: "/a.md", HTML: `<p><a href="/b.md">to b</a></p>`},
+	}}
+	body := get(readingApp(t, svc), "/t/w.io/d/a.md?reader=0").Body.String()
+	// Inside the overlay, a link continues the trail AND stays in reader on
+	// the newly focused pane (persist-on-navigate, the feature's point).
+	if !strings.Contains(body, `href="/t/w.io/d/a.md/~/w.io/d/b.md?reader=1"`) {
+		t.Errorf("reader-persisting link missing: %s", body)
+	}
+	// The canvas copy of the same pane keeps a plain (overlay-free) link — the
+	// trailing quote disambiguates it from the ?reader= variant above.
+	if !strings.Contains(body, `href="/t/w.io/d/a.md/~/w.io/d/b.md"`) {
+		t.Error("canvas link should not carry the overlay")
+	}
+}
+
+func TestTrailReaderMarginIsNotADeadEnd(t *testing.T) {
+	svc := &fakeReading{docs: map[string]domain.Document{
+		"/a.md": {Title: "A", Path: "/a.md", HTML: "<p>a</p>"},
+	}}
+	body := get(authedApp(t, svc), "/t/w.io/d/a.md?reader=0").Body.String()
+	// Reading mode is not a dead-end: the auth-gated write affordances still
+	// render in the reader margin so you can branch and act.
+	if !strings.Contains(body, "/w/w.io/edit/a.md") || !strings.Contains(body, "/w/w.io/append/a.md") {
+		t.Error("auth-gated affordances should still render in the reader margin")
+	}
+	// The overlay offers no redundant "reader" link to itself: the two that
+	// remain are the canvas pane's head + margin affordances.
+	if got := strings.Count(body, `>reader</a>`); got != 2 {
+		t.Errorf("reader affordance count = %d, want 2 (canvas only; overlay offers none)", got)
+	}
+}
+
 func TestTrailUnfocusedErrorBecomesTombstone(t *testing.T) {
 	svc := &fakeReading{
 		doc:  domain.Document{Title: "OK", Path: "/b.md", HTML: "<p>b</p>"},

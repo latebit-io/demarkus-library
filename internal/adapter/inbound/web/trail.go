@@ -56,11 +56,13 @@ type paneAddr struct {
 	Value string
 }
 
-// trail is the parsed spatial state: the pane path and which pane holds the
-// reader's attention (margin + live fetch).
+// trail is the parsed spatial state: the pane path, which pane holds the
+// reader's attention (margin + live fetch), and which pane (if any) is open
+// in the reader overlay (R4).
 type trail struct {
-	Panes []paneAddr
-	Focus int
+	Panes  []paneAddr
+	Focus  int
+	Reader int // pane index shown in the reader overlay; -1 = no overlay
 }
 
 var errBadTrail = errors.New("malformed trail")
@@ -70,7 +72,7 @@ var errBadTrail = errors.New("malformed trail")
 // errors — the server never mints such URLs, so they are hand-built and get
 // a 400, not a guess. An out-of-range focus is clamped: sharing a trail and
 // then archiving panes off it shouldn't 400 the link.
-func parseTrail(rest, focusParam string) (trail, error) {
+func parseTrail(rest, focusParam, readerParam string) (trail, error) {
 	var t trail
 	for chunk := range strings.SplitSeq(rest, "/"+trailSep+"/") {
 		addr, err := parsePaneChunk(chunk)
@@ -86,6 +88,22 @@ func parseTrail(rest, focusParam string) (trail, error) {
 	if focusParam != "" {
 		if i, err := strconv.Atoi(focusParam); err == nil {
 			t.Focus = max(0, min(i, len(t.Panes)-1))
+		}
+	}
+	// Reader overlay (R4): a presentation lens addressed by ?reader=<paneIndex>.
+	// It reuses the focused pane's already-fetched document, so a valid reader
+	// index also takes Focus — the single-live-read invariant (ADR 0005 d9)
+	// holds and the overlay always has the focused pane's full margin. Only
+	// prose panes (doc/listing/tag) overlay; a floor/graph pane is just a
+	// bigger SVG, deferred past v1. Out-of-range, non-prose, or junk ⇒ no
+	// overlay (-1), never a 400 — a stale shared link degrades to the canvas.
+	t.Reader = -1
+	if readerParam != "" {
+		if i, err := strconv.Atoi(readerParam); err == nil && i >= 0 && i < len(t.Panes) {
+			if k := t.Panes[i].Kind; k == paneDoc || k == paneTag {
+				t.Reader = i
+				t.Focus = i
+			}
 		}
 	}
 	return t, nil
@@ -174,6 +192,24 @@ func trailURL(t trail) string {
 	return u
 }
 
+// trailReaderURL encodes the trail with the reader overlay open on pane
+// `reader` (0-based); reader < 0 yields the bare trail (the close URL). The
+// reader param implies attention on that pane — parseTrail re-derives Focus
+// from it — so focus is not encoded separately. This is the only URL builder
+// that emits ?reader=; trailURL stays reader-free (the canonical canvas URL),
+// so every existing click closes the overlay.
+func trailReaderURL(t trail, reader int) string {
+	chunks := make([]string, len(t.Panes))
+	for i, p := range t.Panes {
+		chunks[i] = paneChunk(p)
+	}
+	u := "/t/" + strings.Join(chunks, "/"+trailSep+"/")
+	if reader >= 0 {
+		u += "?reader=" + strconv.Itoa(reader)
+	}
+	return u
+}
+
 // paneChunk encodes one pane address as its chunk (no leading slash).
 func paneChunk(p paneAddr) string {
 	switch p.Kind {
@@ -198,17 +234,17 @@ func paneChunk(p paneAddr) string {
 func trailAfterClick(t trail, idx int, target paneAddr) trail {
 	for i, p := range t.Panes {
 		if p == target {
-			return trail{Panes: t.Panes, Focus: i}
+			return trail{Panes: t.Panes, Focus: i, Reader: -1}
 		}
 	}
 	panes := append(slices.Clone(t.Panes[:idx+1]), target)
 	if len(panes) > maxPanes {
 		panes = panes[len(panes)-maxPanes:]
 	}
-	return trail{Panes: panes, Focus: len(panes) - 1}
+	return trail{Panes: panes, Focus: len(panes) - 1, Reader: -1}
 }
 
 // trailFocused is the spine/header click: same path, attention moves.
 func trailFocused(t trail, idx int) trail {
-	return trail{Panes: t.Panes, Focus: idx}
+	return trail{Panes: t.Panes, Focus: idx, Reader: -1}
 }

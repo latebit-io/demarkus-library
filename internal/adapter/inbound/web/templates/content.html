@@ -35,6 +35,7 @@
         <code>{{ .MarkURL }}</code>
         <a href="/w/{{ .WorldPath }}/raw{{ .Path }}">source</a>
         · <a href="/w/{{ .WorldPath }}/versions{{ .Path }}">editions</a>
+        {{- if .ReaderURL }} · <a href="{{ .ReaderURL }}">reader</a>{{ end }}
         {{- if .GraphURL }} · <a href="{{ .GraphURL }}">graph</a>{{ end }}
         {{- if .MapURL }} · <a href="{{ .MapURL }}">map</a>{{ end }}
         {{- if .EditURL }} · <a href="{{ .EditURL }}" hx-boost="false" class="edit-link">edit</a>{{ end }}

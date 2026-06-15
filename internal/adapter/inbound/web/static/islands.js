@@ -142,6 +142,17 @@
     if (pane) pane.scrollIntoView({ inline: "nearest", block: "nearest" });
   }
 
+  // --- reader overlay (R4) -----------------------------------------------
+  // The overlay is pure URL state (?reader=i): the ✕, the backdrop scrim,
+  // and browser Back all close it server-side. Esc is the expected reader
+  // gesture; rather than pull in _hyperscript for one keybinding, click the
+  // close link (hx-boost intercepts the bubbled click, so it stays a swap).
+  document.addEventListener("keydown", function (e) {
+    if (e.key !== "Escape") return;
+    var close = document.querySelector(".reader-panel a.reader-close");
+    if (close) close.click();
+  });
+
   document.addEventListener("DOMContentLoaded", function () {
     scan(document.body);
     showFocusedPane();
