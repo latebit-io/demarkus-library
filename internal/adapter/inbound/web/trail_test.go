@@ -209,18 +209,18 @@ func TestTrailAfterClickDropsOldestPastCap(t *testing.T) {
 }
 
 func TestParseTrailReaderOverlay(t *testing.T) {
-	// A valid reader index opens the overlay AND takes focus: the overlay
-	// reuses the focused pane's already-fetched document (ADR 0005 d9).
+	// A valid reader index opens the overlay WITHOUT moving focus — the
+	// overlay is a lens, not a navigation, so the canvas behind is unchanged.
 	tr, err := parseTrail("w.io/d/a.md/~/w.io/d/b.md", "", "0")
 	if err != nil {
 		t.Fatalf("parseTrail: %v", err)
 	}
-	if tr.Reader != 0 || tr.Focus != 0 {
-		t.Errorf("reader=%d focus=%d, want 0/0 (reader takes focus)", tr.Reader, tr.Focus)
+	if tr.Reader != 0 || tr.Focus != 1 {
+		t.Errorf("reader=%d focus=%d, want reader=0 focus=1 (focus untouched)", tr.Reader, tr.Focus)
 	}
-	// reader wins focus when both query params are present.
-	if tr, _ = parseTrail("w.io/d/a.md/~/w.io/d/b.md", "1", "0"); tr.Reader != 0 || tr.Focus != 0 {
-		t.Errorf("reader must override focus: reader=%d focus=%d", tr.Reader, tr.Focus)
+	// reader and focus are orthogonal: both honored independently.
+	if tr, _ = parseTrail("w.io/d/a.md/~/w.io/d/b.md", "1", "0"); tr.Reader != 0 || tr.Focus != 1 {
+		t.Errorf("reader/focus must be independent: reader=%d focus=%d, want 0/1", tr.Reader, tr.Focus)
 	}
 	// A tag page is prose — it overlays.
 	if tr, _ = parseTrail("w.io/tags/adr", "", "0"); tr.Reader != 0 {
@@ -244,15 +244,24 @@ func TestParseTrailReaderOverlay(t *testing.T) {
 }
 
 func TestTrailReaderURLRoundTrip(t *testing.T) {
+	// Focus is the default (last pane), so it is omitted; only reader rides.
 	tr := trail{Panes: []paneAddr{doc("w.io", "/a.md"), doc("w.io", "/b.md")}, Focus: 1, Reader: -1}
-	u := trailReaderURL(tr, 0)
-	if u != "/t/w.io/d/a.md/~/w.io/d/b.md?reader=0" {
-		t.Fatalf("trailReaderURL = %q", u)
+	if got := trailReaderURL(tr, 0); got != "/t/w.io/d/a.md/~/w.io/d/b.md?reader=0" {
+		t.Fatalf("trailReaderURL (default focus) = %q", got)
 	}
-	rest, q, _ := strings.Cut(strings.TrimPrefix(u, "/t/"), "?reader=")
-	parsed, err := parseTrail(rest, "", q)
-	if err != nil || parsed.Reader != 0 || parsed.Focus != 0 {
-		t.Errorf("round-trip: reader=%d focus=%d err=%v", parsed.Reader, parsed.Focus, err)
+	// A non-default focus is preserved alongside reader — the overlay must not
+	// relayout the canvas behind it.
+	tr2 := trail{Panes: []paneAddr{doc("w.io", "/a.md"), doc("w.io", "/b.md")}, Focus: 0, Reader: -1}
+	u := trailReaderURL(tr2, 1)
+	if u != "/t/w.io/d/a.md/~/w.io/d/b.md?focus=0&reader=1" {
+		t.Fatalf("trailReaderURL (focus preserved) = %q", u)
+	}
+	rest, q, _ := strings.Cut(strings.TrimPrefix(u, "/t/"), "?")
+	focusParam := strings.TrimPrefix(strings.Split(q, "&")[0], "focus=")
+	readerParam := strings.TrimPrefix(strings.Split(q, "&")[1], "reader=")
+	parsed, err := parseTrail(rest, focusParam, readerParam)
+	if err != nil || parsed.Reader != 1 || parsed.Focus != 0 {
+		t.Errorf("round-trip: reader=%d focus=%d err=%v, want reader=1 focus=0", parsed.Reader, parsed.Focus, err)
 	}
 	// reader < 0 yields the bare trail — the ✕/backdrop/Esc close target.
 	if got := trailReaderURL(tr, -1); got != "/t/w.io/d/a.md/~/w.io/d/b.md" {

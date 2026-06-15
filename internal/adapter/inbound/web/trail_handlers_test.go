@@ -101,6 +101,36 @@ func TestTrailReaderOverlayRenders(t *testing.T) {
 	}
 }
 
+func TestTrailReaderIsALensNotANavigation(t *testing.T) {
+	// Regression: opening reader on a NON-focused pane must not relayout the
+	// canvas behind — focus stays put, the overlay just shows that pane's doc.
+	svc := &fakeReading{docs: map[string]domain.Document{
+		"/a.md": {Title: "Pane A", Path: "/a.md", HTML: "<p>a</p>"},
+		"/b.md": {Title: "Pane B", Path: "/b.md", HTML: "<p>b</p>"},
+	}}
+	// Two-pane trail; focus defaults to the last pane (B). Open reader on A.
+	body := get(readingApp(t, svc), "/t/w.io/d/a.md/~/w.io/d/b.md?reader=0").Body.String()
+
+	// The canvas behind is unchanged: B stays the focused (wide) pane, A stays
+	// the body parent — A does NOT become focused and B does NOT collapse.
+	if !strings.Contains(body, `class="pane body"`) || !strings.Contains(body, `class="pane focused"`) {
+		t.Error("opening reader on pane A collapsed the canvas behind it")
+	}
+	if !strings.Contains(body, `class="reader-backdrop"`) {
+		t.Error("overlay missing")
+	}
+	// Focused-live is preserved: only B (focus) reads live; A (reader) comes
+	// from cache — the overlay adds no second world read.
+	want := []string{"ReadCached /a.md", "Read /b.md"}
+	if strings.Join(svc.calls, ",") != strings.Join(want, ",") {
+		t.Errorf("calls = %v, want %v (reader pane stays cached; only focus reads live)", svc.calls, want)
+	}
+	// Close keeps the original focus (B = last ⇒ bare trail).
+	if !strings.Contains(body, `<a class="reader-scrim" href="/t/w.io/d/a.md/~/w.io/d/b.md"`) {
+		t.Error("close URL must preserve focus, not reset it")
+	}
+}
+
 func TestTrailNoReaderNoOverlay(t *testing.T) {
 	svc := &fakeReading{docs: map[string]domain.Document{
 		"/a.md": {Title: "A", Path: "/a.md", HTML: "<p>a</p>"},

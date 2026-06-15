@@ -90,19 +90,20 @@ func parseTrail(rest, focusParam, readerParam string) (trail, error) {
 			t.Focus = max(0, min(i, len(t.Panes)-1))
 		}
 	}
-	// Reader overlay (R4): a presentation lens addressed by ?reader=<paneIndex>.
-	// It reuses the focused pane's already-fetched document, so a valid reader
-	// index also takes Focus — the single-live-read invariant (ADR 0005 d9)
-	// holds and the overlay always has the focused pane's full margin. Only
-	// prose panes (doc/listing/tag) overlay; a floor/graph pane is just a
-	// bigger SVG, deferred past v1. Out-of-range, non-prose, or junk ⇒ no
-	// overlay (-1), never a 400 — a stale shared link degrades to the canvas.
+	// Reader overlay (R4): a presentation lens addressed by ?reader=<paneIndex>,
+	// orthogonal to focus. It is a pure lens — opening it must NOT relayout the
+	// canvas behind, so Reader does not touch Focus. The overlay reuses the
+	// addressed pane's already-fetched document (focused-live OR cached — every
+	// pane is read in the handler loop), so no extra world read and the
+	// single-live-read invariant (ADR 0005 d9) still holds. Only prose panes
+	// (doc/listing/tag) overlay; a floor/graph pane is just a bigger SVG,
+	// deferred past v1. Out-of-range, non-prose, or junk ⇒ no overlay (-1),
+	// never a 400 — a stale shared link degrades to the canvas.
 	t.Reader = -1
 	if readerParam != "" {
 		if i, err := strconv.Atoi(readerParam); err == nil && i >= 0 && i < len(t.Panes) {
 			if k := t.Panes[i].Kind; k == paneDoc || k == paneTag {
 				t.Reader = i
-				t.Focus = i
 			}
 		}
 	}
@@ -199,15 +200,23 @@ func trailURL(t trail) string {
 }
 
 // trailReaderURL encodes the trail with the reader overlay open on pane
-// `reader` (0-based); reader < 0 yields the bare trail (the close URL). The
-// reader param implies attention on that pane — parseTrail re-derives Focus
-// from it — so focus is not encoded separately. This is the only URL builder
+// `reader` (0-based); reader < 0 yields the bare trail (the close URL). Reader
+// is orthogonal to focus (the overlay is a lens, not a navigation), so the
+// existing non-default focus is preserved alongside it — opening or closing
+// the overlay never relayouts the canvas behind. This is the only URL builder
 // that emits ?reader=; trailURL stays reader-free (the canonical canvas URL),
 // so every existing click closes the overlay.
 func trailReaderURL(t trail, reader int) string {
 	u := trailBasePath(t)
+	params := make([]string, 0, 2)
+	if t.Focus != len(t.Panes)-1 {
+		params = append(params, "focus="+strconv.Itoa(t.Focus))
+	}
 	if reader >= 0 {
-		u += "?reader=" + strconv.Itoa(reader)
+		params = append(params, "reader="+strconv.Itoa(reader))
+	}
+	if len(params) > 0 {
+		u += "?" + strings.Join(params, "&")
 	}
 	return u
 }
