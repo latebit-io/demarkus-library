@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"strconv"
 	"strings"
 	"sync"
@@ -87,6 +88,10 @@ func (s *ReadingService) Floor(ctx context.Context) (domain.Floor, error) {
 	if err != nil {
 		if !errors.Is(err, domain.ErrUnauthorized) {
 			if stale, ok := s.floor.get(); ok {
+				// Serve stale, but never silently — a persistent rebuild
+				// failure (not just a rate-limit blip) would otherwise hide
+				// behind a frozen floor with no operator signal.
+				slog.Warn("floor: serving stale cache after rebuild failed", "err", err)
 				return stale, nil
 			}
 		}

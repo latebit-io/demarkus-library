@@ -87,12 +87,15 @@ func TestFloorReusesWithinTTL(t *testing.T) {
 	svc := NewReadingService(fakeGateway{called: &called,
 		worlds: []domain.WorldInfo{{Name: "team-a"}},
 		raw:    domain.RawDocument{Body: lookupTable}}, fakeRenderer{}, nil)
+	clk := time.Unix(1000, 0)
+	svc.floor.now = func() time.Time { return clk }
 
 	if _, err := svc.Floor(t.Context()); err != nil {
 		t.Fatalf("Floor (build): %v", err)
 	}
 	called = ""
-	if _, err := svc.Floor(t.Context()); err != nil { // within TTL
+	clk = clk.Add(floorTTL / 2) // still inside the window
+	if _, err := svc.Floor(t.Context()); err != nil {
 		t.Fatalf("Floor (cached): %v", err)
 	}
 	if called != "" {
