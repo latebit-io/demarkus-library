@@ -71,12 +71,13 @@ func (h *ReadingHandler) Trail(c *echo.Context) error {
 		Authenticated: authed,
 		Panes:         make([]paneVM, len(t.Panes)),
 	}
-	// The reader overlay (R4) reuses the focused pane's live document, so a
-	// valid ?reader= forces Focus onto that pane (parseTrail) — capture the
-	// fetched doc here to render the overlay without a second world read.
-	var focusedDoc domain.Document
-	var focusedAddr paneAddr
-	var haveFocusedDoc bool
+	// The reader overlay (R4) is a lens over whichever pane ?reader= names —
+	// independent of focus. Every pane is read in this loop anyway (focused
+	// live, the rest cached), so capture the reader pane's already-fetched doc
+	// here to render the overlay without a second world read.
+	var readerDoc domain.Document
+	var readerAddr paneAddr
+	var haveReaderDoc bool
 	for i, addr := range t.Panes {
 		focused := i == t.Focus
 		if addr.Kind == paneFloor {
@@ -123,8 +124,8 @@ func (h *ReadingHandler) Trail(c *echo.Context) error {
 				Title:    paneFallbackTitle(addr),
 			}
 		default:
-			if focused {
-				focusedDoc, focusedAddr, haveFocusedDoc = doc, addr, true
+			if i == t.Reader {
+				readerDoc, readerAddr, haveReaderDoc = doc, addr, true
 			}
 			vm.Panes[i] = h.paneView(t, i, addr, doc, authed, false)
 		}
@@ -134,12 +135,13 @@ func (h *ReadingHandler) Trail(c *echo.Context) error {
 	vm.Title = focusedPane.Title
 	vm.World = focusedPane.World
 
-	// The reader overlay reuses the focused pane's already-fetched document —
-	// no extra world read (the overlay is pure presentation). Its body links
-	// persist the overlay (reader=true); ✕/backdrop/Esc close to the bare
-	// trail, focus left on the pane just read.
-	if t.Reader >= 0 && haveFocusedDoc {
-		rp := h.paneView(t, t.Reader, focusedAddr, focusedDoc, authed, true)
+	// The reader overlay reuses the addressed pane's already-fetched document —
+	// no extra world read (the overlay is pure presentation), and focus is
+	// untouched so the canvas behind is unchanged. Body links persist the
+	// overlay (reader=true); ✕/backdrop/Esc close to trailURL(t), which keeps
+	// the original focus.
+	if t.Reader >= 0 && haveReaderDoc {
+		rp := h.paneView(t, t.Reader, readerAddr, readerDoc, authed, true)
 		vm.Reader = &rp
 		vm.CloseURL = trailURL(t)
 	}
@@ -259,7 +261,9 @@ func (h *ReadingHandler) paneView(t trail, i int, addr paneAddr, doc domain.Docu
 	// overlay (reader=true) those become reader-persisting URLs.
 	vm.Content = template.HTML(trailizeLinks(previewize(content), t, i, reader)) //nolint:gosec // sanitized in the markdown adapter; these passes only rewrite/wrap links, adding no unescaped content
 
-	if focused && addr.Kind == paneDoc && !strings.HasSuffix(addr.Value, "/") {
+	// The overlay (reader) shows the addressed pane's full margin even when it
+	// is not the focused pane — reading mode is not a dead-end.
+	if (focused || reader) && addr.Kind == paneDoc && !strings.HasSuffix(addr.Value, "/") {
 		vm.HasMargin = true
 		vm.Tags = tagLinks(addr.World, doc.Tags)
 		vm.Properties = doc.Properties
