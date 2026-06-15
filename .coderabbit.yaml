@@ -5,19 +5,23 @@ tone_instructions: >
   inward (adapters to ports to core), never outward. Flag transport, framework,
   or render leaks into the core, JSON responses, silent error paths, and
   unbounded operations.
-early_access: true
+early_access: false
 
 reviews:
-  profile: assertive
-  request_changes_workflow: true
+  # chill (not assertive): far fewer trivial nitpicks → fewer fix→push→re-review
+  # cycles → less rate-limit pressure (CodeRabbit fair-use is per-hour review +
+  # files volume). Pair with on-demand triggering below.
+  profile: chill
+  request_changes_workflow: false
   high_level_summary: true
   high_level_summary_placeholder: "@coderabbitai summary"
   auto_title_placeholder: "@coderabbitai"
   review_status: true
-  collapse_walkthrough: false
-  sequence_diagrams: true
+  collapse_walkthrough: true
+  # Heavy per-review add-ons off — each adds processing/files to every run.
+  sequence_diagrams: false
   poem: false
-  changed_files_summary: true
+  changed_files_summary: false
   labeling_instructions: []
   path_filters:
     - "!**/bin/**"
@@ -150,7 +154,11 @@ reviews:
         already be sanitized server-side.
 
   auto_review:
-    enabled: true
+    # On-demand: CodeRabbit does NOT review on every push. Trigger one review
+    # per PR when it's ready by commenting `@coderabbitai review`. This caps
+    # review volume (the rate-limit driver) to one run per PR instead of one
+    # per push. `@coderabbitai full review` re-reviews everything if needed.
+    enabled: false
     drafts: false
     ignore_title_keywords:
       - "WIP"
@@ -188,6 +196,12 @@ reviews:
         refactor, perf, test, build, ci, chore, revert.
         Valid scopes (hexagonal layers + housekeeping): domain, port, service,
         web, world, markdown, cmd, view, deps, ci.
+    # Off — the coverage heuristic flags exported symbols that already have doc
+    # comments; pure noise on this codebase, and it runs on every review.
+    docstrings:
+      mode: "off"
+    description:
+      mode: "off"
 
 chat:
   auto_reply: true
