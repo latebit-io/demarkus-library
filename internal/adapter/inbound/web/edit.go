@@ -37,6 +37,7 @@ type editVM struct {
 	Version       int
 	Statuses      []string
 	Authenticated bool
+	User          string // signed-in identity's email for the nav (empty ⇒ not shown)
 	Create        bool   // create mode: editable path field, POSTs to /new, version 0
 	Append        bool   // append mode: body-only, POSTs to /append, no metadata
 	Error         string // conflict / write-error banner; empty ⇒ none
@@ -63,7 +64,7 @@ func (h *ReadingHandler) EditForm(c *echo.Context) error {
 		Status:        draft.Status,
 		Version:       draft.Version,
 		Statuses:      editStatuses,
-		Authenticated: c.Get(authedKey) != nil,
+		Authenticated: c.Get(authedKey) != nil, User: userEmail(c),
 	}
 	return c.Render(http.StatusOK, "edit", vm)
 }
@@ -80,8 +81,8 @@ func (h *ReadingHandler) NewForm(c *echo.Context) error {
 		WorldPath:     url.PathEscape(world),
 		Path:          newPathPrefill(c.QueryParam("dir")),
 		Statuses:      editStatuses,
-		Authenticated: c.Get(authedKey) != nil,
-		Create:        true,
+		Authenticated: c.Get(authedKey) != nil, User: userEmail(c),
+		Create: true,
 	}
 	return c.Render(http.StatusOK, "edit", vm)
 }
@@ -111,8 +112,8 @@ func (h *ReadingHandler) CreateDoc(c *echo.Context) error {
 		Importance:    meta.Importance,
 		Status:        c.FormValue("status"),
 		Statuses:      editStatuses,
-		Authenticated: c.Get(authedKey) != nil,
-		Create:        true,
+		Authenticated: c.Get(authedKey) != nil, User: userEmail(c),
+		Create: true,
 	}
 	if !ok {
 		vm.Error = "Enter a document path like /notes/idea.md — not a directory."
@@ -191,8 +192,8 @@ func (h *ReadingHandler) AppendForm(c *echo.Context) error {
 		World:         world,
 		WorldPath:     url.PathEscape(world),
 		Path:          p,
-		Authenticated: c.Get(authedKey) != nil,
-		Append:        true,
+		Authenticated: c.Get(authedKey) != nil, User: userEmail(c),
+		Append: true,
 	}
 	return c.Render(http.StatusOK, "edit", vm)
 }
@@ -208,7 +209,7 @@ func (h *ReadingHandler) AppendDoc(c *echo.Context) error {
 	if strings.TrimSpace(body) == "" {
 		vm := editVM{
 			Title: "Append: " + p, World: world, WorldPath: url.PathEscape(world),
-			Path: p, Authenticated: c.Get(authedKey) != nil, Append: true,
+			Path: p, Authenticated: c.Get(authedKey) != nil, User: userEmail(c), Append: true,
 			Error: "Nothing to append — write some content first.",
 		}
 		return c.Render(http.StatusBadRequest, "edit", vm)
@@ -217,7 +218,7 @@ func (h *ReadingHandler) AppendDoc(c *echo.Context) error {
 	if _, err := h.reading.Append(c.Request().Context(), world, p, body); err != nil {
 		vm := editVM{
 			Title: "Append: " + p, World: world, WorldPath: url.PathEscape(world),
-			Path: p, Body: body, Authenticated: c.Get(authedKey) != nil, Append: true,
+			Path: p, Body: body, Authenticated: c.Get(authedKey) != nil, User: userEmail(c), Append: true,
 			Error: editErrorMessage(err),
 		}
 		return c.Render(editErrorStatus(err), "edit", vm)
@@ -277,8 +278,8 @@ func (h *ReadingHandler) SaveEdit(c *echo.Context) error {
 		Status:        c.FormValue("status"),
 		Version:       version,
 		Statuses:      editStatuses,
-		Authenticated: c.Get(authedKey) != nil,
-		Error:         editErrorMessage(err),
+		Authenticated: c.Get(authedKey) != nil, User: userEmail(c),
+		Error: editErrorMessage(err),
 	}
 	return c.Render(editErrorStatus(err), "edit", vm)
 }

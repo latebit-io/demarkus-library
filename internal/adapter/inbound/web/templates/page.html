@@ -31,6 +31,8 @@
           padding-bottom: .6rem; border-bottom: 1px solid var(--faint); }
     nav a.brand { font-weight: 600; text-decoration: none; white-space: nowrap; color: inherit; }
     nav .world { font-size: .8rem; color: var(--muted); flex: 1; }
+    nav .user { font-size: .78rem; color: var(--muted); font-family: system-ui, sans-serif;
+                white-space: nowrap; }
     nav form { margin: 0; }
     button.signout { font: inherit; font-size: .8rem; padding: .3rem .7rem;
           border: 1px solid var(--faint); border-radius: 6px; background: transparent;
@@ -280,6 +282,7 @@
     <a class="brand" href="/">demarkus Library</a>
     <span class="world">{{ .World }}</span>
     {{- if .Authenticated }}
+    {{- if .User }}<span class="user" title="signed in as">{{ .User }}</span>{{ end }}
     <!-- Real form, POST: logout is a state change and works without JS.
          hx-boost off so the redirect to /login is a full page load. -->
     <form method="post" action="/logout" hx-boost="false">
