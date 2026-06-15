@@ -211,6 +211,29 @@ func (g *Gateway) Publish(ctx context.Context, world, path, body string, meta do
 	return parsePublishedVersion(text), nil
 }
 
+// Append concatenates body onto the document through mark_append — the
+// cataloging desk's "add to" (Phase 3). expected_version is omitted so the
+// broker auto-resolves the current version (additive, low-conflict); metadata
+// is preserved. Returns the new version.
+func (g *Gateway) Append(ctx context.Context, world, path, body string) (int, error) {
+	token := bearer.FromContext(ctx)
+	if token == "" {
+		return 0, domain.ErrUnauthorized
+	}
+	args := map[string]any{"url": markURL(world, path), "body": body}
+	text, isToolError, err := g.caller.callTool(ctx, token, "mark_append", args)
+	if err != nil {
+		if errors.Is(err, transport.ErrUnauthorized) {
+			return 0, domain.ErrUnauthorized
+		}
+		return 0, fmt.Errorf("broker: mark_append: %w", err)
+	}
+	if isToolError {
+		return 0, mapWriteError(text)
+	}
+	return parsePublishedVersion(text), nil
+}
+
 // mapWriteError maps mark_publish error payloads to domain errors. A version
 // mismatch (the broker's conflict status) becomes ErrConflict so the desk
 // prompts a reload; not-authorized stays ErrUnauthorized.

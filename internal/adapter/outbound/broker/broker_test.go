@@ -498,3 +498,33 @@ func TestPublishNoBearerIsUnauthorized(t *testing.T) {
 		t.Errorf("err = %v, want ErrUnauthorized", err)
 	}
 }
+
+func TestAppendBuildsArgsAndParsesVersion(t *testing.T) {
+	fc := &fakeCaller{text: "status: ok\nversion: 9\n"}
+	g := &Gateway{caller: fc}
+
+	v, err := g.Append(authedCtx(t), "root", "/log.md", "\n- another line")
+	if err != nil {
+		t.Fatalf("Append: %v", err)
+	}
+	if v != 9 {
+		t.Errorf("new version = %d, want 9", v)
+	}
+	if fc.gotTool != "mark_append" {
+		t.Errorf("tool = %q, want mark_append", fc.gotTool)
+	}
+	if fc.gotArgs["url"] != "mark://root/log.md" || fc.gotArgs["body"] != "\n- another line" {
+		t.Errorf("args = %v", fc.gotArgs)
+	}
+	// Append omits expected_version — the broker auto-resolves it.
+	if _, present := fc.gotArgs["expected_version"]; present {
+		t.Errorf("append must not send expected_version (auto-resolved)")
+	}
+}
+
+func TestAppendNoBearerIsUnauthorized(t *testing.T) {
+	g := &Gateway{caller: &fakeCaller{}}
+	if _, err := g.Append(t.Context(), "root", "/x.md", "more"); !errors.Is(err, domain.ErrUnauthorized) {
+		t.Errorf("err = %v, want ErrUnauthorized", err)
+	}
+}

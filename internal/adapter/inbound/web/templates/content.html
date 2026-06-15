@@ -39,6 +39,7 @@
         {{- if .MapURL }} · <a href="{{ .MapURL }}">map</a>{{ end }}
         {{- if .EditURL }} · <a href="{{ .EditURL }}" hx-boost="false" class="edit-link">edit</a>{{ end }}
         {{- if .NewURL }} · <a href="{{ .NewURL }}" hx-boost="false" class="edit-link">new</a>{{ end }}
+        {{- if .AppendURL }} · <a href="{{ .AppendURL }}" hx-boost="false" class="edit-link">append</a>{{ end }}
       </div>
 </div>{{end}}
 

@@ -61,6 +61,10 @@ func (f fakeGateway) Publish(_ context.Context, _, _, _ string, _ domain.Publish
 	f.record("Publish")
 	return f.publishVersion, f.publishErr
 }
+func (f fakeGateway) Append(_ context.Context, _, _, _ string) (int, error) {
+	f.record("Append")
+	return f.publishVersion, f.publishErr
+}
 
 type fakeRenderer struct {
 	html  string

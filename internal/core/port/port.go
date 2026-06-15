@@ -91,6 +91,10 @@ type ReadingService interface {
 	// expectedVersion guards the write (0 to create); a mismatch is
 	// domain.ErrConflict.
 	Publish(ctx context.Context, world, path, body string, meta domain.PublishMeta, expectedVersion int) (domain.Document, error)
+	// Append adds body to the end of the document at (world, path) and returns
+	// the re-read result (focused-live). The lightweight "add to" — metadata is
+	// preserved, the version auto-resolves.
+	Append(ctx context.Context, world, path, body string) (domain.Document, error)
 }
 
 // WorldGateway is an outbound (driven) port — read from demarkus worlds. The
@@ -122,6 +126,13 @@ type WorldGateway interface {
 	// domain.ErrConflict. Gateways with no write path (direct QUIC, no write
 	// token) return domain.ErrWriteUnsupported. Returns the new version.
 	Publish(ctx context.Context, world, path, body string, meta domain.PublishMeta, expectedVersion int) (int, error)
+
+	// Append concatenates body onto the end of the document at (world, path) —
+	// the cataloging desk's lightweight "add to" (Phase 3), over mark_append.
+	// Additive and metadata-preserving (the server auto-resolves the version),
+	// so it carries no PublishMeta. Returns the new version; gateways with no
+	// write path return domain.ErrWriteUnsupported.
+	Append(ctx context.Context, world, path, body string) (int, error)
 }
 
 // Renderer is an outbound (driven) port — markdown to sanitized HTML plus

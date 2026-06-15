@@ -58,6 +58,16 @@ func (s *ReadingService) Publish(ctx context.Context, world, path, body string, 
 	return s.Read(ctx, world, path)
 }
 
+// Append adds body to the end of the document then re-reads it live (refreshing
+// the cache). The lightweight "add to" — metadata is preserved and the version
+// auto-resolves, so it carries no PublishMeta.
+func (s *ReadingService) Append(ctx context.Context, world, path, body string) (domain.Document, error) {
+	if _, err := s.world.Append(ctx, world, path, body); err != nil {
+		return domain.Document{}, err
+	}
+	return s.Read(ctx, world, path)
+}
+
 // splitStatusAxis separates the status: axis tag (the trust-signal badge) from
 // the ordinary tags — the form edits them as distinct controls (ADR 0005
 // decision 7; status is a picker, not a free tag).

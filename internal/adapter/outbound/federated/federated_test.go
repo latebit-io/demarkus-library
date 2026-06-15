@@ -8,8 +8,12 @@ import (
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
 )
 
-// fakeGW records which route was taken.
-type fakeGW struct{ name string }
+// fakeGW records which route was taken. via, when set, captures the gateway
+// name a write (Append) was routed to — writes return no Source to inspect.
+type fakeGW struct {
+	name string
+	via  *string
+}
 
 func (f *fakeGW) Fetch(_ context.Context, world, path string) (domain.RawDocument, error) {
 	return domain.RawDocument{Source: f.name, Path: path}, nil
@@ -28,6 +32,12 @@ func (f *fakeGW) Worlds(context.Context) ([]domain.WorldInfo, error) {
 	return []domain.WorldInfo{{Name: f.name}}, nil
 }
 func (f *fakeGW) Publish(_ context.Context, _, _, _ string, _ domain.PublishMeta, _ int) (int, error) {
+	return 0, nil
+}
+func (f *fakeGW) Append(_ context.Context, _, _, _ string) (int, error) {
+	if f.via != nil {
+		*f.via = f.name
+	}
 	return 0, nil
 }
 
@@ -72,6 +82,49 @@ func TestRouting(t *testing.T) {
 			}
 			if raw.Source != tc.wantVia {
 				t.Errorf("routed via %q, want %q", raw.Source, tc.wantVia)
+			}
+		})
+	}
+}
+
+// TestAppendRouting pins the write path's routing against the same matrix as
+// Fetch: names → broker, hosts → direct, blocked → ErrNotFound.
+func TestAppendRouting(t *testing.T) {
+	cases := []struct {
+		name    string
+		cfg     func(via *string) Config
+		world   string
+		wantVia string // "" = expect ErrNotFound
+	}{
+		{"name routes to broker", func(v *string) Config {
+			return Config{Names: &fakeGW{name: "names", via: v}, Hosts: &fakeGW{name: "hosts", via: v}, AllowExternal: true}
+		}, "root", "names"},
+		{"host routes direct", func(v *string) Config {
+			return Config{Names: &fakeGW{name: "names", via: v}, Hosts: &fakeGW{name: "hosts", via: v}, AllowExternal: true}
+		}, "wiki.example.org", "hosts"},
+		{"federation off blocks hosts", func(v *string) Config {
+			return Config{Names: &fakeGW{name: "names", via: v}, AllowExternal: false}
+		}, "wiki.example.org", ""},
+		{"quic name unroutable", func(v *string) Config {
+			return Config{Hosts: &fakeGW{name: "hosts", via: v}, HomeHost: "soul.demarkus.io", AllowExternal: true}
+		}, "root", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var via string
+			g := New(tc.cfg(&via))
+			_, err := g.Append(t.Context(), tc.world, "/x.md", "more")
+			if tc.wantVia == "" {
+				if !errors.Is(err, domain.ErrNotFound) {
+					t.Fatalf("err = %v, want ErrNotFound", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Append: %v", err)
+			}
+			if via != tc.wantVia {
+				t.Errorf("routed via %q, want %q", via, tc.wantVia)
 			}
 		})
 	}

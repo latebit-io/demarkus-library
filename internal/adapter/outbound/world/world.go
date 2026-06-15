@@ -94,6 +94,11 @@ func (g *Gateway) Publish(_ context.Context, _, _, _ string, _ domain.PublishMet
 	return 0, domain.ErrWriteUnsupported
 }
 
+// Append is unsupported on the read-only QUIC client, like Publish.
+func (g *Gateway) Append(_ context.Context, _, _, _ string) (int, error) {
+	return 0, domain.ErrWriteUnsupported
+}
+
 // tokenFor scopes the read token to the home host. Any other host in the
 // distributed graph gets an anonymous read — public documents only.
 func (g *Gateway) tokenFor(host string) string {
