@@ -148,6 +148,16 @@ func (s *ReadingService) buildFloor(ctx context.Context) (domain.Floor, error) {
 		floor.Worlds = append(floor.Worlds, fw)
 	}
 
+	// No worlds visible to this identity ⇒ stop with an empty floor (the web
+	// layer renders the "no worlds visible to your identity" state). Skip the
+	// topology enrichment entirely: drawing the hub graph's portal nodes for a
+	// reader authorized for zero worlds would leak world names — and other
+	// worlds' internal dial addresses — to an unauthorized identity, and render
+	// a misleading map instead of the honest empty state.
+	if len(floor.Worlds) == 0 {
+		return floor, nil
+	}
+
 	// Topology enrichment (decision 11): the durable hub graph export unioned
 	// with the R3 observed-links map, aggregated to world-level edges and
 	// masked by the authorized set. Portal worlds are externally-linked hosts

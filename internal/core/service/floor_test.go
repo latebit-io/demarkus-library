@@ -103,6 +103,31 @@ func TestFloorReusesWithinTTL(t *testing.T) {
 	}
 }
 
+func TestFloorEmptyWhenNoWorldsDoesNotLeakPortals(t *testing.T) {
+	// An identity authorized for zero worlds must get an empty floor — NOT
+	// portal nodes synthesized from the hub graph, which would leak world
+	// names + internal addresses. The hub graph carries an edge; the guard
+	// must suppress topology enrichment when there are no visible worlds.
+	svc := NewReadingService(fakeGateway{
+		worlds: nil, // mark_worlds returns no worlds for this identity
+		fetchBody: map[string]string{
+			"/graph.md": "## Edges\n\n| From | To |\n|------|----|\n" +
+				"| mark://world-a/index.md | mark://secret.example/index.md |\n",
+		},
+	}, fakeRenderer{}, nil).WithHub("root")
+
+	floor, err := svc.Floor(t.Context())
+	if err != nil {
+		t.Fatalf("Floor: %v", err)
+	}
+	if len(floor.Worlds) != 0 {
+		t.Errorf("floor.Worlds = %+v, want empty (no portals leaked to a zero-world identity)", floor.Worlds)
+	}
+	if len(floor.Edges) != 0 {
+		t.Errorf("floor.Edges = %+v, want none", floor.Edges)
+	}
+}
+
 func TestFloorRebuildsAfterTTL(t *testing.T) {
 	var called string
 	svc := NewReadingService(fakeGateway{called: &called,
