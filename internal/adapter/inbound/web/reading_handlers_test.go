@@ -160,6 +160,16 @@ func (f *fakeReading) Publish(_ context.Context, _, path, body string, meta doma
 	return f.doc, nil
 }
 
+func (f *fakeReading) Append(_ context.Context, _, path, body string) (domain.Document, error) {
+	f.called = "Append"
+	f.calls = append(f.calls, "Append "+path)
+	f.gotBody = body
+	if f.publishErr != nil {
+		return domain.Document{}, f.publishErr
+	}
+	return f.doc, nil
+}
+
 func readingApp(t *testing.T, svc *fakeReading) *echo.Echo {
 	t.Helper()
 	app := echo.New()

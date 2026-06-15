@@ -30,6 +30,9 @@ func (f *fakeGW) Worlds(context.Context) ([]domain.WorldInfo, error) {
 func (f *fakeGW) Publish(_ context.Context, _, _, _ string, _ domain.PublishMeta, _ int) (int, error) {
 	return 0, nil
 }
+func (f *fakeGW) Append(_ context.Context, _, _, _ string) (int, error) {
+	return 0, nil
+}
 
 func TestRouting(t *testing.T) {
 	names := &fakeGW{name: "names"}

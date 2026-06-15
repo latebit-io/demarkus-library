@@ -96,6 +96,15 @@ func (g *Gateway) Publish(ctx context.Context, w, path, body string, meta domain
 	return gw.Publish(ctx, w, path, body, meta, expectedVersion)
 }
 
+// Append routes the "add to" write to the world's transport (Phase 3).
+func (g *Gateway) Append(ctx context.Context, w, path, body string) (int, error) {
+	gw, err := g.route(w)
+	if err != nil {
+		return 0, err
+	}
+	return gw.Append(ctx, w, path, body)
+}
+
 // Worlds enumerates the universe: the broker's authorization-filtered list
 // when a name resolver is wired, otherwise the QUIC side's home world.
 func (g *Gateway) Worlds(ctx context.Context) ([]domain.WorldInfo, error) {

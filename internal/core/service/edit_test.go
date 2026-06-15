@@ -79,6 +79,33 @@ func TestPublishPropagatesConflict(t *testing.T) {
 	}
 }
 
+func TestAppendWritesThenRereadsLive(t *testing.T) {
+	called := ""
+	gw := fakeGateway{
+		called: &called,
+		raw:    domain.RawDocument{Path: "/log.md", Body: "# Log", Metadata: map[string]string{"version": "4"}},
+	}
+	doc, err := NewReadingService(gw, fakeRenderer{html: "<h1>Log</h1>"}, nil).
+		Append(t.Context(), "root", "/log.md", "\n- entry")
+	if err != nil {
+		t.Fatalf("Append: %v", err)
+	}
+	if called != "Fetch" {
+		t.Errorf("last gateway call = %q, want Fetch (re-read after append)", called)
+	}
+	if doc.Path != "/log.md" {
+		t.Errorf("re-read doc = %+v", doc)
+	}
+}
+
+func TestAppendPropagatesError(t *testing.T) {
+	gw := fakeGateway{publishErr: domain.ErrWriteUnsupported}
+	_, err := NewReadingService(gw, fakeRenderer{}, nil).Append(t.Context(), "h.io", "/x.md", "more")
+	if err != domain.ErrWriteUnsupported {
+		t.Errorf("err = %v, want ErrWriteUnsupported", err)
+	}
+}
+
 func TestPreviewRenders(t *testing.T) {
 	r, err := NewReadingService(fakeGateway{}, fakeRenderer{html: "<p>hi</p>"}, nil).Preview("hi")
 	if err != nil || r.HTML != "<p>hi</p>" {

@@ -38,6 +38,7 @@ type editVM struct {
 	Statuses      []string
 	Authenticated bool
 	Create        bool   // create mode: editable path field, POSTs to /new, version 0
+	Append        bool   // append mode: body-only, POSTs to /append, no metadata
 	Error         string // conflict / write-error banner; empty ⇒ none
 }
 
@@ -177,6 +178,51 @@ func createErrorMessage(err error) string {
 		return "A document already exists at that path. Choose a different path."
 	}
 	return editErrorMessage(err)
+}
+
+// AppendForm serves the append form — the edit template in append mode: a
+// body-only editor (no metadata, no version) that adds to an existing document.
+// GET /w/:world/append/<path>.
+func (h *ReadingHandler) AppendForm(c *echo.Context) error {
+	world := c.Param("world")
+	p := "/" + c.Param("*")
+	vm := editVM{
+		Title:         "Append: " + p,
+		World:         world,
+		WorldPath:     url.PathEscape(world),
+		Path:          p,
+		Authenticated: c.Get(authedKey) != nil,
+		Append:        true,
+	}
+	return c.Render(http.StatusOK, "edit", vm)
+}
+
+// AppendDoc appends the submitted body to the document, then redirects to it.
+// POST /w/:world/append/<path>. Empty content is rejected — append must add
+// something. Metadata and version are the server's concern (auto-resolved).
+func (h *ReadingHandler) AppendDoc(c *echo.Context) error {
+	world := c.Param("world")
+	p := "/" + c.Param("*")
+	body := c.FormValue("body")
+
+	if strings.TrimSpace(body) == "" {
+		vm := editVM{
+			Title: "Append: " + p, World: world, WorldPath: url.PathEscape(world),
+			Path: p, Authenticated: c.Get(authedKey) != nil, Append: true,
+			Error: "Nothing to append — write some content first.",
+		}
+		return c.Render(http.StatusBadRequest, "edit", vm)
+	}
+
+	if _, err := h.reading.Append(c.Request().Context(), world, p, body); err != nil {
+		vm := editVM{
+			Title: "Append: " + p, World: world, WorldPath: url.PathEscape(world),
+			Path: p, Body: body, Authenticated: c.Get(authedKey) != nil, Append: true,
+			Error: editErrorMessage(err),
+		}
+		return c.Render(editErrorStatus(err), "edit", vm)
+	}
+	return c.Redirect(http.StatusSeeOther, docRoute(world, p))
 }
 
 // EditPreview renders the edit buffer to sanitized HTML for the live preview —

@@ -11,6 +11,7 @@ import "github.com/labstack/echo/v5"
 //   - /w/:world/u                the world map (catalog by directory cluster)
 //   - /w/:world/edit/<path>      the cataloging desk: edit a document (Phase 3)
 //   - /w/:world/new              the cataloging desk: create a document (Phase 3)
+//   - /w/:world/append/<path>    the cataloging desk: append to a document (Phase 3)
 //   - /w/:world/tags/:tag        lookup-backed tag page (the lateral exit)
 //   - /w/:world/preview/<path>   hover-card fragment for a document (R3)
 //   - /w/:world/raw/<path>       unrendered source — the protocol escape
@@ -31,6 +32,8 @@ func ReadingRoutes(e *echo.Echo, handler ReadingHandler, middleware ...echo.Midd
 	e.POST("/w/:world/edit/*", handler.SaveEdit, middleware...)
 	e.GET("/w/:world/new", handler.NewForm, middleware...)
 	e.POST("/w/:world/new", handler.CreateDoc, middleware...)
+	e.GET("/w/:world/append/*", handler.AppendForm, middleware...)
+	e.POST("/w/:world/append/*", handler.AppendDoc, middleware...)
 	e.POST("/w/:world/preview", handler.EditPreview, middleware...)
 	e.GET("/w/:world/tags/:tag", handler.TagPage, middleware...)
 	e.GET("/w/:world/preview/*", handler.Preview, middleware...)

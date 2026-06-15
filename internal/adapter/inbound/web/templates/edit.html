@@ -9,6 +9,9 @@
         {{- if .Create }}
         <div class="meta"><code>mark://{{ .World }}/</code> · new document</div>
         <h1>New document in {{ .World }}</h1>
+        {{- else if .Append }}
+        <div class="meta"><code>mark://{{ .World }}{{ .Path }}</code> · append</div>
+        <h1>Append to {{ .Path }}</h1>
         {{- else }}
         <div class="meta"><code>mark://{{ .World }}{{ .Path }}</code> · edition {{ .Version }}</div>
         <h1>Edit {{ .Path }}</h1>
@@ -23,11 +26,12 @@
            Metadata rides dedicated fields → the mark_publish metadata object,
            never a body frontmatter fence (ADR 0005 decision 11). -->
       <form class="edit-form" method="post"
-            action="/w/{{ .WorldPath }}/{{ if .Create }}new{{ else }}edit{{ .Path }}{{ end }}" hx-boost="false">
-        {{- if not .Create }}
+            action="/w/{{ .WorldPath }}/{{ if .Create }}new{{ else if .Append }}append{{ .Path }}{{ else }}edit{{ .Path }}{{ end }}" hx-boost="false">
+        {{- if and (not .Create) (not .Append) }}
         <input type="hidden" name="version" value="{{ .Version }}">
         {{- end }}
 
+        {{- if not .Append }}
         <div class="edit-meta">
           {{- if .Create }}
           <label>path
@@ -55,6 +59,9 @@
                    inputmode="decimal" placeholder="0–1">
           </label>
         </div>
+        {{- else }}
+        <p class="edit-append-note">Appending to the end of this document — metadata and earlier content are unchanged.</p>
+        {{- end }}
 
         <div class="edit-split">
           <!-- Editor: textarea posts to the server-rendered preview as you type
@@ -68,7 +75,7 @@
         </div>
 
         <div class="edit-actions">
-          <button type="submit" class="edit-save">{{ if .Create }}create{{ else }}save{{ end }}</button>
+          <button type="submit" class="edit-save">{{ if .Create }}create{{ else if .Append }}append{{ else }}save{{ end }}</button>
           <a class="edit-cancel" hx-boost="false"
              href="/w/{{ .WorldPath }}/{{ if .Create }}u{{ else }}d{{ .Path }}{{ end }}">cancel</a>
         </div>

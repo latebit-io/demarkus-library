@@ -230,6 +230,65 @@ func TestNewAffordanceGatedAndFolderScoped(t *testing.T) {
 	}
 }
 
+func TestAppendFormBodyOnly(t *testing.T) {
+	rec := get(authedApp(t, &fakeReading{}), "/w/root/append/log.md")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, `action="/w/root/append/log.md"`) {
+		t.Errorf("append form action wrong")
+	}
+	// Append carries no metadata fields and no version (match input markup, not
+	// the CSS selectors in <head> that mention name="title"/name="tags").
+	for _, absent := range []string{`name="title" value=`, `name="tags" value=`, `name="path"`, `name="version"`} {
+		if strings.Contains(body, absent) {
+			t.Errorf("append form must not render %q", absent)
+		}
+	}
+	if !strings.Contains(body, "edit-append-note") {
+		t.Errorf("append form should explain it only adds content")
+	}
+}
+
+func TestAppendDocAddsAndRedirects(t *testing.T) {
+	svc := &fakeReading{doc: domain.Document{Path: "/log.md"}}
+	rec := postForm(authedApp(t, svc), "/w/root/append/log.md", url.Values{"body": {"\n- new entry"}})
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want 303", rec.Code)
+	}
+	if rec.Header().Get("Location") != "/w/root/d/log.md" {
+		t.Errorf("redirect = %q", rec.Header().Get("Location"))
+	}
+	if svc.called != "Append" || svc.gotBody != "\n- new entry" {
+		t.Errorf("append not invoked with body: called=%q body=%q", svc.called, svc.gotBody)
+	}
+}
+
+func TestAppendDocRejectsEmpty(t *testing.T) {
+	svc := &fakeReading{}
+	rec := postForm(authedApp(t, svc), "/w/root/append/log.md", url.Values{"body": {"   \n  "}})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", rec.Code)
+	}
+	if svc.called == "Append" {
+		t.Errorf("empty append must not write")
+	}
+	if !strings.Contains(rec.Body.String(), "Nothing to append") {
+		t.Errorf("expected empty-append guidance")
+	}
+}
+
+func TestAppendAffordanceGatedOnAuth(t *testing.T) {
+	svc := &fakeReading{doc: domain.Document{Title: "D", Path: "/log.md"}}
+	if body := get(readingApp(t, svc), "/w/root/d/log.md").Body.String(); strings.Contains(body, "/append/") {
+		t.Errorf("append affordance must be hidden without a session")
+	}
+	if body := get(authedApp(t, svc), "/w/root/d/log.md").Body.String(); !strings.Contains(body, "/w/root/append/log.md") {
+		t.Errorf("append affordance missing for an authed reader")
+	}
+}
+
 func TestEditPreviewRendersFragment(t *testing.T) {
 	svc := &fakeReading{}
 	rec := postForm(authedApp(t, svc), "/w/root/preview", url.Values{"body": {"hello"}})
