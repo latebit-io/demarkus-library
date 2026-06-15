@@ -188,6 +188,19 @@ func get(app *echo.Echo, target string) *httptest.ResponseRecorder {
 	return rec
 }
 
+func TestReadingRoutesAreNoStore(t *testing.T) {
+	// Authed, per-session pages must not be held by any shared cache (a
+	// corporate proxy served the work PC a frozen floor that incognito could
+	// not bypass). Static assets are registered separately and stay cacheable.
+	svc := &fakeReading{doc: domain.Document{Title: "X", Path: "/x.md", HTML: "<p>x</p>"}}
+	for _, path := range []string{"/t/w.io/d/x.md", "/w/w.io/d/x.md"} {
+		rec := get(readingApp(t, svc), path)
+		if cc := rec.Header().Get("Cache-Control"); cc != "private, no-store" {
+			t.Errorf("%s: Cache-Control = %q, want \"private, no-store\"", path, cc)
+		}
+	}
+}
+
 func TestDocRendersMargin(t *testing.T) {
 	svc := &fakeReading{doc: domain.Document{
 		Title:      "ADR 7",
