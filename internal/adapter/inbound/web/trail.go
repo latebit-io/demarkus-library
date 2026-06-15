@@ -178,14 +178,20 @@ func paneAddrFromParts(world, kind, value string) (paneAddr, bool) {
 	}
 }
 
-// trailURL encodes the trail back to its URL. focus is omitted when it is
-// the default (last pane) so plain append-clicks share the canonical form.
-func trailURL(t trail) string {
+// trailBasePath encodes the pane path with no query params — the shared stem
+// of every trail URL, so the chunk encoding lives in exactly one place.
+func trailBasePath(t trail) string {
 	chunks := make([]string, len(t.Panes))
 	for i, p := range t.Panes {
 		chunks[i] = paneChunk(p)
 	}
-	u := "/t/" + strings.Join(chunks, "/"+trailSep+"/")
+	return "/t/" + strings.Join(chunks, "/"+trailSep+"/")
+}
+
+// trailURL encodes the trail back to its URL. focus is omitted when it is
+// the default (last pane) so plain append-clicks share the canonical form.
+func trailURL(t trail) string {
+	u := trailBasePath(t)
 	if t.Focus != len(t.Panes)-1 {
 		u += "?focus=" + strconv.Itoa(t.Focus)
 	}
@@ -199,11 +205,7 @@ func trailURL(t trail) string {
 // that emits ?reader=; trailURL stays reader-free (the canonical canvas URL),
 // so every existing click closes the overlay.
 func trailReaderURL(t trail, reader int) string {
-	chunks := make([]string, len(t.Panes))
-	for i, p := range t.Panes {
-		chunks[i] = paneChunk(p)
-	}
-	u := "/t/" + strings.Join(chunks, "/"+trailSep+"/")
+	u := trailBasePath(t)
 	if reader >= 0 {
 		u += "?reader=" + strconv.Itoa(reader)
 	}
