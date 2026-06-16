@@ -43,6 +43,15 @@ func TestRenderLiftsLeadingH1AsTitle(t *testing.T) {
 	if !strings.Contains(out.HTML, "body text") {
 		t.Errorf("body content lost: %q", out.HTML)
 	}
+	// Inline spans in the heading (code, emphasis) contribute their text.
+	out3, err := NewRenderer().Render("# The `kit` API\n\nbody")
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if out3.Title != "The kit API" {
+		t.Errorf("Title = %q, want \"The kit API\" (inline code included)", out3.Title)
+	}
+
 	// An H1 that is not the first block is real content — left untouched.
 	out2, err := NewRenderer().Render("intro paragraph\n\n# Later")
 	if err != nil {
