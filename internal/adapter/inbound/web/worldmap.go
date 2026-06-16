@@ -144,10 +144,7 @@ func worldMapSVG(wm domain.WorldMap, docURL, listURL func(string) string, newURL
 		return template.HTML(msg) //nolint:gosec // newURL is server-constructed (/w/<escaped world>/new), text is static
 	}
 
-	cols := worldMapCols
-	if len(wm.Clusters) < cols {
-		cols = len(wm.Clusters)
-	}
+	cols := min(len(wm.Clusters), worldMapCols)
 	rows := (len(wm.Clusters) + cols - 1) / cols
 	width := cols * worldMapCellW
 	height := rows * worldMapCellH
@@ -239,7 +236,7 @@ func worldMapCluster(b *strings.Builder, cl domain.WorldCluster, cx, cy int, pla
 
 // orbitAt places slot j of n on a ring around (cx, cy), starting at the top and
 // going clockwise — deterministic, so the layout is stable and cacheable.
-func orbitAt(cx, cy, j, n int) (int, int) {
+func orbitAt(cx, cy, j, n int) (x, y int) {
 	angle := 2*math.Pi*float64(j)/float64(n) - math.Pi/2
 	return cx + int(worldMapOrbitR*math.Cos(angle)), cy + int(worldMapOrbitR*math.Sin(angle))
 }

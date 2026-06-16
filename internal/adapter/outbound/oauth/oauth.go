@@ -106,7 +106,7 @@ func (c *Client) endpoints(ctx context.Context) (endpoints, error) {
 	}
 
 	u := strings.TrimRight(c.cfg.BrokerURL, "/") + "/.well-known/oauth-authorization-server"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, http.NoBody)
 	if err != nil {
 		return endpoints{}, fmt.Errorf("oauth: build discovery request: %w", err)
 	}

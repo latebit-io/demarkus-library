@@ -169,8 +169,8 @@ func worldClusters(docs []domain.FloorDoc, perCluster int) []domain.WorldCluster
 // "/plans/reading-room.md", "" for a root-level doc like "/index.md".
 func topDir(path string) string {
 	p := strings.TrimPrefix(path, "/")
-	if i := strings.IndexByte(p, '/'); i >= 0 {
-		return p[:i]
+	if dir, _, found := strings.Cut(p, "/"); found {
+		return dir
 	}
 	return ""
 }

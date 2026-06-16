@@ -30,7 +30,7 @@ func TestWorldClustersGroupsByTopDirWithAggregate(t *testing.T) {
 	clusters := worldClusters(docs, 2) // cap 2 labeled docs per cluster
 
 	// Root cluster first, then "adr", then "plans" (alphabetical).
-	var dirs []string
+	dirs := make([]string, 0, len(clusters))
 	for _, c := range clusters {
 		dirs = append(dirs, c.Dir)
 	}

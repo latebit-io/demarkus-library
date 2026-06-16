@@ -1,0 +1,61 @@
+version: "2"
+
+linters:
+  default: standard
+  enable:
+    - gocritic
+    - revive
+    - misspell
+    - gocyclo
+    - prealloc
+    - modernize
+    - unconvert
+
+  settings:
+    gocyclo:
+      min-complexity: 25
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - style
+        - performance
+      disabled-checks:
+        - exitAfterDefer
+      settings:
+        hugeParam:
+          # The reading room passes small immutable value objects (Document,
+          # Session, WorldMap, FloorWorld — all ≤176 bytes) by value on purpose;
+          # gocritic's 80-byte default is too aggressive for that. 256 still
+          # flags genuinely large params.
+          sizeThreshold: 256
+    revive:
+      rules:
+        - name: blank-imports
+        - name: context-as-argument
+        - name: dot-imports
+        - name: error-return
+        - name: error-strings
+        - name: error-naming
+        - name: exported
+        - name: increment-decrement
+        - name: range
+        - name: receiver-naming
+        - name: indent-error-flow
+        - name: superfluous-else
+        - name: redefines-builtin-id
+        - name: unreachable-code
+        - name: unused-parameter
+
+  exclusions:
+    rules:
+      # the main package (cmd/demarkus-library) needs no package comment
+      - path: cmd/
+        linters: [revive]
+        text: "package-comments"
+      # test subtests naturally carry high cyclomatic complexity
+      - path: _test\.go
+        linters: [gocyclo]
+      # staticcheck SA5011 false positive: test fatals on nil before dereference
+      - path: _test\.go
+        linters: [staticcheck]
+        text: "SA5011"

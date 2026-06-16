@@ -42,7 +42,7 @@ func newBrokerStub(t *testing.T) *brokerStub {
 	t.Helper()
 	b := &brokerStub{}
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /.well-known/oauth-authorization-server", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /.well-known/oauth-authorization-server", func(w http.ResponseWriter, _ *http.Request) {
 		b.discoveryHits.Add(1)
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"issuer":                 b.srv.URL,

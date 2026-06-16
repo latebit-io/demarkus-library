@@ -32,7 +32,7 @@ func TestGraphSVGRendersNeighborhood(t *testing.T) {
 
 func TestGraphSVGEmptyNeighborhood(t *testing.T) {
 	n := domain.Neighborhood{Center: domain.Ref{World: "soul", Path: "/lonely.md"}}
-	svg := string(graphSVG(n, func(r domain.Ref) string { return "" }))
+	svg := string(graphSVG(n, func(_ domain.Ref) string { return "" }))
 	if !strings.Contains(svg, "graph-empty") {
 		t.Errorf("empty neighborhood should render the honest empty state: %s", svg)
 	}

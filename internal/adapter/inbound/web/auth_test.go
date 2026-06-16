@@ -48,7 +48,7 @@ type fakeFlow struct {
 	gotVerifier string
 }
 
-func (f *fakeFlow) Begin(_ context.Context) (string, string, string, error) {
+func (f *fakeFlow) Begin(_ context.Context) (authURL, state, verifier string, err error) {
 	if f.beginErr != nil {
 		return "", "", "", f.beginErr
 	}
@@ -118,7 +118,7 @@ func (r *testRig) login(t *testing.T) *http.Cookie {
 		t.Fatalf("start: code = %d", rec.Code)
 	}
 
-	rec := r.do(httptest.NewRequest(http.MethodGet, "/auth/callback?state=st-1&code=the-code", nil))
+	rec := r.do(httptest.NewRequest(http.MethodGet, "/auth/callback?state=st-1&code=the-code", http.NoBody))
 	if rec.Code != http.StatusFound {
 		t.Fatalf("callback: code = %d, body %s", rec.Code, rec.Body.String())
 	}
@@ -134,7 +134,7 @@ func (r *testRig) login(t *testing.T) *http.Cookie {
 func TestTurnstileRedirectsAnonymous(t *testing.T) {
 	rig := newTestRig(t)
 
-	rec := rig.do(httptest.NewRequest(http.MethodGet, "/probe?x=1", nil))
+	rec := rig.do(httptest.NewRequest(http.MethodGet, "/probe?x=1", http.NoBody))
 	if rec.Code != http.StatusFound {
 		t.Fatalf("code = %d, want 302", rec.Code)
 	}
@@ -150,7 +150,7 @@ func TestTurnstileRedirectsAnonymous(t *testing.T) {
 func TestTurnstileHTMXGetsHXRedirect(t *testing.T) {
 	rig := newTestRig(t)
 
-	req := httptest.NewRequest(http.MethodGet, "/probe", nil)
+	req := httptest.NewRequest(http.MethodGet, "/probe", http.NoBody)
 	req.Header.Set("HX-Request", "true")
 	rec := rig.do(req)
 	if rec.Code != http.StatusUnauthorized {
@@ -179,7 +179,7 @@ func TestFullLoginFlow(t *testing.T) {
 	// Callback with the matching state mints the session and lands on
 	// the stashed return_to.
 	rig.flow.tokens = session.Tokens{IDToken: "id-tok", RefreshToken: "ref-tok", Expiry: time.Now().Add(time.Hour)}
-	rec = rig.do(httptest.NewRequest(http.MethodGet, "/auth/callback?state=st-1&code=the-code", nil))
+	rec = rig.do(httptest.NewRequest(http.MethodGet, "/auth/callback?state=st-1&code=the-code", http.NoBody))
 	if rec.Code != http.StatusFound {
 		t.Fatalf("callback: code = %d", rec.Code)
 	}
@@ -204,7 +204,7 @@ func TestFullLoginFlow(t *testing.T) {
 	}
 
 	// The turnstile now passes and the probe sees the bearer.
-	req = httptest.NewRequest(http.MethodGet, "/probe", nil)
+	req = httptest.NewRequest(http.MethodGet, "/probe", http.NoBody)
 	req.AddCookie(cookie)
 	if rec := rig.do(req); rec.Code != http.StatusOK {
 		t.Fatalf("probe after login: code = %d", rec.Code)
@@ -217,7 +217,7 @@ func TestFullLoginFlow(t *testing.T) {
 func TestCallbackRejectsBadState(t *testing.T) {
 	rig := newTestRig(t)
 
-	rec := rig.do(httptest.NewRequest(http.MethodGet, "/auth/callback?state=never-issued&code=x", nil))
+	rec := rig.do(httptest.NewRequest(http.MethodGet, "/auth/callback?state=never-issued&code=x", http.NoBody))
 	if rec.Code != http.StatusFound {
 		t.Fatalf("code = %d", rec.Code)
 	}
@@ -227,7 +227,7 @@ func TestCallbackRejectsBadState(t *testing.T) {
 
 	// State is single-use: a replay after a successful login also fails.
 	rig.login(t)
-	rec = rig.do(httptest.NewRequest(http.MethodGet, "/auth/callback?state=st-1&code=x", nil))
+	rec = rig.do(httptest.NewRequest(http.MethodGet, "/auth/callback?state=st-1&code=x", http.NoBody))
 	if loc := rec.Header().Get("Location"); loc != "/login?err=failed" {
 		t.Errorf("replayed state: Location = %q", loc)
 	}
@@ -241,7 +241,7 @@ func TestCallbackDeniedAtIdP(t *testing.T) {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rig.do(req)
 
-	rec := rig.do(httptest.NewRequest(http.MethodGet, "/auth/callback?state=st-1&error=access_denied", nil))
+	rec := rig.do(httptest.NewRequest(http.MethodGet, "/auth/callback?state=st-1&error=access_denied", http.NoBody))
 	if loc := rec.Header().Get("Location"); loc != "/login?err=denied" {
 		t.Errorf("Location = %q", loc)
 	}
@@ -251,7 +251,7 @@ func TestLogout(t *testing.T) {
 	rig := newTestRig(t)
 	cookie := rig.login(t)
 
-	req := httptest.NewRequest(http.MethodPost, "/logout", nil)
+	req := httptest.NewRequest(http.MethodPost, "/logout", http.NoBody)
 	req.AddCookie(cookie)
 	rec := rig.do(req)
 	if rec.Code != http.StatusSeeOther {
@@ -262,7 +262,7 @@ func TestLogout(t *testing.T) {
 	}
 
 	// The cookie is dead: the turnstile bounces the next request.
-	req = httptest.NewRequest(http.MethodGet, "/probe", nil)
+	req = httptest.NewRequest(http.MethodGet, "/probe", http.NoBody)
 	req.AddCookie(cookie)
 	if rec := rig.do(req); rec.Code != http.StatusFound {
 		t.Errorf("probe after logout: code = %d, want 302", rec.Code)
@@ -272,7 +272,7 @@ func TestLogout(t *testing.T) {
 func TestLoginPageRendersError(t *testing.T) {
 	rig := newTestRig(t)
 
-	rec := rig.do(httptest.NewRequest(http.MethodGet, "/login?err=denied", nil))
+	rec := rig.do(httptest.NewRequest(http.MethodGet, "/login?err=denied", http.NoBody))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("code = %d", rec.Code)
 	}
@@ -281,7 +281,7 @@ func TestLoginPageRendersError(t *testing.T) {
 	}
 
 	// Unknown error codes render nothing — no reflected content channel.
-	rec = rig.do(httptest.NewRequest(http.MethodGet, "/login?err=<script>alert(1)</script>", nil))
+	rec = rig.do(httptest.NewRequest(http.MethodGet, "/login?err=<script>alert(1)</script>", http.NoBody))
 	if strings.Contains(rec.Body.String(), "script>") {
 		t.Error("login page reflected the err parameter")
 	}
@@ -336,7 +336,7 @@ func TestTurnstileTransientFailureIs502(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/login/start", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rig.do(req)
-	rec := rig.do(httptest.NewRequest(http.MethodGet, "/auth/callback?state=st-2&code=c2", nil))
+	rec := rig.do(httptest.NewRequest(http.MethodGet, "/auth/callback?state=st-2&code=c2", http.NoBody))
 	var staleCookie *http.Cookie
 	for _, ck := range rec.Result().Cookies() {
 		if ck.Name == sessionCookie {
@@ -347,14 +347,14 @@ func TestTurnstileTransientFailureIs502(t *testing.T) {
 		t.Fatal("no cookie from second login")
 	}
 
-	req = httptest.NewRequest(http.MethodGet, "/probe", nil)
+	req = httptest.NewRequest(http.MethodGet, "/probe", http.NoBody)
 	req.AddCookie(staleCookie)
 	if rec := rig.do(req); rec.Code != http.StatusBadGateway {
 		t.Errorf("transient refresh failure: code = %d, want 502", rec.Code)
 	}
 
 	// The healthy session is untouched.
-	req = httptest.NewRequest(http.MethodGet, "/probe", nil)
+	req = httptest.NewRequest(http.MethodGet, "/probe", http.NoBody)
 	req.AddCookie(cookie)
 	if rec := rig.do(req); rec.Code != http.StatusOK {
 		t.Errorf("healthy session: code = %d, want 200", rec.Code)

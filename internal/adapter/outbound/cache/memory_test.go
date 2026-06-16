@@ -41,7 +41,7 @@ func TestEvictsLeastRecentlyUsed(t *testing.T) {
 	}
 }
 
-func TestConcurrentAccess(t *testing.T) {
+func TestConcurrentAccess(_ *testing.T) {
 	m := NewMemory(16)
 	var wg sync.WaitGroup
 	for i := range 32 {

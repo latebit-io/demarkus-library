@@ -15,16 +15,16 @@ type fakeGW struct {
 	via  *string
 }
 
-func (f *fakeGW) Fetch(_ context.Context, world, path string) (domain.RawDocument, error) {
+func (f *fakeGW) Fetch(_ context.Context, _, path string) (domain.RawDocument, error) {
 	return domain.RawDocument{Source: f.name, Path: path}, nil
 }
-func (f *fakeGW) List(_ context.Context, world, path string) (domain.RawDocument, error) {
+func (f *fakeGW) List(_ context.Context, _, _ string) (domain.RawDocument, error) {
 	return domain.RawDocument{Source: f.name}, nil
 }
-func (f *fakeGW) Versions(_ context.Context, world, path string) (domain.RawDocument, error) {
+func (f *fakeGW) Versions(_ context.Context, _, _ string) (domain.RawDocument, error) {
 	return domain.RawDocument{Source: f.name}, nil
 }
-func (f *fakeGW) Lookup(_ context.Context, world, scope, query, filter string) (domain.RawDocument, error) {
+func (f *fakeGW) Lookup(_ context.Context, _, _, _, _ string) (domain.RawDocument, error) {
 	return domain.RawDocument{Source: f.name}, nil
 }
 
