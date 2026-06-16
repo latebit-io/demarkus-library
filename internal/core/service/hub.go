@@ -149,7 +149,7 @@ func hostOf(url string) string {
 // scale). It also returns the portal worlds — edge endpoints with no
 // authorized name, i.e. externally-linked hosts (the extensional universe,
 // ADR 0005 §16). Both outputs are sorted for a stable, cacheable render.
-func worldEdges(edges []domain.Edge, host2name map[string]string, authorized map[string]bool) ([]domain.Edge, []string) {
+func worldEdges(edges []domain.Edge, host2name map[string]string, authorized map[string]bool) (worldLevel []domain.Edge, portalNames []string) {
 	seen := map[domain.Edge]struct{}{}
 	portals := map[string]bool{}
 	var out []domain.Edge

@@ -31,7 +31,7 @@ type fakeCaller struct {
 	gotArgs  map[string]any
 }
 
-func (f *fakeCaller) callTool(_ context.Context, token, tool string, args map[string]any) (string, bool, error) {
+func (f *fakeCaller) callTool(_ context.Context, token, tool string, args map[string]any) (text string, isToolError bool, err error) {
 	f.gotToken, f.gotTool, f.gotArgs = token, tool, args
 	return f.text, f.isToolErr, f.err
 }

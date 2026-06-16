@@ -78,8 +78,8 @@ var sidenoteClasses = regexp.MustCompile(`^sidenote(?:-number)?$`)
 // (DOM clobbering stays closed).
 var (
 	footnoteClasses = regexp.MustCompile(`^footnote-(?:ref|backref)$|^footnotes$`)
-	footnoteIDs     = regexp.MustCompile(`^fn(?:ref)?:[0-9]+(?::[0-9]+)?$`)
-	footnoteHrefs   = regexp.MustCompile(`^#fn(?:ref)?:[0-9]+(?::[0-9]+)?$`)
+	footnoteIDs     = regexp.MustCompile(`^fn(?:ref)?:\d+(?::\d+)?$`)
+	footnoteHrefs   = regexp.MustCompile(`^#fn(?:ref)?:\d+(?::\d+)?$`)
 )
 
 // calloutClasses matches what gm-alert-callouts emits: the wrapper div

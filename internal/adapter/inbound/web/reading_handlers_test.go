@@ -188,7 +188,7 @@ func readingApp(t *testing.T, svc *fakeReading) *echo.Echo {
 
 func get(app *echo.Echo, target string) *httptest.ResponseRecorder {
 	rec := httptest.NewRecorder()
-	app.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, target, nil))
+	app.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, target, http.NoBody))
 	return rec
 }
 

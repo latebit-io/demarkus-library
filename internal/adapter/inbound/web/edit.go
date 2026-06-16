@@ -303,7 +303,7 @@ func (h *ReadingHandler) SaveEdit(c *echo.Context) error {
 // carried one) plus a single status:<v> tag when a status is chosen.
 func assembleTags(tagsCSV, status string) []string {
 	var out []string
-	for _, t := range strings.Split(tagsCSV, ",") {
+	for t := range strings.SplitSeq(tagsCSV, ",") {
 		t = strings.TrimSpace(t)
 		if t == "" || strings.HasPrefix(t, "status:") {
 			continue

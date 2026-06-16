@@ -437,7 +437,7 @@ const (
 // callTool runs one tool call on the reader's pooled MCP session, building
 // the session on first use and rebuilding it once if the call fails (broker
 // restart invalidates server-side session ids; the retry is transparent).
-func (m *mcpCaller) callTool(ctx context.Context, token, tool string, args map[string]any) (string, bool, error) {
+func (m *mcpCaller) callTool(ctx context.Context, token, tool string, args map[string]any) (text string, isToolError bool, err error) {
 	entry := m.entryFor(token)
 
 	callReq := mcp.CallToolRequest{}
@@ -445,7 +445,7 @@ func (m *mcpCaller) callTool(ctx context.Context, token, tool string, args map[s
 	callReq.Params.Arguments = args
 
 	var lastErr error
-	for attempt := 0; attempt < 2; attempt++ {
+	for range 2 {
 		c, err := m.clientOf(ctx, entry, token)
 		if err != nil {
 			// Initialize failed against a fresh session — nothing to
