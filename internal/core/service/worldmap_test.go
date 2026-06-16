@@ -135,3 +135,27 @@ func TestWorldMapEnrichmentIsBestEffort(t *testing.T) {
 		t.Errorf("degraded map = %+v", wm)
 	}
 }
+
+func TestWorldMapDegradesOnReadError(t *testing.T) {
+	// A catalog-read failure (old/unreachable world, rejected query) degrades to
+	// an Unreadable map — no 502 — like the floor tombstoning a world.
+	svc := NewReadingService(fakeGateway{err: errTest}, fakeRenderer{}, nil)
+	wm, err := svc.WorldMap(t.Context(), "world-a")
+	if err != nil {
+		t.Fatalf("WorldMap should degrade, not error: %v", err)
+	}
+	if !wm.Unreadable || len(wm.Clusters) != 0 || wm.World.Name != "world-a" {
+		t.Errorf("unreadable map = %+v, want Unreadable, no clusters, name world-a", wm)
+	}
+	// The unreadable result is not cached — a later read retries the world.
+	if _, ok := svc.worldMaps.get("world-a"); ok {
+		t.Error("unreadable map must not be cached")
+	}
+
+	// ErrUnauthorized is the reader's identity dying — propagate for re-login.
+	_, err = NewReadingService(fakeGateway{err: domain.ErrUnauthorized}, fakeRenderer{}, nil).
+		WorldMap(t.Context(), "world-a")
+	if !errors.Is(err, domain.ErrUnauthorized) {
+		t.Errorf("ErrUnauthorized must propagate, got %v", err)
+	}
+}

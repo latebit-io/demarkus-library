@@ -33,7 +33,8 @@ func TestWorldMapSVGNodesEdgesAggregate(t *testing.T) {
 		},
 		func(p string) string {
 			return trailURL(trailAfterClick(tr, 1, paneAddr{Kind: paneDoc, World: "team-a", Value: p}))
-		}))
+		},
+		"/w/team-a/new?dir=%2F"))
 
 	for _, want := range []string{
 		`class="floor world-map"`,
@@ -49,6 +50,9 @@ func TestWorldMapSVGNodesEdgesAggregate(t *testing.T) {
 		`class="graph-edge"`,
 		// Root cluster labels as "/".
 		`>/</text>`,
+		// The authenticated "new document" affordance.
+		`class="world-map-new"`,
+		`href="/w/team-a/new?dir=%2F"`,
 	} {
 		if !strings.Contains(svg, want) {
 			t.Errorf("world-map svg missing %q\n---\n%s", want, svg)
@@ -57,10 +61,29 @@ func TestWorldMapSVGNodesEdgesAggregate(t *testing.T) {
 }
 
 func TestWorldMapSVGEmptyCatalog(t *testing.T) {
-	svg := string(worldMapSVG(domain.WorldMap{World: domain.WorldInfo{Name: "w"}},
-		func(p string) string { return p }, func(p string) string { return p }))
-	if !strings.Contains(svg, "catalog is empty") {
-		t.Errorf("empty world map should say so: %s", svg)
+	id := func(p string) string { return p }
+	// Anonymous: empty message, no create link.
+	svg := string(worldMapSVG(domain.WorldMap{World: domain.WorldInfo{Name: "w"}}, id, id, ""))
+	if !strings.Contains(svg, "catalog is empty") || strings.Contains(svg, "Create the first") {
+		t.Errorf("empty world map (anon) wrong: %s", svg)
+	}
+	// Authenticated: the empty world is the one place to create the first doc.
+	svg = string(worldMapSVG(domain.WorldMap{World: domain.WorldInfo{Name: "w"}}, id, id, "/w/w/new?dir=%2F"))
+	if !strings.Contains(svg, "Create the first document") || !strings.Contains(svg, `href="/w/w/new?dir=%2F"`) {
+		t.Errorf("empty world map (authed) should offer create: %s", svg)
+	}
+}
+
+func TestWorldMapSVGUnreadable(t *testing.T) {
+	id := func(p string) string { return p }
+	// Unreadable ≠ empty: a notice, and no "create" link even when authed (we
+	// don't know the catalog is empty).
+	svg := string(worldMapSVG(domain.WorldMap{World: domain.WorldInfo{Name: "w"}, Unreadable: true}, id, id, "/w/w/new?dir=%2F"))
+	if !strings.Contains(svg, "could not be read") {
+		t.Errorf("unreadable world map should say so: %s", svg)
+	}
+	if strings.Contains(svg, "Create the first") || strings.Contains(svg, "world-map-new") {
+		t.Errorf("unreadable world map must not offer create: %s", svg)
 	}
 }
 
@@ -69,7 +92,7 @@ func TestWorldMapSVGEscapesContent(t *testing.T) {
 		{Dir: "x", ListPath: "/x/", Docs: []domain.FloorDoc{
 			{Path: "/x/e.md", Title: `<script>"x"</script>`, Importance: 0.5, Status: "draft"}}},
 	}}
-	svg := string(worldMapSVG(wm, func(p string) string { return p }, func(p string) string { return p }))
+	svg := string(worldMapSVG(wm, func(p string) string { return p }, func(p string) string { return p }, ""))
 	if strings.Contains(svg, "<script>") {
 		t.Errorf("unescaped title in svg: %s", svg)
 	}
