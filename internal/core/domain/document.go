@@ -166,6 +166,10 @@ type WorldMap struct {
 	World    WorldInfo
 	Clusters []WorldCluster
 	Edges    []Edge
+	// Unreadable marks a map whose catalog read failed (an old/unreachable
+	// world, a rejected query): the view renders a notice instead of 502'ing,
+	// mirroring the floor tombstoning a single unreadable world.
+	Unreadable bool
 }
 
 // Floor is the universe view's data: every visible world cluster plus the

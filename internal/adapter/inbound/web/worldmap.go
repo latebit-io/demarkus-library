@@ -43,7 +43,8 @@ func (h *ReadingHandler) WorldMapPage(c *echo.Context) error {
 	// Single-pane permalink: nodes link to /w/ permalinks.
 	svg := worldMapSVG(wm,
 		func(p string) string { return docRoute(world, p) },
-		func(p string) string { return docRoute(world, p) })
+		func(p string) string { return docRoute(world, p) },
+		worldNewURL(world, c.Get(authedKey) != nil))
 	vm := page{
 		Title:         "Map: " + world,
 		Host:          world,
@@ -61,7 +62,17 @@ func (h *ReadingHandler) WorldMapPage(c *echo.Context) error {
 // like every pane): nodes link to post-click trail URLs so a click continues
 // the trail (decision 4). Like the floor, the map carries no margin — its
 // signals are on the nodes (status strokes, importance sizing).
-func (h *ReadingHandler) worldMapPaneView(ctx context.Context, t trail, i int, addr paneAddr) (paneVM, error) {
+// worldNewURL is the world-map's "new document" affordance target — create at
+// the world root — or "" for an unauthenticated reader (writes are gated on a
+// session, same posture as the doc-margin "new").
+func worldNewURL(world string, authed bool) string {
+	if !authed {
+		return ""
+	}
+	return "/w/" + url.PathEscape(world) + "/new?dir=" + url.QueryEscape("/")
+}
+
+func (h *ReadingHandler) worldMapPaneView(ctx context.Context, t trail, i int, addr paneAddr, authed bool) (paneVM, error) {
 	focused := i == t.Focus
 	var wm domain.WorldMap
 	var err error
@@ -97,7 +108,8 @@ func (h *ReadingHandler) worldMapPaneView(ctx context.Context, t trail, i int, a
 		},
 		func(p string) string {
 			return trailURL(trailAfterClick(t, i, paneAddr{Kind: paneDoc, World: addr.World, Value: p}))
-		})
+		},
+		worldNewURL(addr.World, authed))
 	return vm, nil
 }
 
@@ -112,9 +124,24 @@ type wmPlaced struct {
 // cluster is a labeled hub with its documents on an orbit ring and an optional
 // "+N more" aggregate. docURL turns a document path into its navigation target;
 // listURL turns a directory listing path (the stacks) into one.
-func worldMapSVG(wm domain.WorldMap, docURL, listURL func(string) string) template.HTML {
+// newURL, when non-empty, adds a "new document" affordance (create at the world
+// root) — the only entry point for the first document in an empty world, where
+// there is no doc margin to host the usual "new" link. Empty ⇒ no affordance
+// (unauthenticated reader).
+func worldMapSVG(wm domain.WorldMap, docURL, listURL func(string) string, newURL string) template.HTML {
 	if len(wm.Clusters) == 0 {
-		return template.HTML(`<p class="floor-empty">This world's catalog is empty.</p>`) //nolint:gosec // static markup
+		// Unreadable ≠ empty: a read failure shows a notice and no create link
+		// (we don't know the catalog is empty); a genuinely empty world offers
+		// to create its first document (the only entry point for that case).
+		if wm.Unreadable {
+			return template.HTML(`<p class="floor-empty">This world's catalog could not be read.</p>`) //nolint:gosec // static markup
+		}
+		msg := `<p class="floor-empty">This world's catalog is empty.`
+		if newURL != "" {
+			msg += ` <a href="` + html.EscapeString(newURL) + `" hx-boost="false">Create the first document.</a>`
+		}
+		msg += `</p>`
+		return template.HTML(msg) //nolint:gosec // newURL is server-constructed (/w/<escaped world>/new), text is static
 	}
 
 	cols := worldMapCols
@@ -162,6 +189,9 @@ func worldMapSVG(wm domain.WorldMap, docURL, listURL func(string) string) templa
 		worldMapCluster(&b, cl, centers[ci].x, centers[ci].y, placed, docURL, listURL)
 	}
 	b.WriteString(`</svg>`)
+	if newURL != "" {
+		b.WriteString(`<p class="world-map-new"><a href="` + html.EscapeString(newURL) + `" hx-boost="false" class="edit-link">+ new document</a></p>`)
+	}
 	return template.HTML(b.String()) //nolint:gosec // built from escaped parts; all node text/attrs pass html.EscapeString
 }
 

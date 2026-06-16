@@ -92,7 +92,7 @@ func (h *ReadingHandler) Trail(c *echo.Context) error {
 				pane, err = h.floorPaneView(ctx, t, i)
 			} else {
 				scope = addr.World
-				pane, err = h.worldMapPaneView(ctx, t, i, addr)
+				pane, err = h.worldMapPaneView(ctx, t, i, addr, authed)
 			}
 			if err != nil {
 				if focused {

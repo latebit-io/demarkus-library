@@ -67,7 +67,10 @@ jobs:
         with:
           tag_prefix: "v"
           major_pattern: "BREAKING CHANGE:"
-          minor_pattern: "feat:"
+          # Slash-wrapped ⇒ regex (PaulHatch). Plain "feat:" is a substring
+          # match, so a scoped "feat(web):" never matched and bumped PATCH, not
+          # MINOR. Anchor + optional scope catches both "feat:" and "feat(x):".
+          minor_pattern: '/^feat(\(.+\))?:/'
           # Single-module repo: no change_path. The chart and image are
           # released together at the same version, so every commit —
           # chart-only included — participates in the bump (see the
