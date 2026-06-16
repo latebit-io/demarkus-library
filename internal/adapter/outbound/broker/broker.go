@@ -173,10 +173,10 @@ func (g *Gateway) Lookup(ctx context.Context, world, scope, query, filter string
 // fence; ADR 0005 decision 11). on_conflict is "fail" so an expected_version
 // mismatch returns a strict conflict the desk surfaces as a reload prompt
 // (the structural-merge flow is a later slice). Returns the new version.
-func (g *Gateway) Publish(ctx context.Context, world, path, body string, meta domain.PublishMeta, expectedVersion int) (int, error) {
+func (g *Gateway) Publish(ctx context.Context, world, path, body string, meta domain.PublishMeta, expectedVersion int) (domain.PublishResult, error) {
 	token := bearer.FromContext(ctx)
 	if token == "" {
-		return 0, domain.ErrUnauthorized
+		return domain.PublishResult{}, domain.ErrUnauthorized
 	}
 	metadata := map[string]any{}
 	if meta.Title != "" {
@@ -188,11 +188,19 @@ func (g *Gateway) Publish(ctx context.Context, world, path, body string, meta do
 	if meta.Importance != "" {
 		metadata["importance"] = meta.Importance
 	}
+	// on_conflict by intent: a create (version 0) wants a path-taken conflict to
+	// be a hard error ("already exists"), so "fail"; an edit (non-zero version)
+	// wants the broker to three-way-merge a stale write into a candidate the
+	// desk can review, so "merge".
+	onConflict := "merge"
+	if expectedVersion == 0 {
+		onConflict = "fail"
+	}
 	args := map[string]any{
 		"url":              markURL(world, path),
 		"body":             body,
 		"expected_version": expectedVersion,
-		"on_conflict":      "fail",
+		"on_conflict":      onConflict,
 	}
 	if len(metadata) > 0 {
 		args["metadata"] = metadata
@@ -201,14 +209,47 @@ func (g *Gateway) Publish(ctx context.Context, world, path, body string, meta do
 	text, isToolError, err := g.caller.callTool(ctx, token, "mark_publish", args)
 	if err != nil {
 		if errors.Is(err, transport.ErrUnauthorized) {
-			return 0, domain.ErrUnauthorized
+			return domain.PublishResult{}, domain.ErrUnauthorized
 		}
-		return 0, fmt.Errorf("broker: mark_publish: %w", err)
+		return domain.PublishResult{}, fmt.Errorf("broker: mark_publish: %w", err)
 	}
 	if isToolError {
-		return 0, mapWriteError(text)
+		return domain.PublishResult{}, mapWriteError(text)
 	}
-	return parsePublishedVersion(text), nil
+	// A merge (on_conflict="merge" against a stale version) comes back as a
+	// normal result with "status: merge-candidate", not a tool error; a clean
+	// write is "status: ok".
+	if cand, ok := parseMergeCandidate(text); ok {
+		return domain.PublishResult{Merge: cand}, nil
+	}
+	return domain.PublishResult{Version: parsePublishedVersion(text)}, nil
+}
+
+// parseMergeCandidate decodes the broker's merge-candidate payload (the
+// formatMergeOutcome OutcomeCandidate shape): a "status: merge-candidate" head
+// with publish-at-version / has-markers lines, a blank line, then the merged
+// body. ok is false for any other result (a clean "status: ok" publish).
+func parseMergeCandidate(text string) (*domain.MergeCandidate, bool) {
+	head, body, found := strings.Cut(text, "\n\n")
+	if !found || !strings.Contains(head, "status: merge-candidate") {
+		return nil, false
+	}
+	cand := &domain.MergeCandidate{Body: body}
+	for line := range strings.SplitSeq(head, "\n") {
+		key, value, ok := strings.Cut(strings.TrimSpace(line), ": ")
+		if !ok {
+			continue
+		}
+		switch key {
+		case "publish-at-version":
+			if v, err := strconv.Atoi(strings.TrimSpace(value)); err == nil {
+				cand.PublishAtVersion = v
+			}
+		case "has-markers":
+			cand.HasMarkers = strings.TrimSpace(value) == "true"
+		}
+	}
+	return cand, true
 }
 
 // Append concatenates body onto the document through mark_append — the

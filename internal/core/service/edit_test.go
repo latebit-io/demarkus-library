@@ -55,10 +55,13 @@ func TestPublishWritesThenRereadsLive(t *testing.T) {
 		called: &called,
 		raw:    domain.RawDocument{Path: "/x.md", Body: "# X", Metadata: map[string]string{"version": "3"}},
 	}
-	doc, err := NewReadingService(gw, fakeRenderer{html: "<h1>X</h1>"}, nil).
+	doc, merge, err := NewReadingService(gw, fakeRenderer{html: "<h1>X</h1>"}, nil).
 		Publish(t.Context(), "root", "/x.md", "# X", domain.PublishMeta{Tags: []string{"a"}}, 2)
 	if err != nil {
 		t.Fatalf("Publish: %v", err)
+	}
+	if merge != nil {
+		t.Errorf("clean publish returned a merge candidate: %+v", merge)
 	}
 	// After Publish the gateway's last call must be the live re-read (Fetch),
 	// so the room shows fresh content (focused-live).
@@ -72,10 +75,34 @@ func TestPublishWritesThenRereadsLive(t *testing.T) {
 
 func TestPublishPropagatesConflict(t *testing.T) {
 	gw := fakeGateway{publishErr: domain.ErrConflict}
-	_, err := NewReadingService(gw, fakeRenderer{}, nil).
+	_, _, err := NewReadingService(gw, fakeRenderer{}, nil).
 		Publish(t.Context(), "root", "/x.md", "body", domain.PublishMeta{}, 1)
 	if err != domain.ErrConflict {
 		t.Errorf("err = %v, want ErrConflict (no re-read, surfaced to the desk)", err)
+	}
+}
+
+func TestPublishReturnsMergeCandidate(t *testing.T) {
+	// A stale edit comes back as a merge candidate, not a written Document: the
+	// service surfaces it and does NOT re-read (nothing was committed).
+	called := ""
+	gw := fakeGateway{
+		called:       &called,
+		publishMerge: &domain.MergeCandidate{Body: "merged", PublishAtVersion: 9, HasMarkers: true},
+	}
+	doc, merge, err := NewReadingService(gw, fakeRenderer{}, nil).
+		Publish(t.Context(), "root", "/x.md", "mine", domain.PublishMeta{}, 7)
+	if err != nil {
+		t.Fatalf("Publish: %v", err)
+	}
+	if merge == nil || merge.Body != "merged" || merge.PublishAtVersion != 9 || !merge.HasMarkers {
+		t.Errorf("merge = %+v, want the candidate", merge)
+	}
+	if doc.Path != "" || doc.HTML != "" {
+		t.Errorf("a candidate must carry no Document, got %+v", doc)
+	}
+	if called != "Publish" {
+		t.Errorf("last gateway call = %q, want Publish (no re-read on a candidate)", called)
 	}
 }
 

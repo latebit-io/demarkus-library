@@ -48,14 +48,23 @@ func (s *ReadingService) Preview(markdown string) (domain.Rendered, error) {
 	return s.renderer.Render(markdown)
 }
 
-// Publish writes the document then re-reads it live (refreshing the cache, so
-// the next render shows the new content). expectedVersion guards the write; the
-// gateway maps a mismatch to domain.ErrConflict.
-func (s *ReadingService) Publish(ctx context.Context, world, path, body string, meta domain.PublishMeta, expectedVersion int) (domain.Document, error) {
-	if _, err := s.world.Publish(ctx, world, path, body, meta, expectedVersion); err != nil {
-		return domain.Document{}, err
+// Publish writes the document. On a clean write it re-reads live (refreshing
+// the cache, focused-live) and returns the Document with a nil candidate.
+// expectedVersion guards the write; a stale non-zero version yields a
+// *domain.MergeCandidate (nothing written) for the desk to review and
+// re-publish at its PublishAtVersion. A create (version 0) hitting an existing
+// path is domain.ErrConflict, not a candidate (the gateway picks on_conflict by
+// the version).
+func (s *ReadingService) Publish(ctx context.Context, world, path, body string, meta domain.PublishMeta, expectedVersion int) (domain.Document, *domain.MergeCandidate, error) {
+	res, err := s.world.Publish(ctx, world, path, body, meta, expectedVersion)
+	if err != nil {
+		return domain.Document{}, nil, err
 	}
-	return s.Read(ctx, world, path)
+	if res.Merge != nil {
+		return domain.Document{}, res.Merge, nil
+	}
+	doc, err := s.Read(ctx, world, path)
+	return doc, nil, err
 }
 
 // Append adds body to the end of the document then re-reads it live (refreshing

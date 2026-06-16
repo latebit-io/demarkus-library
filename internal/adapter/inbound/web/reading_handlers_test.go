@@ -27,18 +27,19 @@ type fakeReading struct {
 	worldMap    domain.WorldMap
 	worldMapErr error
 
-	draft      domain.EditDraft
-	editErr    error
-	publishErr error
-	gotBody    string
-	gotMeta    domain.PublishMeta
-	gotVersion int
-	backlink   map[string][]domain.Ref // keyed by path; the graph store's reverse edges
-	neighbor   map[string]domain.Neighborhood
-	recorded   map[string][]domain.Ref // path → links RecordLinks captured
-	called     string
-	calls      []string
-	gotTag     string
+	draft       domain.EditDraft
+	editErr     error
+	publishErr  error
+	publishCand *domain.MergeCandidate // when set, Publish returns this merge candidate
+	gotBody     string
+	gotMeta     domain.PublishMeta
+	gotVersion  int
+	backlink    map[string][]domain.Ref // keyed by path; the graph store's reverse edges
+	neighbor    map[string]domain.Neighborhood
+	recorded    map[string][]domain.Ref // path → links RecordLinks captured
+	called      string
+	calls       []string
+	gotTag      string
 }
 
 func (f *fakeReading) record(method, key string) (domain.Document, error) {
@@ -148,16 +149,19 @@ func (f *fakeReading) Preview(markdown string) (domain.Rendered, error) {
 	return domain.Rendered{HTML: "<p>" + markdown + "</p>"}, nil
 }
 
-func (f *fakeReading) Publish(_ context.Context, _, path, body string, meta domain.PublishMeta, expectedVersion int) (domain.Document, error) {
+func (f *fakeReading) Publish(_ context.Context, _, path, body string, meta domain.PublishMeta, expectedVersion int) (domain.Document, *domain.MergeCandidate, error) {
 	f.called = "Publish"
 	f.calls = append(f.calls, "Publish "+path)
 	f.gotBody = body
 	f.gotMeta = meta
 	f.gotVersion = expectedVersion
 	if f.publishErr != nil {
-		return domain.Document{}, f.publishErr
+		return domain.Document{}, nil, f.publishErr
 	}
-	return f.doc, nil
+	if f.publishCand != nil {
+		return domain.Document{}, f.publishCand, nil
+	}
+	return f.doc, nil, nil
 }
 
 func (f *fakeReading) Append(_ context.Context, _, path, body string) (domain.Document, error) {

@@ -23,6 +23,28 @@ var ErrConflict = errors.New("document changed since it was opened")
 // write through mark_publish; this keeps the read-only degradation honest.
 var ErrWriteUnsupported = errors.New("writing not supported for this world")
 
+// MergeCandidate is the broker's answer to an edit whose expected_version is
+// stale (on_conflict="merge"): the document changed underneath the editor, so
+// the broker three-way-merges the editor's body against the current version and
+// returns the result for the human to review rather than failing the write.
+// Body is the merged markdown — with git-style <<<<<<< / ======= / >>>>>>>
+// markers where both sides edited the same lines (HasMarkers). PublishAtVersion
+// is the expected_version to resolve at: re-publishing the reviewed body with it
+// commits the merge.
+type MergeCandidate struct {
+	Body             string
+	PublishAtVersion int
+	HasMarkers       bool
+}
+
+// PublishResult is a write's outcome: a committed Version, or a Merge candidate
+// when the write hit a stale version and the broker merged instead of failing
+// (Merge non-nil ⇒ nothing was committed; the caller reviews and re-publishes).
+type PublishResult struct {
+	Version int
+	Merge   *MergeCandidate
+}
+
 // PublishMeta is the out-of-band metadata a write carries (ADR 0005 decision
 // 11; the demarkus metadata channel). It maps to mark_publish's metadata object
 // — never a body frontmatter fence. Status rides Tags as the status: axis, so
