@@ -231,23 +231,37 @@ func (g *Gateway) Publish(ctx context.Context, world, path, body string, meta do
 // body. ok is false for any other result (a clean "status: ok" publish).
 func parseMergeCandidate(text string) (*domain.MergeCandidate, bool) {
 	head, body, found := strings.Cut(text, "\n\n")
-	if !found || !strings.Contains(head, "status: merge-candidate") {
+	if !found {
 		return nil, false
 	}
 	cand := &domain.MergeCandidate{Body: body}
+	status := ""
+	haveVersion := false
 	for line := range strings.SplitSeq(head, "\n") {
 		key, value, ok := strings.Cut(strings.TrimSpace(line), ": ")
 		if !ok {
 			continue
 		}
 		switch key {
+		case "status":
+			status = strings.TrimSpace(value)
 		case "publish-at-version":
-			if v, err := strconv.Atoi(strings.TrimSpace(value)); err == nil {
-				cand.PublishAtVersion = v
+			v, err := strconv.Atoi(strings.TrimSpace(value))
+			if err != nil {
+				return nil, false
 			}
+			cand.PublishAtVersion = v
+			haveVersion = true
 		case "has-markers":
 			cand.HasMarkers = strings.TrimSpace(value) == "true"
 		}
+	}
+	// Reject a candidate without a resolvable version: resolving at 0 would hit
+	// the create sentinel, not the conflicting version. A response missing
+	// status:merge-candidate or publish-at-version is not a usable candidate —
+	// fall through to the clean-publish parse.
+	if status != "merge-candidate" || !haveVersion {
+		return nil, false
 	}
 	return cand, true
 }

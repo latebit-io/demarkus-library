@@ -503,6 +503,20 @@ func TestPublishParsesMergeCandidate(t *testing.T) {
 	}
 }
 
+func TestPublishMergeCandidateNeedsValidVersion(t *testing.T) {
+	// A merge-candidate payload missing publish-at-version must NOT yield a
+	// candidate with version 0 (which would resolve at the create sentinel).
+	fc := &fakeCaller{text: "status: merge-candidate\nhas-markers: false\n\nmerged body"}
+	g := &Gateway{caller: fc}
+	res, err := g.Publish(authedCtx(t), "root", "/x.md", "mine", domain.PublishMeta{}, 7)
+	if err != nil {
+		t.Fatalf("Publish: %v", err)
+	}
+	if res.Merge != nil {
+		t.Errorf("candidate without publish-at-version must be rejected, got %+v", res.Merge)
+	}
+}
+
 func TestPublishCreateUsesFailNotMerge(t *testing.T) {
 	// expected_version 0 is a create — a path-taken conflict must be a hard
 	// error, not a merge target, so on_conflict is "fail".
