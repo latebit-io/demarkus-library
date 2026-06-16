@@ -40,7 +40,8 @@ type editVM struct {
 	User          string // signed-in identity's email for the nav (empty ⇒ not shown)
 	Create        bool   // create mode: editable path field, POSTs to /new, version 0
 	Append        bool   // append mode: body-only, POSTs to /append, no metadata
-	Error         string // conflict / write-error banner; empty ⇒ none
+	Error         string // write-error banner; empty ⇒ none
+	Notice        string // merge-candidate banner (not an error); empty ⇒ none
 }
 
 // EditForm serves the edit form pre-filled from the document's current source
@@ -120,7 +121,10 @@ func (h *ReadingHandler) CreateDoc(c *echo.Context) error {
 		return c.Render(http.StatusBadRequest, "edit", vm)
 	}
 
-	if _, err := h.reading.Publish(c.Request().Context(), world, path, body, meta, 0); err != nil {
+	// Create publishes at version 0 → on_conflict "fail" (a path-taken conflict
+	// is ErrConflict, never a merge candidate), so the candidate return is
+	// always nil here.
+	if _, _, err := h.reading.Publish(c.Request().Context(), world, path, body, meta, 0); err != nil {
 		vm.Path = path
 		vm.Error = createErrorMessage(err)
 		return c.Render(editErrorStatus(err), "edit", vm)
@@ -259,8 +263,8 @@ func (h *ReadingHandler) SaveEdit(c *echo.Context) error {
 		Importance: strings.TrimSpace(c.FormValue("importance")),
 	}
 
-	_, err = h.reading.Publish(c.Request().Context(), world, p, body, meta, version)
-	if err == nil {
+	_, merge, err := h.reading.Publish(c.Request().Context(), world, p, body, meta, version)
+	if err == nil && merge == nil {
 		// Real POST (the form opts out of hx-boost), so a 303 is a normal
 		// browser redirect back to the freshly written document.
 		return c.Redirect(http.StatusSeeOther, docRoute(world, p))
@@ -279,8 +283,18 @@ func (h *ReadingHandler) SaveEdit(c *echo.Context) error {
 		Version:       version,
 		Statuses:      editStatuses,
 		Authenticated: c.Get(authedKey) != nil, User: userEmail(c),
-		Error: editErrorMessage(err),
 	}
+	if merge != nil {
+		// The document changed under the editor; the broker merged our edits
+		// into a candidate rather than failing. Re-render with the merged body
+		// and the version to resolve at — saving again commits the merge. Not
+		// an error: a 409 with the work preserved and advanced, not lost.
+		vm.Body = merge.Body
+		vm.Version = merge.PublishAtVersion
+		vm.Notice = mergeNotice(merge.HasMarkers)
+		return c.Render(http.StatusConflict, "edit", vm)
+	}
+	vm.Error = editErrorMessage(err)
 	return c.Render(editErrorStatus(err), "edit", vm)
 }
 
@@ -300,6 +314,16 @@ func assembleTags(tagsCSV, status string) []string {
 		out = append(out, "status:"+s)
 	}
 	return out
+}
+
+// mergeNotice is the banner shown when a stale edit was three-way-merged into a
+// candidate. With markers, the human must resolve conflicting lines; without,
+// the merge was clean and they just confirm.
+func mergeNotice(hasMarkers bool) string {
+	if hasMarkers {
+		return "This document changed while you were editing. Your edits were merged with the latest version, but some lines conflict — resolve the <<<<<<< / ======= / >>>>>>> markers below, then save."
+	}
+	return "This document changed while you were editing. Your edits were merged cleanly with the latest version — review below and save to confirm."
 }
 
 // editErrorMessage turns a write error into a reader-facing banner.

@@ -90,8 +90,8 @@ func (g *Gateway) Worlds(_ context.Context) ([]domain.WorldInfo, error) {
 // Publish has no path on this adapter: the library's QUIC fetch client is
 // read-only (no write token wired), so writes degrade honestly rather than
 // silently failing (Phase 3; broker-mode worlds write through mark_publish).
-func (g *Gateway) Publish(_ context.Context, _, _, _ string, _ domain.PublishMeta, _ int) (int, error) {
-	return 0, domain.ErrWriteUnsupported
+func (g *Gateway) Publish(_ context.Context, _, _, _ string, _ domain.PublishMeta, _ int) (domain.PublishResult, error) {
+	return domain.PublishResult{}, domain.ErrWriteUnsupported
 }
 
 // Append is unsupported on the read-only QUIC client, like Publish.

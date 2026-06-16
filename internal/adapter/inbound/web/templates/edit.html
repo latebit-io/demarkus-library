@@ -21,6 +21,9 @@
       {{- if .Error }}
       <p class="edit-error" role="alert">{{ .Error }}</p>
       {{- end }}
+      {{- if .Notice }}
+      <p class="edit-notice" role="status">{{ .Notice }}</p>
+      {{- end }}
 
       <!-- Real POST (hx-boost off): save/create redirects to the document.
            Metadata rides dedicated fields → the mark_publish metadata object,

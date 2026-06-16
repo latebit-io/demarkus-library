@@ -88,10 +88,10 @@ func (g *Gateway) Lookup(ctx context.Context, w, scope, query, filter string) (d
 // Publish routes the write to the world's transport (Phase 3): knowledge-system
 // names go to the broker (mark_publish), bare hosts to the QUIC side (which
 // degrades to ErrWriteUnsupported — read-only).
-func (g *Gateway) Publish(ctx context.Context, w, path, body string, meta domain.PublishMeta, expectedVersion int) (int, error) {
+func (g *Gateway) Publish(ctx context.Context, w, path, body string, meta domain.PublishMeta, expectedVersion int) (domain.PublishResult, error) {
 	gw, err := g.route(w)
 	if err != nil {
-		return 0, err
+		return domain.PublishResult{}, err
 	}
 	return gw.Publish(ctx, w, path, body, meta, expectedVersion)
 }

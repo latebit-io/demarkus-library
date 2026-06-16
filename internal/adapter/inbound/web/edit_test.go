@@ -114,6 +114,36 @@ func TestSaveEditConflictReRendersWithBanner(t *testing.T) {
 	}
 }
 
+func TestSaveEditMergeCandidateReRenders(t *testing.T) {
+	// A stale edit returns a merge candidate, not an error: the editor re-opens
+	// with the merged body, the version to resolve at, and a notice — the work
+	// is advanced and preserved, not lost to a bare reload.
+	svc := &fakeReading{publishCand: &domain.MergeCandidate{
+		Body:             "intro\n<<<<<<< yours\nmine\n=======\ntheirs\n>>>>>>> current\n",
+		PublishAtVersion: 9,
+		HasMarkers:       true,
+	}}
+	form := url.Values{"version": {"7"}, "body": {"mine"}}
+	rec := postForm(authedApp(t, svc), "/w/root/edit/x.md", form)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409", rec.Code)
+	}
+	body := rec.Body.String()
+	for _, want := range []string{
+		"some lines conflict",      // the merge notice (HasMarkers branch)
+		`name="version" value="9"`, // re-publish at the broker's resolve version
+		"theirs",                   // the merged body, dropped into the textarea
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("merge re-render missing %q", want)
+		}
+	}
+	// The conflict banner (error) must NOT show — a merge is not an error.
+	if strings.Contains(body, "changed since you opened it") {
+		t.Errorf("merge candidate should not render the conflict error banner")
+	}
+}
+
 func TestSaveEditRejectsMalformedVersion(t *testing.T) {
 	svc := &fakeReading{}
 	form := url.Values{"version": {"not-a-number"}, "body": {"# x"}}

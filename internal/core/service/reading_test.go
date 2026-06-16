@@ -22,6 +22,7 @@ type fakeGateway struct {
 	fetchBody map[string]string // path → body for Fetch (e.g. the hub /graph.md); falls back to raw
 
 	publishVersion int
+	publishMerge   *domain.MergeCandidate // when set, Publish returns a merge candidate
 	publishErr     error
 }
 
@@ -57,9 +58,9 @@ func (f fakeGateway) Worlds(context.Context) ([]domain.WorldInfo, error) {
 	f.record("Worlds")
 	return f.worlds, f.worldsErr
 }
-func (f fakeGateway) Publish(_ context.Context, _, _, _ string, _ domain.PublishMeta, _ int) (int, error) {
+func (f fakeGateway) Publish(_ context.Context, _, _, _ string, _ domain.PublishMeta, _ int) (domain.PublishResult, error) {
 	f.record("Publish")
-	return f.publishVersion, f.publishErr
+	return domain.PublishResult{Version: f.publishVersion, Merge: f.publishMerge}, f.publishErr
 }
 func (f fakeGateway) Append(_ context.Context, _, _, _ string) (int, error) {
 	f.record("Append")

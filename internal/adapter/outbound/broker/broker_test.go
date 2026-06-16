@@ -454,13 +454,13 @@ func TestPublishBuildsArgsAndParsesVersion(t *testing.T) {
 	fc := &fakeCaller{text: "status: ok\nversion: 8\n"}
 	g := &Gateway{caller: fc}
 
-	v, err := g.Publish(authedCtx(t), "root", "/adr/7.md", "# body",
+	res, err := g.Publish(authedCtx(t), "root", "/adr/7.md", "# body",
 		domain.PublishMeta{Title: "ADR 7", Tags: []string{"adr", "status:accepted"}, Importance: "0.9"}, 7)
 	if err != nil {
 		t.Fatalf("Publish: %v", err)
 	}
-	if v != 8 {
-		t.Errorf("new version = %d, want 8", v)
+	if res.Version != 8 || res.Merge != nil {
+		t.Errorf("result = %+v, want version 8, no merge", res)
 	}
 	if fc.gotTool != "mark_publish" || fc.gotToken != "tok-123" {
 		t.Errorf("tool/token = %q/%q", fc.gotTool, fc.gotToken)
@@ -471,8 +471,8 @@ func TestPublishBuildsArgsAndParsesVersion(t *testing.T) {
 	if fc.gotArgs["expected_version"] != 7 {
 		t.Errorf("expected_version = %v, want 7", fc.gotArgs["expected_version"])
 	}
-	if fc.gotArgs["on_conflict"] != "fail" {
-		t.Errorf("on_conflict = %v, want fail", fc.gotArgs["on_conflict"])
+	if fc.gotArgs["on_conflict"] != "merge" {
+		t.Errorf("on_conflict = %v, want merge (a non-zero version is an edit)", fc.gotArgs["on_conflict"])
 	}
 	// Metadata travels in the metadata object, never the body.
 	meta, ok := fc.gotArgs["metadata"].(map[string]any)
@@ -481,6 +481,52 @@ func TestPublishBuildsArgsAndParsesVersion(t *testing.T) {
 	}
 	if meta["title"] != "ADR 7" || meta["tags"] != "adr,status:accepted" || meta["importance"] != "0.9" {
 		t.Errorf("metadata = %v", meta)
+	}
+}
+
+func TestPublishParsesMergeCandidate(t *testing.T) {
+	// A stale edit (on_conflict="merge") comes back as a normal result with
+	// status: merge-candidate — the merged body plus the version to resolve at.
+	mergedBody := "intro\n<<<<<<< yours\nmine\n=======\ntheirs\n>>>>>>> current\ntail\n"
+	fc := &fakeCaller{text: "status: merge-candidate\nyour-version: 7\ncurrent-version: 9\npublish-at-version: 9\nhas-markers: true\n\n" + mergedBody}
+	g := &Gateway{caller: fc}
+
+	res, err := g.Publish(authedCtx(t), "root", "/x.md", "mine", domain.PublishMeta{}, 7)
+	if err != nil {
+		t.Fatalf("Publish: %v", err)
+	}
+	if res.Merge == nil {
+		t.Fatalf("want a merge candidate, got %+v", res)
+	}
+	if res.Merge.PublishAtVersion != 9 || !res.Merge.HasMarkers || res.Merge.Body != mergedBody {
+		t.Errorf("candidate = %+v", res.Merge)
+	}
+}
+
+func TestPublishMergeCandidateNeedsValidVersion(t *testing.T) {
+	// A merge-candidate payload missing publish-at-version must NOT yield a
+	// candidate with version 0 (which would resolve at the create sentinel).
+	fc := &fakeCaller{text: "status: merge-candidate\nhas-markers: false\n\nmerged body"}
+	g := &Gateway{caller: fc}
+	res, err := g.Publish(authedCtx(t), "root", "/x.md", "mine", domain.PublishMeta{}, 7)
+	if err != nil {
+		t.Fatalf("Publish: %v", err)
+	}
+	if res.Merge != nil {
+		t.Errorf("candidate without publish-at-version must be rejected, got %+v", res.Merge)
+	}
+}
+
+func TestPublishCreateUsesFailNotMerge(t *testing.T) {
+	// expected_version 0 is a create — a path-taken conflict must be a hard
+	// error, not a merge target, so on_conflict is "fail".
+	fc := &fakeCaller{text: "status: ok\nversion: 1\n"}
+	g := &Gateway{caller: fc}
+	if _, err := g.Publish(authedCtx(t), "root", "/new.md", "b", domain.PublishMeta{}, 0); err != nil {
+		t.Fatalf("Publish: %v", err)
+	}
+	if fc.gotArgs["on_conflict"] != "fail" {
+		t.Errorf("create on_conflict = %v, want fail", fc.gotArgs["on_conflict"])
 	}
 }
 

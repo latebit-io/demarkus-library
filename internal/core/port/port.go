@@ -86,11 +86,13 @@ type ReadingService interface {
 	// live preview — the same renderer the reader uses, so what you see is what
 	// publishes. No fetch, no write.
 	Preview(markdown string) (domain.Rendered, error)
-	// Publish writes the document at (world, path) and returns the re-read,
-	// display-ready result (focused-live: the write refreshes the cache).
-	// expectedVersion guards the write (0 to create); a mismatch is
-	// domain.ErrConflict.
-	Publish(ctx context.Context, world, path, body string, meta domain.PublishMeta, expectedVersion int) (domain.Document, error)
+	// Publish writes the document at (world, path). On a clean write it re-reads
+	// live (focused-live: refreshes the cache) and returns the display-ready
+	// Document with a nil candidate. expectedVersion guards the write: 0 creates
+	// (a path-taken conflict is domain.ErrConflict); a non-zero stale version
+	// returns a *domain.MergeCandidate (nothing committed) for the desk to review
+	// and re-publish at its PublishAtVersion.
+	Publish(ctx context.Context, world, path, body string, meta domain.PublishMeta, expectedVersion int) (domain.Document, *domain.MergeCandidate, error)
 	// Append adds body to the end of the document at (world, path) and returns
 	// the re-read result (focused-live). The lightweight "add to" — metadata is
 	// preserved, the version auto-resolves.
@@ -122,10 +124,13 @@ type WorldGateway interface {
 	// Publish writes (creates or updates) the document at (world, path) — the
 	// cataloging desk's write path (Phase 3), over mark_publish in broker mode.
 	// body is pure markdown; meta is the out-of-band metadata (never a body
-	// fence). expectedVersion guards the write (0 to create); a mismatch returns
-	// domain.ErrConflict. Gateways with no write path (direct QUIC, no write
-	// token) return domain.ErrWriteUnsupported. Returns the new version.
-	Publish(ctx context.Context, world, path, body string, meta domain.PublishMeta, expectedVersion int) (int, error)
+	// fence). expectedVersion guards the write (0 to create). The result is
+	// either a committed Version or a Merge candidate: a create (version 0) that
+	// hits an existing path is domain.ErrConflict, while a stale non-zero version
+	// returns a PublishResult with Merge set (the broker three-way-merged rather
+	// than failing). Gateways with no write path (direct QUIC, no write token)
+	// return domain.ErrWriteUnsupported.
+	Publish(ctx context.Context, world, path, body string, meta domain.PublishMeta, expectedVersion int) (domain.PublishResult, error)
 
 	// Append concatenates body onto the end of the document at (world, path) —
 	// the cataloging desk's lightweight "add to" (Phase 3), over mark_append.
