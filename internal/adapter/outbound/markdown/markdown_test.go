@@ -19,9 +19,37 @@ func render(t *testing.T, src string) string {
 }
 
 func TestRenderProducesHTML(t *testing.T) {
-	html := render(t, "# Title\n\nsome **bold** text")
-	if !strings.Contains(html, "<h1") || !strings.Contains(html, "<strong>") {
+	// An H2 (not the leading H1, which is lifted out as the title) so this
+	// exercises heading + bold rendering.
+	html := render(t, "## Section\n\nsome **bold** text")
+	if !strings.Contains(html, "<h2") || !strings.Contains(html, "<strong>") {
 		t.Errorf("expected rendered heading + bold, got %q", html)
+	}
+}
+
+func TestRenderLiftsLeadingH1AsTitle(t *testing.T) {
+	// The reading-room pane renders the title itself, so a body that opens with
+	// an H1 must surface it as Title and drop it from HTML (no double header).
+	out, err := NewRenderer().Render("# Patterns\n\nbody text")
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if out.Title != "Patterns" {
+		t.Errorf("Title = %q, want Patterns", out.Title)
+	}
+	if strings.Contains(out.HTML, "<h1") {
+		t.Errorf("leading H1 must be stripped from HTML: %q", out.HTML)
+	}
+	if !strings.Contains(out.HTML, "body text") {
+		t.Errorf("body content lost: %q", out.HTML)
+	}
+	// An H1 that is not the first block is real content — left untouched.
+	out2, err := NewRenderer().Render("intro paragraph\n\n# Later")
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if out2.Title != "" || !strings.Contains(out2.HTML, "<h1") {
+		t.Errorf("non-leading H1 must stay: title=%q html=%q", out2.Title, out2.HTML)
 	}
 }
 
@@ -97,8 +125,10 @@ func TestRenderParsesFrontmatterIntoProperties(t *testing.T) {
 	if strings.Contains(out.HTML, "version: 4") || strings.Contains(out.HTML, "archived") {
 		t.Errorf("frontmatter leaked into HTML: %s", out.HTML)
 	}
-	if !strings.Contains(out.HTML, "<h1") || !strings.Contains(out.HTML, "Real content.") {
-		t.Errorf("content lost: %s", out.HTML)
+	// The leading H1 after the fence is lifted out as the title; the body
+	// content survives.
+	if out.Title != "Values" || !strings.Contains(out.HTML, "Real content.") {
+		t.Errorf("content/title wrong: title=%q html=%s", out.Title, out.HTML)
 	}
 	if len(out.Properties) != 2 || out.Properties[0] != (domain.Property{Key: "version", Value: "4"}) ||
 		out.Properties[1] != (domain.Property{Key: "archived", Value: "false"}) {

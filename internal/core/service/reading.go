@@ -56,7 +56,7 @@ func (s *ReadingService) Read(ctx context.Context, world, path string) (domain.D
 	}
 	tags := splitTags(raw.Metadata["tags"])
 	doc := domain.Document{
-		Title:      titleFor(raw.Path, raw.Metadata),
+		Title:      titleFor(raw.Path, raw.Metadata, rendered.Title),
 		Source:     raw.Source,
 		Path:       raw.Path,
 		HTML:       rendered.HTML,
@@ -188,10 +188,16 @@ func (s *ReadingService) render(raw domain.RawDocument, title string) (domain.Do
 	}, nil
 }
 
-// titleFor prefers the cataloged title, falling back to the path basename.
-func titleFor(path string, meta map[string]string) string {
+// titleFor picks the document title in authority order: the cataloged metadata
+// title, then the body's leading H1 (lifted out by the renderer), then the path
+// basename. The bodyTitle step means a doc whose source opens with "# Patterns"
+// shows "Patterns" once — not the lowercase filename above a duplicate H1.
+func titleFor(path string, meta map[string]string, bodyTitle string) string {
 	if t := strings.TrimSpace(meta["title"]); t != "" {
 		return t
+	}
+	if bodyTitle != "" {
+		return bodyTitle
 	}
 	name := path[strings.LastIndex(path, "/")+1:]
 	if name == "" {

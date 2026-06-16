@@ -19,7 +19,9 @@ import (
 	"github.com/yuin/goldmark"
 	emoji "github.com/yuin/goldmark-emoji"
 	highlighting "github.com/yuin/goldmark-highlighting/v2"
+	"github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/extension"
+	"github.com/yuin/goldmark/text"
 	alertcallouts "github.com/zmtcreative/gm-alert-callouts"
 )
 
@@ -179,12 +181,62 @@ func NewRenderer() *Renderer {
 // out-of-band metadata stays the authoritative catalog channel.
 func (r *Renderer) Render(markdown string) (domain.Rendered, error) {
 	fence, body := splitFrontmatter(markdown)
+	src := []byte(body)
+
+	// Parse then render (rather than Convert) so a leading H1 can be lifted out
+	// before rendering: the reading-room pane renders the document title itself,
+	// so a body that opens with "# Title" would otherwise show two headers.
+	doc := r.md.Parser().Parse(text.NewReader(src))
+	title := stripLeadingH1(doc, src)
+
 	var buf bytes.Buffer
-	if err := r.md.Convert([]byte(body), &buf); err != nil {
+	if err := r.md.Renderer().Render(&buf, src, doc); err != nil {
 		return domain.Rendered{}, err
 	}
 	return domain.Rendered{
 		HTML:       r.policy.Sanitize(buf.String()),
 		Properties: parseFrontmatter(fence),
+		Title:      title,
 	}, nil
+}
+
+// stripLeadingH1 removes the document's leading level-1 heading when it is the
+// very first block and returns its plain text — the document's title, rendered
+// once by the pane rather than duplicated in the body. Anything else (a leading
+// paragraph, an H2, no heading) leaves the tree untouched and returns "".
+func stripLeadingH1(doc ast.Node, src []byte) string {
+	first := doc.FirstChild()
+	if first == nil {
+		return ""
+	}
+	h, ok := first.(*ast.Heading)
+	if !ok || h.Level != 1 {
+		return ""
+	}
+	title := headingText(h, src)
+	if title == "" {
+		return "" // an empty "# " is not a title; leave the (empty) heading be
+	}
+	doc.RemoveChild(doc, first)
+	return title
+}
+
+// headingText collects the plain text of a heading, including text inside
+// inline spans (emphasis, links, code), so a title like "# The `kit` API" reads
+// "The kit API".
+func headingText(h ast.Node, src []byte) string {
+	var b strings.Builder
+	_ = ast.Walk(h, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+		if !entering {
+			return ast.WalkContinue, nil
+		}
+		switch t := n.(type) {
+		case *ast.Text:
+			b.Write(t.Segment.Value(src))
+		case *ast.String:
+			b.Write(t.Value)
+		}
+		return ast.WalkContinue, nil
+	})
+	return strings.TrimSpace(b.String())
 }

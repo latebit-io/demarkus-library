@@ -70,6 +70,10 @@ type Property struct {
 type Rendered struct {
 	HTML       string
 	Properties []Property
+	// Title is the text of the body's leading H1, lifted out and stripped from
+	// HTML so the reading-room pane (which renders the document title itself)
+	// does not show it twice. Empty when the body does not start with an H1.
+	Title string
 }
 
 // Ref is a knowledge-graph coordinate: a document addressed by (world, path).
