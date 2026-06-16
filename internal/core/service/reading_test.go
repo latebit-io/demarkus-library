@@ -252,10 +252,18 @@ func TestTitleFallsBackToBasename(t *testing.T) {
 }
 
 func TestTitleFromMetadataIsTrimmed(t *testing.T) {
-	if got := titleFor("/x.md", map[string]string{"title": "  Spaced  "}); got != "Spaced" {
+	if got := titleFor("/x.md", map[string]string{"title": "  Spaced  "}, ""); got != "Spaced" {
 		t.Errorf("got %q, want Spaced", got)
 	}
-	if !strings.HasPrefix(titleFor("/a/b/c.md", nil), "c") {
+	// Authority order: metadata title wins over the body H1, which wins over
+	// the filename.
+	if got := titleFor("/x.md", nil, "Body H1"); got != "Body H1" {
+		t.Errorf("got %q, want Body H1 (lifted from the body)", got)
+	}
+	if got := titleFor("/x.md", map[string]string{"title": "Meta"}, "Body H1"); got != "Meta" {
+		t.Errorf("got %q, want Meta (metadata wins over body H1)", got)
+	}
+	if !strings.HasPrefix(titleFor("/a/b/c.md", nil, ""), "c") {
 		t.Errorf("basename fallback broken")
 	}
 }
