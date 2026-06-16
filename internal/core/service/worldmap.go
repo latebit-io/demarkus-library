@@ -54,17 +54,23 @@ func (c *worldMapCache) put(world string, wm domain.WorldMap) {
 // among the rendered documents (observed-links map ∪ hub graph). The world
 // identity and edges are best-effort enrichment that degrades to nothing.
 //
-// A catalog-read failure degrades rather than failing the view: ErrUnauthorized
-// is the reader's identity dying (propagate → re-login), but any other error (an
-// old or unreachable world, a rejected query) returns an Unreadable map so the
-// page renders a notice instead of 502'ing — the same posture as the floor
-// tombstoning a single unreadable world rather than dropping the whole map. The
-// unreadable result is not cached, so a transient failure self-heals on the
-// next read.
+// A catalog-read failure degrades rather than failing the view, with two
+// exceptions that propagate: ErrUnauthorized (the reader's identity dying →
+// re-login) and context cancellation/timeout (the request must terminate, not
+// render a map). Any other error (an old or unreachable world, a rejected
+// query) returns an Unreadable map so the page renders a notice instead of
+// 502'ing — the same posture as the floor tombstoning a single unreadable
+// world rather than dropping the whole map. The unreadable result is not
+// cached, so a transient failure self-heals on the next read.
 func (s *ReadingService) WorldMap(ctx context.Context, world string) (domain.WorldMap, error) {
 	raw, err := s.world.Lookup(ctx, world, "/", "*", "")
 	if err != nil {
-		if errors.Is(err, domain.ErrUnauthorized) {
+		// Propagate, never degrade: the reader's identity dying (re-login) and
+		// request cancellation/timeout — a canceled or timed-out read must
+		// terminate, not render an "unreadable" map. Any other read failure (an
+		// old/unreachable world, a rejected query) degrades.
+		if errors.Is(err, domain.ErrUnauthorized) ||
+			errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return domain.WorldMap{}, err
 		}
 		return domain.WorldMap{World: domain.WorldInfo{Name: world}, Unreadable: true}, nil

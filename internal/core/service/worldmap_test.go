@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"reflect"
 	"testing"
@@ -152,10 +153,12 @@ func TestWorldMapDegradesOnReadError(t *testing.T) {
 		t.Error("unreadable map must not be cached")
 	}
 
-	// ErrUnauthorized is the reader's identity dying — propagate for re-login.
-	_, err = NewReadingService(fakeGateway{err: domain.ErrUnauthorized}, fakeRenderer{}, nil).
-		WorldMap(t.Context(), "world-a")
-	if !errors.Is(err, domain.ErrUnauthorized) {
-		t.Errorf("ErrUnauthorized must propagate, got %v", err)
+	// ErrUnauthorized (re-login) and context cancellation/timeout must
+	// propagate, never degrade — a terminated read is not an "unreadable" map.
+	for _, prop := range []error{domain.ErrUnauthorized, context.Canceled, context.DeadlineExceeded} {
+		_, err = NewReadingService(fakeGateway{err: prop}, fakeRenderer{}, nil).WorldMap(t.Context(), "world-a")
+		if !errors.Is(err, prop) {
+			t.Errorf("%v must propagate, got %v", prop, err)
+		}
 	}
 }
