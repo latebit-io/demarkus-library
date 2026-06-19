@@ -290,6 +290,7 @@
     <!-- Real form, POST: logout is a state change and works without JS.
          hx-boost off so the redirect to /login is a full page load. -->
     <form method="post" action="/logout" hx-boost="false">
+      <input type="hidden" name="_csrf" value="{{ csrf }}">
       <button type="submit" class="signout">sign out</button>
     </form>
     {{- end }}

@@ -51,6 +51,23 @@ import (
 // sweep just bounds memory.
 const sweepInterval = time.Hour
 
+const (
+	// maxBodyBytes caps request bodies — generous for markdown source (the
+	// cataloging-desk writes) but bounded against memory-exhaustion POSTs.
+	maxBodyBytes = 2 << 20 // 2 MiB
+
+	// handlerTimeout bounds per-request handler time so a slow or wedged
+	// world read returns 503 rather than pinning a goroutine indefinitely.
+	handlerTimeout = 30 * time.Second
+
+	// readHeaderTimeout and idleTimeout harden the transport against slow or
+	// idle clients (slowloris, leaked keep-alives). Echo defaults ReadTimeout
+	// to 30s; WriteTimeout is deliberately left unset so a future SSE librarian
+	// (Phase 4) isn't capped — handlerTimeout bounds normal request latency.
+	readHeaderTimeout = 10 * time.Second
+	idleTimeout       = 120 * time.Second
+)
+
 // version is stamped by goreleaser via -ldflags "-X main.version=...".
 var version = "dev"
 
@@ -73,6 +90,15 @@ func main() {
 	// Inbound adapter (driving): Echo.
 	app := echo.New()
 	app.Use(middleware.Recover())
+	// Cap request bodies before any handler reads them (write POSTs).
+	app.Use(middleware.BodyLimit(maxBodyBytes))
+	// CSRF on every state-changing request (the cataloging-desk writes and the
+	// login/logout forms). Cookie posture follows the session cookie's Secure
+	// flag. Forms emit the token via {{ csrf }} (view.go).
+	app.Use(web.CSRFMiddleware(config.CookieSecure))
+	// Bound handler latency: a wedged outbound read returns 503 instead of
+	// pinning the goroutine. Covers the turnstile's token refresh too.
+	app.Use(middleware.ContextTimeout(handlerTimeout))
 
 	view, err := web.NewView()
 	if err != nil {
@@ -172,9 +198,20 @@ func main() {
 // as contents — StartTLS's path form reads through fs.FS rooted at ".",
 // which rejects absolute paths.
 func serve(app *echo.Echo, config *AppConfig) error {
-	addr := fmt.Sprintf(":%d", config.Port)
+	// Own the signal context for both paths (Echo.Start wires its own, but the
+	// TLS path needs an explicit one and both share the hardened StartConfig).
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+	sc := echo.StartConfig{
+		Address: fmt.Sprintf(":%d", config.Port),
+		BeforeServeFunc: func(s *http.Server) error {
+			s.ReadHeaderTimeout = readHeaderTimeout
+			s.IdleTimeout = idleTimeout
+			return nil
+		},
+	}
 	if config.TLSCert == "" {
-		return app.Start(addr)
+		return sc.Start(ctx, app)
 	}
 	cert, err := os.ReadFile(config.TLSCert)
 	if err != nil {
@@ -184,10 +221,7 @@ func serve(app *echo.Echo, config *AppConfig) error {
 	if err != nil {
 		return fmt.Errorf("read DEMARKUS_TLS_KEY: %w", err)
 	}
-	// Mirror Echo.Start's signal handling (echo.go) for the TLS path.
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer cancel()
-	return echo.StartConfig{Address: addr}.StartTLS(ctx, app, cert, key)
+	return sc.StartTLS(ctx, app, cert, key)
 }
 
 // startSweeper collects expired sessions and abandoned pending logins on a

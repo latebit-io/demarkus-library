@@ -199,6 +199,7 @@
     <p>Sign in with your organization to enter the reading room.</p>
     {{ if .Error }}<p class="error">{{ .Error }}</p>{{ end }}
     <form method="post" action="/login/start">
+      <input type="hidden" name="_csrf" value="{{ csrf }}">
       <input type="hidden" name="return_to" value="{{ .ReturnTo }}">
       <button type="submit">Sign in</button>
     </form>

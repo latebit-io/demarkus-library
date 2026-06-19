@@ -30,6 +30,7 @@
            never a body frontmatter fence (ADR 0005 decision 11). -->
       <form class="edit-form" method="post"
             action="/w/{{ .WorldPath }}/{{ if .Create }}new{{ else if .Append }}append{{ .Path }}{{ else }}edit{{ .Path }}{{ end }}" hx-boost="false">
+        <input type="hidden" name="_csrf" value="{{ csrf }}">
         {{- if and (not .Create) (not .Append) }}
         <input type="hidden" name="version" value="{{ .Version }}">
         {{- end }}
@@ -69,9 +70,13 @@
         <div class="edit-split">
           <!-- Editor: textarea posts to the server-rendered preview as you type
                (htmx-pure, no JS editor; ADR 0003). -->
+          <!-- The preview POST submits just this field (outside the form), so
+               the hidden _csrf isn't sent — carry the token as a header for the
+               legacy fallback (modern browsers pass via Sec-Fetch-Site). -->
           <textarea class="edit-body" name="body" rows="28" spellcheck="true"
                     hx-post="/w/{{ .WorldPath }}/preview"
                     hx-trigger="load, keyup changed delay:400ms"
+                    hx-headers='{"X-CSRF-Token": "{{ csrf }}"}'
                     hx-target="#edit-preview" hx-swap="innerHTML">{{ .Body }}</textarea>
           <!-- Preview: the same renderer the reader sees. -->
           <article id="edit-preview" class="edit-preview doc-body"></article>
