@@ -18,30 +18,32 @@ import (
 // means the cap keeps the most findable docs.
 const nameIndexMaxPerWorld = 1000
 
-// NameIndex assembles the palette's name-mode index. scope "universe" spans every
-// authorized world; any other scope is the single given world. The palette is an
-// auxiliary switcher, so the index is best-effort throughout: a world whose
-// catalog can't be read (LOOKUP unsupported on that transport, an unreachable
-// world, a rejected query) simply contributes no rows — the palette degrades to
-// the reach it has rather than failing. Only cancellation/timeout propagates: a
-// terminated request must not render a half-index.
+// NameIndex assembles the palette's name-mode index. The single-world case
+// (any scope but "universe") propagates a read failure so the web adapter can
+// map it to an HTTP status — an outage must not look like "no matches".
+//
+// "universe" scope spans every authorized world and is best-effort across them:
+// one world whose catalog won't read drops out of reach rather than failing the
+// whole index. Cancellation/timeout always propagates — a terminated request
+// must not render a half-index.
 func (s *ReadingService) NameIndex(ctx context.Context, scope, world string) ([]domain.IndexEntry, error) {
-	worlds := []string{world}
-	if scope == "universe" {
-		ws, err := s.world.Worlds(ctx)
-		switch {
-		case err == nil:
-			worlds = make([]string, 0, len(ws))
-			for _, w := range ws {
-				worlds = append(worlds, w.Name)
-			}
-		case errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded):
-			// A terminated request must not render a half-index — propagate
-			// rather than degrade to the single world.
-			return nil, err
-		}
-		// Any other world-list failure degrades to the single world, not empty.
+	if scope != "universe" {
+		return s.worldNameIndex(ctx, world)
 	}
+
+	var worlds []string
+	ws, err := s.world.Worlds(ctx)
+	switch {
+	case err == nil:
+		for _, w := range ws {
+			worlds = append(worlds, w.Name)
+		}
+	case errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded):
+		return nil, err
+	default:
+		worlds = []string{world} // no world list ⇒ degrade to the reader's world
+	}
+
 	var out []domain.IndexEntry
 	for _, w := range worlds {
 		entries, err := s.worldNameIndex(ctx, w)

@@ -79,17 +79,26 @@ func TestNameIndexUniverseDegradesWithoutWorldList(t *testing.T) {
 	}
 }
 
-func TestNameIndexDegradesOnReadError(t *testing.T) {
-	// The palette is auxiliary: a catalog that won't read (LOOKUP unsupported on
-	// the transport, unreachable world) yields an empty index, not an error — the
-	// page itself still signals real outages.
-	got, err := NewReadingService(fakeGateway{err: errTest}, fakeRenderer{}, nil).
+func TestNameIndexWorldScopePropagatesReadError(t *testing.T) {
+	// Single-world scope propagates a read failure so the web adapter can map it
+	// to an HTTP status — an outage must not render as "no matches".
+	_, err := NewReadingService(fakeGateway{err: errTest}, fakeRenderer{}, nil).
 		NameIndex(t.Context(), "world", "world-a")
+	if err == nil {
+		t.Fatal("world-scope read error should propagate")
+	}
+}
+
+func TestNameIndexUniverseScopeDegradesPerWorld(t *testing.T) {
+	// Universe scope is best-effort across worlds: a world whose catalog won't
+	// read drops out rather than failing the whole index.
+	gw := fakeGateway{worlds: []domain.WorldInfo{{Name: "world-a"}}, err: errTest}
+	got, err := NewReadingService(gw, fakeRenderer{}, nil).NameIndex(t.Context(), "universe", "world-a")
 	if err != nil {
-		t.Fatalf("read error should degrade to empty, got %v", err)
+		t.Fatalf("universe scope should degrade per world, got %v", err)
 	}
 	if len(got) != 0 {
-		t.Fatalf("entries = %d, want 0 on read failure", len(got))
+		t.Fatalf("entries = %d, want 0 (only world unreadable)", len(got))
 	}
 }
 

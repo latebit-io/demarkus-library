@@ -57,11 +57,14 @@ func (h *ReadingHandler) Palette(c *echo.Context) error {
 	} else {
 		world := c.QueryParam("world")
 		if world == "" {
-			world = focusedWorld(t, h.defaultWorld)
+			world = paletteWorld(c, t, h.defaultWorld)
 		}
-		// Best-effort: an unreadable catalog yields no rows, never an error —
-		// the palette must not break the page it overlays.
-		entries, _ := h.reading.NameIndex(c.Request().Context(), c.QueryParam("scope"), world)
+		entries, err := h.reading.NameIndex(c.Request().Context(), c.QueryParam("scope"), world)
+		if err != nil {
+			// Surface real failures (re-login, unreachable world) instead of
+			// rendering an outage as "no matches".
+			return presentError(c, err, world, "/palette")
+		}
 		rows = matchRows(t, q, entries)
 	}
 	return c.Render(http.StatusOK, "palette-results", paletteVM{Query: q, Rows: rows})
@@ -90,13 +93,38 @@ func currentTrail(c *echo.Context) trail {
 	return t
 }
 
-// focusedWorld is the world the search scopes to by default: the focused pane's
-// world, falling back when the trail is empty or world-less (the floor).
-func focusedWorld(t trail, fallback string) string {
+// paletteWorld is the world the search scopes to by default: the focused pane's
+// world on a trail, the /w/<world>/ world on a permalink page, else the default
+// (the floor and other world-less pages).
+func paletteWorld(c *echo.Context, t trail, fallback string) string {
 	if t.Focus >= 0 && t.Focus < len(t.Panes) && t.Panes[t.Focus].World != "" {
 		return t.Panes[t.Focus].World
 	}
+	if w := worldFromURL(c.Request().Header.Get("HX-Current-URL")); w != "" {
+		return w
+	}
 	return fallback
+}
+
+// worldFromURL pulls the world out of a /w/<world>/... current-URL path,
+// returning "" when the path is not a /w/ permalink.
+func worldFromURL(cur string) string {
+	if cur == "" {
+		return ""
+	}
+	u, err := url.Parse(cur)
+	if err != nil {
+		return ""
+	}
+	rest, ok := strings.CutPrefix(u.Path, "/w/")
+	if !ok {
+		return ""
+	}
+	w, _, _ := strings.Cut(rest, "/")
+	if dec, derr := url.PathUnescape(w); derr == nil {
+		w = dec
+	}
+	return w
 }
 
 // recentRows is the empty-query view: the trail in reverse (most-recent first),

@@ -178,7 +178,9 @@
     var cur = document.querySelector("#palette-results a.sel");
     var i = rows.indexOf(cur);
     if (cur) cur.classList.remove("sel");
-    i = (i + delta + rows.length) % rows.length;
+    // Nothing selected yet: ArrowDown → first row, ArrowUp → last row.
+    if (i === -1) i = delta > 0 ? 0 : rows.length - 1;
+    else i = (i + delta + rows.length) % rows.length;
     rows[i].classList.add("sel");
     rows[i].scrollIntoView({ block: "nearest" });
   }
