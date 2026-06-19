@@ -101,3 +101,13 @@ func TestNameIndexPropagatesCancellation(t *testing.T) {
 		t.Fatalf("err = %v, want context.Canceled", err)
 	}
 }
+
+func TestNameIndexUniversePropagatesWorldsCancellation(t *testing.T) {
+	// Cancellation during the Worlds phase (universe scope) propagates rather
+	// than degrading to the single world.
+	gw := fakeGateway{worldsErr: context.Canceled, raw: domain.RawDocument{Body: worldMapCatalog}}
+	_, err := NewReadingService(gw, fakeRenderer{}, nil).NameIndex(t.Context(), "universe", "world-a")
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+}

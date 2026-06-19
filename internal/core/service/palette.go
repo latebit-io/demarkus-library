@@ -28,13 +28,19 @@ const nameIndexMaxPerWorld = 1000
 func (s *ReadingService) NameIndex(ctx context.Context, scope, world string) ([]domain.IndexEntry, error) {
 	worlds := []string{world}
 	if scope == "universe" {
-		if ws, err := s.world.Worlds(ctx); err == nil {
+		ws, err := s.world.Worlds(ctx)
+		switch {
+		case err == nil:
 			worlds = make([]string, 0, len(ws))
 			for _, w := range ws {
 				worlds = append(worlds, w.Name)
 			}
+		case errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded):
+			// A terminated request must not render a half-index — propagate
+			// rather than degrade to the single world.
+			return nil, err
 		}
-		// A missing world list degrades to the single world, not an empty index.
+		// Any other world-list failure degrades to the single world, not empty.
 	}
 	var out []domain.IndexEntry
 	for _, w := range worlds {

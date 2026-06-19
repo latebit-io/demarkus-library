@@ -133,24 +133,6 @@ func (h *ReadingHandler) Search(c *echo.Context) error {
 	return h.present(c, doc, err, viewOpts{world: world, path: "/search", catalog: true})
 }
 
-// PaletteIndex serves the command palette's name-mode index as JSON (ADR 0006
-// §3): the catalog entries the client fuzzy-matches. scope=universe spans the
-// authorized worlds; otherwise the index is the world query param (the reader's
-// current world, falling back to the default). Per-session and authed, so the
-// reading routes' no-store fronting is correct — it must never be shared-cached.
-func (h *ReadingHandler) PaletteIndex(c *echo.Context) error {
-	scope := c.QueryParam("scope")
-	world := c.QueryParam("world")
-	if world == "" {
-		world = h.defaultWorld
-	}
-	entries, err := h.reading.NameIndex(c.Request().Context(), scope, world)
-	if err != nil {
-		return presentError(c, err, world, "/palette")
-	}
-	return c.JSON(http.StatusOK, entries)
-}
-
 // TagPage renders the catalog filtered to one tag — the margin's lateral-nav
 // destination. /w/<world>/tags/<tag>.
 func (h *ReadingHandler) TagPage(c *echo.Context) error {

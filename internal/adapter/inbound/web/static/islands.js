@@ -153,6 +153,58 @@
     if (close) close.click();
   });
 
+  // --- command palette (⌃K) — ADR 0006 §3 -------------------------------
+  // The palette is server-rendered (templates/palette.html) and its results
+  // come from htmx (GET /palette → HTML fragment). This is only the keyboard
+  // glue ADR 0003 sanctions as the interaction layer: toggle the overlay and
+  // move an arrow selection. No fetch, no JSON, no client state — and it
+  // degrades to the /search link the nav already points at.
+  function palette() { return document.getElementById("palette"); }
+  function openPalette() {
+    var p = palette();
+    if (!p) return;
+    p.hidden = false;
+    var input = document.getElementById("palette-input");
+    if (input) { input.value = ""; input.focus(); }
+  }
+  function closePalette() {
+    var p = palette();
+    if (p) p.hidden = true;
+  }
+  function movePaletteSel(delta) {
+    var rows = Array.prototype.slice.call(
+      document.querySelectorAll("#palette-results a"));
+    if (!rows.length) return;
+    var cur = document.querySelector("#palette-results a.sel");
+    var i = rows.indexOf(cur);
+    if (cur) cur.classList.remove("sel");
+    i = (i + delta + rows.length) % rows.length;
+    rows[i].classList.add("sel");
+    rows[i].scrollIntoView({ block: "nearest" });
+  }
+  // The nav "Search" link is a real /search href; with JS it opens the overlay.
+  document.addEventListener("click", function (e) {
+    var link = e.target.closest && e.target.closest("a.nav-search");
+    if (link) { e.preventDefault(); openPalette(); }
+  });
+  document.addEventListener("keydown", function (e) {
+    if ((e.ctrlKey || e.metaKey) && (e.key === "k" || e.key === "K")) {
+      e.preventDefault();
+      var p = palette();
+      if (p && p.hidden) openPalette(); else closePalette();
+      return;
+    }
+    var p = palette();
+    if (!p || p.hidden) return;
+    if (e.key === "Escape") { e.preventDefault(); closePalette(); }
+    else if (e.key === "ArrowDown") { e.preventDefault(); movePaletteSel(1); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); movePaletteSel(-1); }
+    else if (e.key === "Enter") {
+      var sel = document.querySelector("#palette-results a.sel");
+      if (sel) { e.preventDefault(); sel.click(); }
+    }
+  });
+
   document.addEventListener("DOMContentLoaded", function () {
     scan(document.body);
     showFocusedPane();

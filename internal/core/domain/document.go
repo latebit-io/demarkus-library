@@ -238,15 +238,16 @@ type Floor struct {
 }
 
 // IndexEntry is one row of the command palette's name-mode index (ADR 0006 §3):
-// the minimum the client fuzzy-matches on title + path and renders. World lets
-// universe-scope results show where each doc lives; Status badges the row. It
-// carries no body — name-mode is a known-item switcher, not full-text search
-// (content-mode is the separate SEARCH path, ADR 0006 §0.3).
+// the minimum the server fuzzy-matches on title + path and renders into the
+// results fragment. World lets universe-scope results show where each doc lives;
+// Status badges the row. It carries no body — name-mode is a known-item
+// switcher, not full-text search (content-mode is the separate SEARCH path,
+// ADR 0006 §0.3).
 type IndexEntry struct {
-	Title  string `json:"title"`
-	Path   string `json:"path"`
-	World  string `json:"world"`
-	Status string `json:"status"`
+	Title  string
+	Path   string
+	World  string
+	Status string
 }
 
 // Document is a rendered, display-ready document. HTML is already sanitized; the
