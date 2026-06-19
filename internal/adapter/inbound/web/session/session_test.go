@@ -211,6 +211,14 @@ func TestTokenDeadGrantTearsDownSession(t *testing.T) {
 	if _, err := store.Get(ctx, s.ID); !errors.Is(err, ErrNotFound) {
 		t.Errorf("session survived a dead grant: %v", err)
 	}
+	// The single-flight mutex must be forgotten too — the dead-grant path used
+	// to leak it, growing inflight unboundedly under token churn.
+	m.mu.Lock()
+	_, leaked := m.inflight[s.ID]
+	m.mu.Unlock()
+	if leaked {
+		t.Error("inflight lock leaked after dead-grant teardown")
+	}
 }
 
 func TestTokenTransientErrorKeepsSession(t *testing.T) {

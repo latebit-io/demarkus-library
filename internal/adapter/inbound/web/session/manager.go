@@ -135,8 +135,12 @@ func (m *Manager) Token(ctx context.Context, sessionID string) (string, error) {
 		if errors.Is(err, ErrGrantDead) {
 			// The refresh token mints nothing anymore; the session
 			// is dead weight. Drop it so the next request goes
-			// straight to login.
+			// straight to login, and forget its single-flight mutex
+			// so inflight doesn't leak on the dead-grant path. Safe
+			// to drop while holding lock: dropLock takes m.mu (not
+			// lock), and the deferred lock.Unlock still runs.
 			_ = m.store.Delete(ctx, sessionID)
+			m.dropLock(sessionID)
 			return "", ErrLoginRequired
 		}
 		return "", fmt.Errorf("session: refresh: %w", err)
@@ -192,8 +196,9 @@ func (m *Manager) sessionLock(id string) *sync.Mutex {
 }
 
 // dropLock forgets a dead session's mutex so the inflight map does not grow
-// with logins. Called on logout; dead-grant teardown leaves the entry until
-// logout-or-restart, which is bounded by active-session count.
+// with logins. Called on logout and on dead-grant teardown — every path that
+// deletes the session also drops its lock, so inflight stays bounded by the
+// live-session count.
 func (m *Manager) dropLock(id string) {
 	m.mu.Lock()
 	delete(m.inflight, id)

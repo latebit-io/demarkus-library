@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
 )
@@ -25,27 +26,58 @@ const (
 	worldMapClusterDocs = 12
 )
 
-// worldMapCache holds the last assembled map per world (one slot each). Mirrors
-// floorCache; the focused-live policy decides when a map rebuilds, the cache
-// only remembers.
+// worldMapTTL bounds how long a cached world map serves an unfocused pane
+// before it rebuilds — mirrors floorTTL. Without it an unfocused world-map pane
+// would serve the first-ever assembly forever, so a freshly published or edited
+// document would never appear there.
+const worldMapTTL = floorTTL
+
+// worldMapCache holds the last assembled map per world, each timestamped for the
+// TTL. Mirrors floorCache; the focused path (WorldMap) rebuilds live, the cache
+// serves unfocused panes within the TTL window.
 type worldMapCache struct {
 	mu  sync.Mutex
-	all map[string]domain.WorldMap
+	all map[string]worldMapEntry
+	now func() time.Time // nil ⇒ time.Now (overridable in tests)
 }
 
-func (c *worldMapCache) get(world string) (domain.WorldMap, bool) {
+type worldMapEntry struct {
+	wm       domain.WorldMap
+	storedAt time.Time
+}
+
+func (c *worldMapCache) clockNow() time.Time {
+	if c.now != nil {
+		return c.now()
+	}
+	return time.Now()
+}
+
+// getFresh returns the cached map for world only when it is younger than ttl.
+func (c *worldMapCache) getFresh(world string, ttl time.Duration) (domain.WorldMap, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	wm, ok := c.all[world]
-	return wm, ok
+	e, ok := c.all[world]
+	if !ok || c.clockNow().Sub(e.storedAt) >= ttl {
+		return domain.WorldMap{}, false
+	}
+	return e.wm, true
 }
 
 func (c *worldMapCache) put(world string, wm domain.WorldMap) {
 	c.mu.Lock()
 	if c.all == nil {
-		c.all = make(map[string]domain.WorldMap)
+		c.all = make(map[string]worldMapEntry)
 	}
-	c.all[world] = wm
+	c.all[world] = worldMapEntry{wm: wm, storedAt: c.clockNow()}
+	c.mu.Unlock()
+}
+
+// invalidate drops a world's cached map so the next read rebuilds it — called
+// after a write to that world so a just-published document appears at once.
+func (c *worldMapCache) invalidate(world string) {
+	c.mu.Lock()
+	delete(c.all, world)
 	c.mu.Unlock()
 }
 
@@ -119,7 +151,7 @@ func (s *ReadingService) WorldMap(ctx context.Context, world string) (domain.Wor
 // miss. Unfocused world-map panes read here — the focused-live policy every
 // other pane follows.
 func (s *ReadingService) WorldMapCached(ctx context.Context, world string) (domain.WorldMap, error) {
-	if wm, ok := s.worldMaps.get(world); ok {
+	if wm, ok := s.worldMaps.getFresh(world, worldMapTTL); ok {
 		return wm, nil
 	}
 	return s.WorldMap(ctx, world)

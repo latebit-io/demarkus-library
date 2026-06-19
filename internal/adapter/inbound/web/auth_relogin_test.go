@@ -52,6 +52,9 @@ func TestPresentError_Unauthorized_AuthedReLogins(t *testing.T) {
 		if loc := rec.Header().Get("HX-Redirect"); !strings.HasPrefix(loc, "/login") {
 			t.Fatalf("HX-Redirect = %q, want /login...", loc)
 		}
+		if !sessionCookieCleared(rec) {
+			t.Fatal("session cookie not cleared on htmx re-login")
+		}
 	})
 }
 
