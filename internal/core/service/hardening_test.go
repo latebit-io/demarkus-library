@@ -8,6 +8,35 @@ import (
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
 )
 
+// TestOpenDispatchesByPathShape: Open routes a document path to Read (Fetch) and
+// a listing path to Browse (List); OpenCached dispatches the same way. The
+// gateway verb the service hit is the witness (Read→Fetch, Browse→List).
+func TestOpenDispatchesByPathShape(t *testing.T) {
+	var called string
+	svc := NewReadingService(
+		fakeGateway{called: &called, raw: domain.RawDocument{Body: "x"}},
+		fakeRenderer{html: "x"}, nil,
+	)
+	cases := []struct {
+		name, path, wantVerb string
+		open                 func(string) (domain.Document, error)
+	}{
+		{"Open doc", "/doc.md", "Fetch", func(p string) (domain.Document, error) { return svc.Open(t.Context(), "w", p) }},
+		{"Open listing", "/dir/", "List", func(p string) (domain.Document, error) { return svc.Open(t.Context(), "w", p) }},
+		{"OpenCached doc", "/doc.md", "Fetch", func(p string) (domain.Document, error) { return svc.OpenCached(t.Context(), "w", p) }},
+		{"OpenCached listing", "/dir/", "List", func(p string) (domain.Document, error) { return svc.OpenCached(t.Context(), "w", p) }},
+	}
+	for _, tc := range cases {
+		called = ""
+		if _, err := tc.open(tc.path); err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if called != tc.wantVerb {
+			t.Errorf("%s hit gateway %q, want %q", tc.name, called, tc.wantVerb)
+		}
+	}
+}
+
 // TestWorldMapCacheTTLAndInvalidate covers the cache primitive directly: a put
 // is fresh within the TTL, stale at/after it, and invalidate drops it outright.
 func TestWorldMapCacheTTLAndInvalidate(t *testing.T) {

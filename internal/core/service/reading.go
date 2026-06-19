@@ -71,6 +71,26 @@ func (s *ReadingService) Read(ctx context.Context, world, path string) (domain.D
 	return doc, nil
 }
 
+// Open reads (world, path), dispatching to Browse for a listing path and Read
+// for a document. The single read-side owner of the listing-vs-document
+// addressing rule (domain.IsListingPath) — callers address a resource without
+// re-deciding it. OpenCached is its cached counterpart for unfocused panes.
+func (s *ReadingService) Open(ctx context.Context, world, path string) (domain.Document, error) {
+	if domain.IsListingPath(path) {
+		return s.Browse(ctx, world, path)
+	}
+	return s.Read(ctx, world, path)
+}
+
+// OpenCached is Open served from the rendered-document cache (trail engine's
+// unfocused panes), dispatching Browse/Read by path shape like Open.
+func (s *ReadingService) OpenCached(ctx context.Context, world, path string) (domain.Document, error) {
+	if domain.IsListingPath(path) {
+		return s.BrowseCached(ctx, world, path)
+	}
+	return s.ReadCached(ctx, world, path)
+}
+
 // ReadCached serves (world, path) from the rendered-document cache, reading
 // through on a miss. Trail engine: unfocused panes only — the focused pane
 // goes through Read, which refreshes the entry (focused-live policy).

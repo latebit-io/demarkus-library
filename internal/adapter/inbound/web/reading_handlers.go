@@ -115,12 +115,8 @@ func (h *ReadingHandler) Root(c *echo.Context) error {
 func (h *ReadingHandler) Doc(c *echo.Context) error {
 	world := c.Param("world")
 	p := "/" + c.Param("*")
-	if strings.HasSuffix(p, "/") {
-		doc, err := h.reading.Browse(c.Request().Context(), world, p)
-		return h.present(c, doc, err, viewOpts{world: world, path: p})
-	}
-	doc, err := h.reading.Read(c.Request().Context(), world, p)
-	return h.present(c, doc, err, viewOpts{world: world, path: p, doc: true})
+	doc, err := h.reading.Open(c.Request().Context(), world, p)
+	return h.present(c, doc, err, viewOpts{world: world, path: p, doc: !domain.IsListingPath(p)})
 }
 
 // Search renders the card catalog (LOOKUP) for the q query in the route's
