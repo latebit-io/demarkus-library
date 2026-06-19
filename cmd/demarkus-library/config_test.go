@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -40,7 +41,13 @@ func TestGetEnvAsDuration(t *testing.T) {
 // A malformed strict switch propagates out of NewAppConfig as a startup error.
 func TestNewAppConfigRejectsBadFederation(t *testing.T) {
 	t.Setenv("DEMARKUS_FEDERATION", "maybe")
-	if _, err := NewAppConfig(); err == nil {
+	_, err := NewAppConfig()
+	if err == nil {
 		t.Fatal("a malformed DEMARKUS_FEDERATION must stop startup")
+	}
+	// Assert it's the federation parse that failed, not some unrelated config
+	// error — otherwise the test could pass for the wrong reason.
+	if !strings.Contains(err.Error(), "DEMARKUS_FEDERATION") {
+		t.Fatalf("expected a DEMARKUS_FEDERATION parse error, got: %v", err)
 	}
 }
