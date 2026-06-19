@@ -194,14 +194,10 @@ func (h *ReadingHandler) readPane(ctx context.Context, addr paneAddr, live bool)
 		return h.reading.Tag(ctx, addr.World, addr.Value)
 	case addr.Kind == paneTag:
 		return h.reading.TagCached(ctx, addr.World, addr.Value)
-	case strings.HasSuffix(addr.Value, "/") && live:
-		return h.reading.Browse(ctx, addr.World, addr.Value)
-	case strings.HasSuffix(addr.Value, "/"):
-		return h.reading.BrowseCached(ctx, addr.World, addr.Value)
 	case live:
-		return h.reading.Read(ctx, addr.World, addr.Value)
+		return h.reading.Open(ctx, addr.World, addr.Value)
 	default:
-		return h.reading.ReadCached(ctx, addr.World, addr.Value)
+		return h.reading.OpenCached(ctx, addr.World, addr.Value)
 	}
 }
 
@@ -247,7 +243,7 @@ func (h *ReadingHandler) paneView(t trail, i int, addr paneAddr, doc domain.Docu
 	}
 
 	content, edges := rewriteLinks(doc.HTML, addr.World, doc.Path)
-	if !reader && addr.Kind == paneDoc && !strings.HasSuffix(addr.Value, "/") {
+	if !reader && addr.Kind == paneDoc && !domain.IsListingPath(addr.Value) {
 		// Feed the observed-links map (R3) from real document panes only —
 		// listings and tag pages are not edge sources. This runs for the
 		// focused pane and its body-only parent, so a doc's edges are recorded
@@ -265,7 +261,7 @@ func (h *ReadingHandler) paneView(t trail, i int, addr paneAddr, doc domain.Docu
 
 	// The overlay (reader) shows the addressed pane's full margin even when it
 	// is not the focused pane — reading mode is not a dead-end.
-	if (focused || reader) && addr.Kind == paneDoc && !strings.HasSuffix(addr.Value, "/") {
+	if (focused || reader) && addr.Kind == paneDoc && !domain.IsListingPath(addr.Value) {
 		vm.HasMargin = true
 		vm.Tags = tagLinks(addr.World, doc.Tags)
 		vm.Properties = doc.Properties

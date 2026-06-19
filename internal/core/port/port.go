@@ -9,21 +9,31 @@ import (
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
 )
 
-// ReadingService is the inbound (driving) port — the use cases the reading room
-// exposes to its primary adapters (the web adapter). Driving adapters depend on
-// this interface, not on the concrete service.
+// The inbound (driving) port is split into four concerns — Reader, GraphService,
+// MapService, Editor — and composed as ReadingService, the full surface the web
+// adapter drives. The concrete *service.ReadingService satisfies all four; a
+// narrower consumer (a preview-only handler, the Phase 4 librarian needing only
+// reads) can depend on just the slice it uses rather than the whole 20-method
+// surface.
 //
-// Every method takes the request context (cancellation + the logged-in
-// reader's bearer in broker mode, Phase 1b/ADR 0004) and a world: the library
-// spans a universe of worlds, and a document's address is (world, path). A
-// world is either a knowledge-system world name (resolved by the broker) or a
+// Every context-taking method takes the request context (cancellation + the
+// logged-in reader's bearer in broker mode, Phase 1b/ADR 0004) and a world: the
+// library spans a universe of worlds, and a document's address is (world, path).
+// A world is either a knowledge-system world name (resolved by the broker) or a
 // demarkus host[:port] reached directly — the distributed knowledge graph is
 // traversable across both.
-type ReadingService interface {
+
+// Reader is the read side: fetch and render documents, listings, editions, and
+// the catalog, plus the trail engine's cached variants.
+type Reader interface {
 	// Read fetches and renders the document at (world, path).
 	Read(ctx context.Context, world, path string) (domain.Document, error)
 	// Browse renders a directory listing (the stacks) at (world, path).
 	Browse(ctx context.Context, world, path string) (domain.Document, error)
+	// Open reads (world, path), dispatching to Browse for a listing path and
+	// Read for a document (domain.IsListingPath) — so callers address a
+	// resource without re-deciding the listing-vs-document rule themselves.
+	Open(ctx context.Context, world, path string) (domain.Document, error)
 	// History renders the edition history of the document at (world, path).
 	History(ctx context.Context, world, path string) (domain.Document, error)
 	// Search renders the card catalog (LOOKUP) results for query under scope
@@ -36,22 +46,28 @@ type ReadingService interface {
 	// the projection's escape to protocol (ADR 0005 decision 12).
 	Raw(ctx context.Context, world, path string) (domain.RawDocument, error)
 
-	// ReadCached, BrowseCached, and TagCached are the trail engine's
-	// unfocused-pane reads (ADR 0005 decision 9): served from the
+	// ReadCached, BrowseCached, OpenCached, and TagCached are the trail
+	// engine's unfocused-pane reads (ADR 0005 decision 9): served from the
 	// rendered-document cache, reading through on a miss. The focused pane
 	// uses the live methods, which refresh the cache — so a trail click
 	// costs exactly one world read. Without a cache wired they behave as
-	// their live counterparts.
+	// their live counterparts. OpenCached dispatches by path shape like Open.
 	ReadCached(ctx context.Context, world, path string) (domain.Document, error)
 	BrowseCached(ctx context.Context, world, path string) (domain.Document, error)
+	OpenCached(ctx context.Context, world, path string) (domain.Document, error)
 	TagCached(ctx context.Context, world, tag string) (domain.Document, error)
+}
 
+// GraphService is the render-time observed-links graph (R3; ADR 0005 §16): the
+// web adapter records resolved links, the core owns the edge store and answers
+// backlink / neighborhood queries.
+type GraphService interface {
 	// RecordLinks records the in-universe document links observed in the
-	// rendered document at (world, path), replacing any prior observation
-	// (R3; ADR 0005 §16). The web adapter calls this after resolving links
-	// (rewriteLinks owns the URL scheme); the core owns the edge store. This
-	// is the render-time observed-links map that feeds Backlinks and
-	// Neighborhood — transport-symmetric, no broker graph store required.
+	// rendered document at (world, path), replacing any prior observation. The
+	// web adapter calls this after resolving links (rewriteLinks owns the URL
+	// scheme); the core owns the edge store. This is the render-time
+	// observed-links map that feeds Backlinks and Neighborhood —
+	// transport-symmetric, no broker graph store required.
 	RecordLinks(world, path string, targets []domain.Ref)
 	// Backlinks returns the documents observed linking to (world, path) — the
 	// margin's "referenced by" block and the graph pane's inbound edges.
@@ -62,25 +78,30 @@ type ReadingService interface {
 	// document plus its observed outbound and inbound edges. Store-only (zero
 	// world reads), so it works cold in both transports.
 	Neighborhood(world, path string) domain.Neighborhood
+}
 
-	// Floor assembles the universe view's data (ADR 0005 decision 4):
-	// the authorized worlds and each world's top-importance catalog
-	// entries. Live rebuild; FloorCached serves the last build when the
-	// floor pane is unfocused (the same focused-live policy as documents).
+// MapService assembles the spatial views (ADR 0005 decision 4): the universe
+// floor and one-world map, each with a live build and a cached variant for
+// unfocused panes (the focused-live policy every pane follows).
+type MapService interface {
+	// Floor assembles the universe view's data: the authorized worlds and each
+	// world's top-importance catalog entries. Live rebuild; FloorCached serves
+	// the last build when the floor pane is unfocused.
 	Floor(ctx context.Context) (domain.Floor, error)
 	FloorCached(ctx context.Context) (domain.Floor, error)
-
-	// WorldMap assembles the world-view zoom (ADR 0005 decision 4 — the floor
-	// one zoom in): one world's catalog grouped into directory clusters with
-	// the intra-world edges among the rendered documents. Live rebuild;
-	// WorldMapCached serves the last build for an unfocused/parent pane (the
-	// focused-live policy every pane follows).
+	// WorldMap assembles the world-view zoom (the floor one zoom in): one
+	// world's catalog grouped into directory clusters with the intra-world
+	// edges among the rendered documents. Live rebuild; WorldMapCached serves
+	// the last build for an unfocused/parent pane.
 	WorldMap(ctx context.Context, world string) (domain.WorldMap, error)
 	WorldMapCached(ctx context.Context, world string) (domain.WorldMap, error)
+}
 
-	// EditDraft fetches the source view for the cataloging desk's edit form
-	// (Phase 3): the document's raw markdown plus its current metadata and
-	// version, so the editor pre-fills exactly what the catalog holds.
+// Editor is the cataloging desk's write side (Phase 3).
+type Editor interface {
+	// EditDraft fetches the source view for the edit form: the document's raw
+	// markdown plus its current metadata and version, so the editor pre-fills
+	// exactly what the catalog holds.
 	EditDraft(ctx context.Context, world, path string) (domain.EditDraft, error)
 	// Preview renders edit-buffer markdown to sanitized HTML for the desk's
 	// live preview — the same renderer the reader uses, so what you see is what
@@ -97,6 +118,16 @@ type ReadingService interface {
 	// the re-read result (focused-live). The lightweight "add to" — metadata is
 	// preserved, the version auto-resolves.
 	Append(ctx context.Context, world, path, body string) (domain.Document, error)
+}
+
+// ReadingService is the full inbound surface the web adapter drives — the four
+// concerns composed. Driving adapters depend on this (or a narrower slice), not
+// on the concrete service.
+type ReadingService interface {
+	Reader
+	GraphService
+	MapService
+	Editor
 }
 
 // WorldGateway is an outbound (driven) port — read from demarkus worlds. The

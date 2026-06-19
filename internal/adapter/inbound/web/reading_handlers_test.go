@@ -93,6 +93,23 @@ func (f *fakeReading) TagCached(_ context.Context, _, tag string) (domain.Docume
 	return f.record("TagCached", tag)
 }
 
+// Open/OpenCached mirror the service: dispatch to Read/Browse by path shape, so
+// tests that assert the recorded Read/Browse calls still hold after the handler
+// addresses resources through Open.
+func (f *fakeReading) Open(ctx context.Context, world, path string) (domain.Document, error) {
+	if domain.IsListingPath(path) {
+		return f.Browse(ctx, world, path)
+	}
+	return f.Read(ctx, world, path)
+}
+
+func (f *fakeReading) OpenCached(ctx context.Context, world, path string) (domain.Document, error) {
+	if domain.IsListingPath(path) {
+		return f.BrowseCached(ctx, world, path)
+	}
+	return f.ReadCached(ctx, world, path)
+}
+
 // RecordLinks is a write, not a read: it stays out of calls/called so the
 // focused-live read-budget assertions keep measuring only world reads.
 func (f *fakeReading) RecordLinks(_, path string, targets []domain.Ref) {
