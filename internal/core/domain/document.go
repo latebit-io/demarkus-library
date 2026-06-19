@@ -133,6 +133,9 @@ type Neighborhood struct {
 // every doc has a parent dir, so containment would make orphans impossible.
 type EdgeType string
 
+// The edge types (ADR 0006 §0.1): a reference is an in-body mark:// link or its
+// inverse; containment is a parent/child path relationship derived from the
+// path tree. The graph overlay draws references and drops/fades containment.
 const (
 	EdgeReference   EdgeType = "reference"
 	EdgeContainment EdgeType = "containment"
