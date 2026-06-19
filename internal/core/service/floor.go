@@ -72,6 +72,15 @@ func (f *floorCache) put(floor domain.Floor) {
 	f.mu.Unlock()
 }
 
+// invalidate drops the cached floor so the next Floor rebuilds it — called after
+// a write so a just-published document shows on the universe view immediately
+// rather than at the next TTL expiry.
+func (f *floorCache) invalidate() {
+	f.mu.Lock()
+	f.floor = nil
+	f.mu.Unlock()
+}
+
 // Floor returns the universe view, rebuilding live only when the cached floor
 // has aged past floorTTL. The focused-live policy still applies — a focused
 // floor is "live" — but live here means "no older than the TTL window," which

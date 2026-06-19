@@ -251,6 +251,16 @@ func presentError(c *echo.Context, err error, world, path string) error {
 	case errors.Is(err, domain.ErrNotFound):
 		return echo.NewHTTPError(http.StatusNotFound, path+": not found")
 	case errors.Is(err, domain.ErrUnauthorized):
+		// An authed request whose bearer the broker rejects mid-session (token
+		// revoked between the turnstile's refresh and this read) should re-login,
+		// not dead-end on a 401 — the turnstile's own promise, honored here on
+		// the read path too. The dead session is cleared so re-login starts
+		// clean. Only when a session exists (broker mode): in QUIC mode there is
+		// no login route, so a private-path rejection stays a plain 401.
+		if c.Get(authedKey) != nil {
+			clearSessionCookie(c)
+			return redirectToLogin(c)
+		}
 		return echo.NewHTTPError(http.StatusUnauthorized, path+": not authorized")
 	default:
 		c.Logger().Error("read failed", "world", world, "path", path, "err", err)

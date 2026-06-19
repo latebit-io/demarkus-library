@@ -149,7 +149,7 @@ func TestWorldMapDegradesOnReadError(t *testing.T) {
 		t.Errorf("unreadable map = %+v, want Unreadable, no clusters, name world-a", wm)
 	}
 	// The unreadable result is not cached — a later read retries the world.
-	if _, ok := svc.worldMaps.get("world-a"); ok {
+	if _, ok := svc.worldMaps.getFresh("world-a", worldMapTTL); ok {
 		t.Error("unreadable map must not be cached")
 	}
 

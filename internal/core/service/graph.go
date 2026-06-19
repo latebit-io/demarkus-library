@@ -43,10 +43,19 @@ func (s *ReadingService) Neighborhood(world, path string) domain.Neighborhood {
 //
 // Mirrors floorCache: an internal struct, not a port — the service's public
 // edge methods are the seam a future hub/broker strategy slots behind.
+// maxLinkGraphSources bounds the observed-links map so a long-lived pod does not
+// grow without limit as distinct documents are read. When exceeded, the
+// least-recently-observed source (and its edges) is evicted; the graph is
+// best-effort enrichment, so dropping cold edges is harmless — they re-record
+// when that document is next read.
+const maxLinkGraphSources = 5000
+
 type linkGraph struct {
-	mu  sync.RWMutex
-	out map[domain.Ref]map[domain.Ref]struct{} // source → targets it links to
-	in  map[domain.Ref]map[domain.Ref]struct{} // target → sources that link to it
+	mu   sync.RWMutex
+	out  map[domain.Ref]map[domain.Ref]struct{} // source → targets it links to
+	in   map[domain.Ref]map[domain.Ref]struct{} // target → sources that link to it
+	seq  map[domain.Ref]uint64                  // last-observed tick per source, for LRU eviction
+	tick uint64
 }
 
 // observe records that src links to exactly targets, replacing any previously
@@ -58,6 +67,7 @@ func (g *linkGraph) observe(src domain.Ref, targets []domain.Ref) {
 	if g.out == nil {
 		g.out = make(map[domain.Ref]map[domain.Ref]struct{})
 		g.in = make(map[domain.Ref]map[domain.Ref]struct{})
+		g.seq = make(map[domain.Ref]uint64)
 	}
 	// Drop src's old forward edges from the reverse index before rebuilding,
 	// so stale backlinks don't survive an edit.
@@ -80,9 +90,41 @@ func (g *linkGraph) observe(src domain.Ref, targets []domain.Ref) {
 	}
 	if len(set) == 0 {
 		delete(g.out, src)
+		delete(g.seq, src)
 		return
 	}
 	g.out[src] = set
+	g.tick++
+	g.seq[src] = g.tick
+	g.evictLocked()
+}
+
+// evictLocked bounds the source count, dropping the least-recently-observed
+// source (and its edges) until within maxLinkGraphSources. Called under g.mu.
+// Re-observing an existing source replaces its edge set without growing the
+// map, so eviction only fires on genuinely new sources past the cap.
+func (g *linkGraph) evictLocked() {
+	for len(g.out) > maxLinkGraphSources {
+		var victim domain.Ref
+		var minSeq uint64
+		first := true
+		for src, sq := range g.seq {
+			if first || sq < minSeq {
+				minSeq, victim, first = sq, src, false
+			}
+		}
+		if first {
+			return // seq empty — nothing to evict
+		}
+		for old := range g.out[victim] {
+			delete(g.in[old], victim)
+			if len(g.in[old]) == 0 {
+				delete(g.in, old)
+			}
+		}
+		delete(g.out, victim)
+		delete(g.seq, victim)
+	}
 }
 
 // backlinks returns the sources observed linking to target, sorted for a
