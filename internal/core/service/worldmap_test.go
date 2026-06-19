@@ -94,6 +94,97 @@ func TestIntraWorldEdgesJoinAndFilter(t *testing.T) {
 	}
 }
 
+// A hub graph export over the same paths as worldMapCatalog: every doc is a
+// node, but only a→b (intra-world) and adr/0001→root/index (cross-world) are
+// reference edges. So index.md and plans/c.md are reference-orphans; a, b, and
+// adr/0001 (linked off-world) are not.
+const worldMapHubGraph = `
+## Nodes
+
+| URL | Title | Status | Links |
+|-----|-------|--------|-------|
+| [Home](mark://world-a.svc:6309/index.md)    | Home   | accepted | 0 |
+| [Plan A](mark://world-a.svc:6309/plans/a.md) | Plan A | draft    | 1 |
+| [Plan B](mark://world-a.svc:6309/plans/b.md) | Plan B | draft    | 0 |
+| [Plan C](mark://world-a.svc:6309/plans/c.md) | Plan C | draft    | 0 |
+| [ADR 1](mark://world-a.svc:6309/adr/0001.md) | ADR 1  | accepted | 1 |
+
+## Edges
+
+| From | To |
+|------|-----|
+| mark://world-a.svc:6309/plans/a.md  | mark://world-a.svc:6309/plans/b.md |
+| mark://world-a.svc:6309/adr/0001.md | mark://root.svc:6309/index.md      |
+`
+
+func TestWorldOrphans(t *testing.T) {
+	host2name := map[string]string{"world-a.svc:6309": "world-a"}
+	topo := parseGraphExport(worldMapHubGraph)
+
+	got := worldOrphans("world-a", host2name, topo)
+	want := map[string]bool{"/index.md": true, "/plans/c.md": true}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("orphans = %+v, want %+v", got, want)
+	}
+
+	// No durable topology ⇒ nothing flagged (unknown, not orphan).
+	if o := worldOrphans("world-a", host2name, hubTopology{}); o != nil {
+		t.Errorf("empty topology should flag nothing, got %+v", o)
+	}
+	// A topology that knows no node in this world ⇒ also nothing flagged.
+	if o := worldOrphans("world-b", host2name, topo); o != nil {
+		t.Errorf("topology with no world-b node should flag nothing, got %+v", o)
+	}
+}
+
+func TestWorldMapMarksOrphansFromHubGraph(t *testing.T) {
+	gw := fakeGateway{
+		worlds:    []domain.WorldInfo{{Name: "world-a", URL: "mark://world-a.svc:6309"}},
+		raw:       domain.RawDocument{Body: worldMapCatalog},
+		fetchBody: map[string]string{hubGraphPath: worldMapHubGraph},
+	}
+	wm, err := NewReadingService(gw, fakeRenderer{}, nil).WithHub("root").WorldMap(t.Context(), "world-a")
+	if err != nil {
+		t.Fatalf("WorldMap: %v", err)
+	}
+	orphan := map[string]bool{}
+	for _, cl := range wm.Clusters {
+		for _, d := range cl.Docs {
+			orphan[d.Path] = d.Orphan
+		}
+	}
+	want := map[string]bool{
+		"/index.md":    true,
+		"/plans/a.md":  false,
+		"/plans/b.md":  false,
+		"/plans/c.md":  true,
+		"/adr/0001.md": false, // linked off-world → not an orphan
+	}
+	if !reflect.DeepEqual(orphan, want) {
+		t.Errorf("orphan flags = %+v, want %+v", orphan, want)
+	}
+}
+
+func TestWorldMapNoHubMarksNoOrphans(t *testing.T) {
+	// Without a hub topology the map still assembles, but flags no orphans —
+	// zero observed edges is honest cold state, not a defect (ADR 0005 d8).
+	gw := fakeGateway{
+		worlds: []domain.WorldInfo{{Name: "world-a", URL: "mark://world-a.svc:6309"}},
+		raw:    domain.RawDocument{Body: worldMapCatalog},
+	}
+	wm, err := NewReadingService(gw, fakeRenderer{}, nil).WorldMap(t.Context(), "world-a")
+	if err != nil {
+		t.Fatalf("WorldMap: %v", err)
+	}
+	for _, cl := range wm.Clusters {
+		for _, d := range cl.Docs {
+			if d.Orphan {
+				t.Errorf("%s flagged orphan without a hub topology", d.Path)
+			}
+		}
+	}
+}
+
 func TestWorldMapAssemblesAndCaches(t *testing.T) {
 	gw := fakeGateway{
 		worlds: []domain.WorldInfo{{Name: "world-a", URL: "mark://world-a.svc:6309"}},

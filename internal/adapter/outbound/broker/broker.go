@@ -157,13 +157,16 @@ func parseWorldsTable(text string) []domain.WorldInfo {
 
 // Lookup queries the catalog under scope through mark_lookup. A non-empty
 // filter rides along as the tool's comma-separated key=value predicate.
-func (g *Gateway) Lookup(ctx context.Context, world, scope, query, filter string) (domain.RawDocument, error) {
+func (g *Gateway) Lookup(ctx context.Context, world, scope, query, filter string, limit int) (domain.RawDocument, error) {
 	args := map[string]any{
 		"url":   markURL(world, scope),
 		"query": query,
 	}
 	if filter != "" {
 		args["filter"] = filter
+	}
+	if limit > 0 {
+		args["limit"] = limit
 	}
 	return g.read(ctx, "mark_lookup", world, scope, args)
 }

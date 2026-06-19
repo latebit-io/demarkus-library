@@ -151,7 +151,7 @@ func (g *linkGraph) allEdges() []domain.Edge {
 	var out []domain.Edge
 	for src, tos := range g.out {
 		for to := range tos {
-			out = append(out, domain.Edge{From: src, To: to})
+			out = append(out, domain.Edge{From: src, To: to, Type: domain.EdgeReference})
 		}
 	}
 	return out

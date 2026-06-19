@@ -86,7 +86,7 @@ func TestVerbsAndArgs(t *testing.T) {
 		},
 			"mark_versions", "mark://soul/x.md"},
 		{"Lookup", func(g *Gateway, ctx context.Context) (domain.RawDocument, error) {
-			return g.Lookup(ctx, "soul", "/", "hex", "")
+			return g.Lookup(ctx, "soul", "/", "hex", "", 0)
 		},
 			"mark_lookup", "mark://soul/"},
 	}
@@ -110,7 +110,7 @@ func TestVerbsAndArgs(t *testing.T) {
 	// entirely so the broker applies its own default.
 	fc := &fakeCaller{text: "status: ok\n\nbody"}
 	g := &Gateway{caller: fc}
-	if _, err := g.Lookup(authedCtx(t), "soul", "/", "hexagonal", ""); err != nil {
+	if _, err := g.Lookup(authedCtx(t), "soul", "/", "hexagonal", "", 0); err != nil {
 		t.Fatalf("Lookup: %v", err)
 	}
 	if got := fc.gotArgs["query"]; got != "hexagonal" {
@@ -119,15 +119,22 @@ func TestVerbsAndArgs(t *testing.T) {
 	if _, present := fc.gotArgs["filter"]; present {
 		t.Errorf("empty filter must be omitted, got %v", fc.gotArgs["filter"])
 	}
+	if _, present := fc.gotArgs["limit"]; present {
+		t.Errorf("zero limit must be omitted (server default), got %v", fc.gotArgs["limit"])
+	}
 
-	// A non-empty filter rides along (tag pages: tag=<tag>).
+	// A non-empty filter and a positive limit ride along (tag pages: tag=<tag>;
+	// the match-all index/map callers cap the catalog explicitly).
 	fc = &fakeCaller{text: "status: ok\n\nbody"}
 	g = &Gateway{caller: fc}
-	if _, err := g.Lookup(authedCtx(t), "soul", "/", "adr", "tag=adr"); err != nil {
+	if _, err := g.Lookup(authedCtx(t), "soul", "/", "adr", "tag=adr", 500); err != nil {
 		t.Fatalf("Lookup with filter: %v", err)
 	}
 	if got := fc.gotArgs["filter"]; got != "tag=adr" {
 		t.Errorf("filter arg = %v, want tag=adr", got)
+	}
+	if got := fc.gotArgs["limit"]; got != 500 {
+		t.Errorf("limit arg = %v, want 500", got)
 	}
 }
 

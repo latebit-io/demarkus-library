@@ -20,6 +20,7 @@ func noStore(next echo.HandlerFunc) echo.HandlerFunc {
 // ReadingRoutes registers the reading-room routes. A document's address is
 // (world, path):
 //   - /                          the default trail (default world's default doc)
+//   - /palette.json              the command palette name-mode index (ADR 0006 §3)
 //   - /t/<trail>                 the trail canvas (ADR 0005; format in trail.go)
 //   - /w/:world/d/<path>         a document, or the stacks when path ends in /
 //   - /w/:world/g/<path>         the graph neighborhood (links + backlinks)
@@ -42,6 +43,7 @@ func ReadingRoutes(e *echo.Echo, handler ReadingHandler, middleware ...echo.Midd
 	// turnstile middleware runs after it.
 	mw := append([]echo.MiddlewareFunc{noStore}, middleware...)
 	e.GET("/", handler.Root, mw...)
+	e.GET("/palette.json", handler.PaletteIndex, mw...)
 	e.GET("/t/*", handler.Trail, mw...)
 	e.GET("/w/:world/d/*", handler.Doc, mw...)
 	e.GET("/w/:world/g/*", handler.GraphPage, mw...)

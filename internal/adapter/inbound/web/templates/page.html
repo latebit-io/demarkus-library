@@ -9,6 +9,10 @@
        only new JS). Tiny; the heavy vendored libs load lazily, only on
        pages that need them. -->
   <script src="/static/islands.js" defer></script>
+  <!-- Command palette (⌃K), ADR 0006 §3: a self-contained name-mode quick-
+       switcher island. Builds its own overlay DOM, fetches /palette.json, and
+       navigates by extending the trail URL — no markup needed in the shells. -->
+  <script src="/static/palette.js" defer></script>
   <link rel="stylesheet" href="/static/chroma.css">
   <style>
     /* The Tufte pane (ADR 0005, R1): ~60ch reading column + working margin.
@@ -279,6 +283,45 @@
       .reader-panel { padding: 2.2rem 1.2rem 2.5rem; }
       .reader-panel .pane-cols { grid-template-columns: minmax(0, 1fr); }
     }
+
+    /* ── Command palette (⌃K), ADR 0006 §3: known-item quick switcher. Built
+          and toggled by palette.js; hidden until summoned. System-ui sans like
+          the margin — chrome, not prose. ───────────────────────────────── */
+    .cmdk-backdrop { position: fixed; inset: 0; z-index: 100;
+                  background: light-dark(#11111144, #00000099);
+                  display: flex; justify-content: center; align-items: flex-start;
+                  padding: 12vh 1rem 1rem; font-family: system-ui, sans-serif; }
+    .cmdk-panel { width: 640px; max-width: 100%; background: var(--paper);
+                  color: var(--ink); border: 1px solid var(--faint);
+                  border-radius: 10px; box-shadow: 0 12px 48px #00000066;
+                  overflow: hidden; display: flex; flex-direction: column;
+                  max-height: 70vh; }
+    .cmdk-head { display: flex; align-items: center; gap: .6rem;
+                  padding: .5rem .8rem; border-bottom: 1px solid var(--faint); }
+    .cmdk-input { flex: 1; font: inherit; font-size: 1rem; border: 0;
+                  background: transparent; color: inherit; outline: none; padding: .35rem 0; }
+    .cmdk-scope { font: inherit; font-size: .72rem; color: var(--muted);
+                  border: 1px solid var(--faint); border-radius: 999px;
+                  padding: .2rem .6rem; background: transparent; cursor: pointer;
+                  white-space: nowrap; }
+    .cmdk-scope[aria-pressed="true"] { color: var(--ink); border-color: var(--muted); }
+    .cmdk-list { list-style: none; margin: 0; padding: .3rem; overflow-y: auto; }
+    .cmdk-empty { padding: 1rem .8rem; color: var(--muted); font-size: .85rem; }
+    .cmdk-row { display: flex; align-items: baseline; gap: .6rem;
+                  padding: .45rem .6rem; border-radius: 6px; cursor: pointer; }
+    .cmdk-row[aria-selected="true"] { background: var(--faint); }
+    .cmdk-title { font-size: .95rem; white-space: nowrap; overflow: hidden;
+                  text-overflow: ellipsis; }
+    .cmdk-loc { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+                  font-size: .72rem; color: var(--muted); flex: 1;
+                  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+                  text-align: right; }
+    .cmdk-badge { font-size: .65rem; text-transform: uppercase; letter-spacing: .04em;
+                  color: var(--muted); border: 1px solid var(--faint);
+                  border-radius: 4px; padding: 0 .3rem; }
+    .cmdk-hint { padding: .4rem .8rem; border-top: 1px solid var(--faint);
+                  font-size: .7rem; color: var(--muted); display: flex; gap: 1rem; }
+    @media (max-width: 640px) { .cmdk-loc { display: none; } }
   </style>
 </head>{{end}}
 
@@ -301,7 +344,7 @@
 {{template "head" .}}
 <!-- hx-boost: in-app navigation swaps without a full reload; the server still
      renders every page, so links work with JS off too. -->
-<body hx-boost="true">
+<body hx-boost="true" data-world="{{ .World }}">
   {{template "nav" .}}
   <main id="main">
     {{ template "content" . }}

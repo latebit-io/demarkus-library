@@ -118,12 +118,36 @@ type Neighborhood struct {
 	In     []Ref
 }
 
-// Edge is a directed link between two documents in the knowledge graph. The
-// floor renders these between world clusters (and to portal nodes); they come
-// from the durable hub graph export unioned with the R3 observed-links map.
+// EdgeType classifies a graph edge so each surface can draw only the relation
+// it owns (navigation rework, ADR 0006, supersedes ADR 0005 d5/d8). The
+// principle: containment is the list/index's job, references are the graph's.
+//   - EdgeReference: an in-body mark:// link (or its inverse, a backlink). The
+//     graph overlay's primary edge; observed at render time or read from the
+//     durable hub /graph.md export.
+//   - EdgeContainment: a parent/child path relationship (nib/ → nib/mission.md),
+//     derived from the path tree — never a stored link. The index/world map
+//     owns this; the graph overlay omits it (or draws a faint structural hint).
+//
+// Orphan detection (ADR 0006 §0.2) keys off EdgeReference only: a doc is an
+// orphan when it has zero reference edges in or out. Containment never counts —
+// every doc has a parent dir, so containment would make orphans impossible.
+type EdgeType string
+
+const (
+	EdgeReference   EdgeType = "reference"
+	EdgeContainment EdgeType = "containment"
+)
+
+// Edge is a typed directed link between two documents in the knowledge graph.
+// The floor renders these between world clusters (and to portal nodes); they
+// come from the durable hub graph export unioned with the R3 observed-links map.
+// Type lets the graph overlay draw references and drop/fade containment without
+// recomputing. Edge stays comparable (Type is a string), so it remains a map
+// key for the dedup sets in worldEdges/intraWorldEdges.
 type Edge struct {
 	From Ref
 	To   Ref
+	Type EdgeType
 }
 
 // WorldInfo is one world of the universe: a mark_worlds row in broker mode,
@@ -143,11 +167,20 @@ type WorldInfo struct {
 
 // FloorDoc is one catalogued document rendered on the floor: a world's
 // satellite, weighted by catalog importance, badged by status.
+//
+// Orphan flags a document the durable hub topology knows as a node but that
+// participates in zero reference edges, in or out (ADR 0006 §0.2). It is a
+// passive signal the index/map can render without recomputing — the one cue the
+// containment list can't give. Derived from the hub graph alone, never the
+// render-time observed-links map: an unobserved doc has no observed edges and
+// would falsely flag, so absent a durable graph nothing is an orphan (this
+// keeps ADR 0005 d8's honest cold state — zero observed edges ≠ a defect).
 type FloorDoc struct {
 	Path       string
 	Title      string
 	Importance float64
 	Status     string
+	Orphan     bool
 }
 
 // FloorWorld is one world's cluster on the floor: its identity, its
@@ -202,6 +235,18 @@ type WorldMap struct {
 type Floor struct {
 	Worlds []FloorWorld
 	Edges  []Edge
+}
+
+// IndexEntry is one row of the command palette's name-mode index (ADR 0006 §3):
+// the minimum the client fuzzy-matches on title + path and renders. World lets
+// universe-scope results show where each doc lives; Status badges the row. It
+// carries no body — name-mode is a known-item switcher, not full-text search
+// (content-mode is the separate SEARCH path, ADR 0006 §0.3).
+type IndexEntry struct {
+	Title  string `json:"title"`
+	Path   string `json:"path"`
+	World  string `json:"world"`
+	Status string `json:"status"`
 }
 
 // Document is a rendered, display-ready document. HTML is already sanitized; the

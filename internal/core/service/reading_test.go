@@ -17,6 +17,7 @@ type fakeGateway struct {
 	err       error
 	called    *string
 	filter    *string // records the Lookup filter argument
+	limit     *int    // records the Lookup limit argument
 	worlds    []domain.WorldInfo
 	worldsErr error
 	fetchBody map[string]string // path → body for Fetch (e.g. the hub /graph.md); falls back to raw
@@ -47,10 +48,13 @@ func (f fakeGateway) Versions(context.Context, string, string) (domain.RawDocume
 	f.record("Versions")
 	return f.raw, f.err
 }
-func (f fakeGateway) Lookup(_ context.Context, _, _, _, filter string) (domain.RawDocument, error) {
+func (f fakeGateway) Lookup(_ context.Context, _, _, _, filter string, limit int) (domain.RawDocument, error) {
 	f.record("Lookup")
 	if f.filter != nil {
 		*f.filter = filter
+	}
+	if f.limit != nil {
+		*f.limit = limit
 	}
 	return f.raw, f.err
 }

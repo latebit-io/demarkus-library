@@ -34,6 +34,9 @@ type fakeReading struct {
 	gotBody     string
 	gotMeta     domain.PublishMeta
 	gotVersion  int
+	nameIndex    []domain.IndexEntry
+	nameIndexErr error
+
 	backlink    map[string][]domain.Ref // keyed by path; the graph store's reverse edges
 	neighbor    map[string]domain.Neighborhood
 	recorded    map[string][]domain.Ref // path → links RecordLinks captured
@@ -78,6 +81,12 @@ func (f *fakeReading) Tag(_ context.Context, _, tag string) (domain.Document, er
 func (f *fakeReading) Raw(_ context.Context, _, _ string) (domain.RawDocument, error) {
 	f.called = "Raw"
 	return f.raw, f.err
+}
+
+func (f *fakeReading) NameIndex(_ context.Context, _, _ string) ([]domain.IndexEntry, error) {
+	f.called = "NameIndex"
+	f.calls = append(f.calls, "NameIndex")
+	return f.nameIndex, f.nameIndexErr
 }
 
 func (f *fakeReading) ReadCached(_ context.Context, _, path string) (domain.Document, error) {
@@ -219,6 +228,30 @@ func TestReadingRoutesAreNoStore(t *testing.T) {
 		if cc := rec.Header().Get("Cache-Control"); cc != "private, no-store" {
 			t.Errorf("%s: Cache-Control = %q, want \"private, no-store\"", path, cc)
 		}
+	}
+}
+
+func TestPaletteIndexReturnsJSON(t *testing.T) {
+	svc := &fakeReading{nameIndex: []domain.IndexEntry{
+		{Title: "Mission", Path: "/nib/mission.md", World: "world-a", Status: "accepted"},
+	}}
+	rec := get(readingApp(t, svc), "/palette.json?scope=world&world=world-a")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.Contains(ct, "application/json") {
+		t.Errorf("Content-Type = %q, want application/json", ct)
+	}
+	if cc := rec.Header().Get("Cache-Control"); cc != "private, no-store" {
+		t.Errorf("Cache-Control = %q, want private, no-store (per-session index)", cc)
+	}
+	for _, want := range []string{`"title":"Mission"`, `"path":"/nib/mission.md"`, `"world":"world-a"`, `"status":"accepted"`} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Errorf("body missing %s: %s", want, rec.Body.String())
+		}
+	}
+	if svc.called != "NameIndex" {
+		t.Errorf("called = %q, want NameIndex", svc.called)
 	}
 }
 

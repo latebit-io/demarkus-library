@@ -95,7 +95,7 @@ func (c *worldMapCache) invalidate(world string) {
 // world rather than dropping the whole map. The unreadable result is not
 // cached, so a transient failure self-heals on the next read.
 func (s *ReadingService) WorldMap(ctx context.Context, world string) (domain.WorldMap, error) {
-	raw, err := s.world.Lookup(ctx, world, "/", "*", "")
+	raw, err := s.world.Lookup(ctx, world, "/", "*", "", worldMapMaxDocs)
 	if err != nil {
 		// Propagate, never degrade: the reader's identity dying (re-login) and
 		// request cancellation/timeout — a canceled or timed-out read must
@@ -130,18 +130,34 @@ func (s *ReadingService) WorldMap(ctx context.Context, world string) (domain.Wor
 		}
 	}
 
+	// The durable hub topology, read once: it sources both the orphan flag
+	// (nodes + edges) and the intra-world edges below.
+	topo := s.readHub(ctx, s.hub)
+
+	// Orphan flag (ADR 0006 §0.2): mark each rendered doc the hub topology knows
+	// as a node but that has zero reference edges. Hub-only, so the flag is
+	// stable across sessions and never invents a defect from an unobserved doc.
+	orphans := worldOrphans(world, host2name, topo)
+	for ci := range wm.Clusters {
+		for di := range wm.Clusters[ci].Docs {
+			if orphans[wm.Clusters[ci].Docs[di].Path] {
+				wm.Clusters[ci].Docs[di].Orphan = true
+			}
+		}
+	}
+
 	// Edges drawn only among the labeled (rendered) nodes — an edge can't point
 	// at a node the map doesn't draw. Source: the durable hub graph ∪ the R3
 	// observed map, both filtered to this world (the floor drops these
 	// intra-world edges; the world map is where they belong).
 	labeled := map[string]bool{}
-	for _, cl := range clusters {
+	for _, cl := range wm.Clusters {
 		for _, d := range cl.Docs {
 			labeled[d.Path] = true
 		}
 	}
 	wm.Edges = intraWorldEdges(world, host2name,
-		append(s.readHub(ctx, s.hub).edges, s.graph.allEdges()...), labeled)
+		append(topo.edges, s.graph.allEdges()...), labeled)
 
 	s.worldMaps.put(world, wm)
 	return wm, nil
@@ -224,6 +240,7 @@ func intraWorldEdges(world string, host2name map[string]string, all []domain.Edg
 		ce := domain.Edge{
 			From: domain.Ref{World: world, Path: e.From.Path},
 			To:   domain.Ref{World: world, Path: e.To.Path},
+			Type: e.Type,
 		}
 		if _, dup := seen[ce]; dup {
 			continue
@@ -245,4 +262,43 @@ func intraWorldEdges(world string, host2name map[string]string, all []domain.Edg
 // graph, via host2name).
 func worldMember(refWorld, world string, host2name map[string]string) bool {
 	return refWorld == world || host2name[strings.ToLower(refWorld)] == world
+}
+
+// worldOrphans returns the set of this world's document paths that the durable
+// hub topology knows as nodes but that appear in no reference edge — in or out,
+// cross-world references included (a doc linking off-world is not an orphan).
+// Paths are in world-name space; hub refs are joined via host2name like edges.
+//
+// It returns nil when the topology knows no node in this world: without a
+// durable graph, orphan-ness is unknown, so nothing is flagged (ADR 0006 §0.2,
+// honoring ADR 0005 d8 — a cold/unobserved doc is not a defect).
+func worldOrphans(world string, host2name map[string]string, topo hubTopology) map[string]bool {
+	known := map[string]bool{}
+	for _, n := range topo.nodes {
+		if worldMember(n.Ref.World, world, host2name) {
+			known[n.Ref.Path] = true
+		}
+	}
+	if len(known) == 0 {
+		return nil
+	}
+	linked := map[string]bool{}
+	for _, e := range topo.edges {
+		if e.Type != domain.EdgeReference {
+			continue
+		}
+		if worldMember(e.From.World, world, host2name) {
+			linked[e.From.Path] = true
+		}
+		if worldMember(e.To.World, world, host2name) {
+			linked[e.To.Path] = true
+		}
+	}
+	orphans := map[string]bool{}
+	for p := range known {
+		if !linked[p] {
+			orphans[p] = true
+		}
+	}
+	return orphans
 }
