@@ -33,7 +33,10 @@ func (s *ReadingService) NameIndex(ctx context.Context, scope, world string) ([]
 	topo := s.readHub(ctx, s.hub)
 	var host2name map[string]string
 	if len(topo.nodes) > 0 {
-		host2name = s.host2name(ctx)
+		var err error
+		if host2name, err = s.host2name(ctx); err != nil {
+			return nil, err // outbound failure propagates; the web layer decides
+		}
 	}
 
 	if scope != "universe" {
