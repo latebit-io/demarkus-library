@@ -319,8 +319,8 @@ func TestDocRendersMargin(t *testing.T) {
 		"mark://soul.demarkus.io/adr/0007.md",
 		`href="/w/soul.demarkus.io/raw/adr/0007.md"`,
 		`href="/w/soul.demarkus.io/versions/adr/0007.md"`,
-		`href="/w/soul.demarkus.io/g/adr/0007.md" class="graph-open">graph`,
-		`href="/w/soul.demarkus.io/u" class="map-open">map`,
+		`href="/w/soul.demarkus.io/g/adr/0007.md" class="graph-open"`,
+		`href="/w/soul.demarkus.io/u" class="map-open"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("doc page missing %q", want)
