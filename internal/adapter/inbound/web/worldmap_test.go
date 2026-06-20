@@ -25,31 +25,31 @@ func testWorldMap() domain.WorldMap {
 	}
 }
 
-func TestWorldMapSVGNodesEdgesAggregate(t *testing.T) {
+func TestWorldMapSVGReferenceLayout(t *testing.T) {
+	wm := testWorldMap()
+	// index + plans/a are linked (a reference edge joins them); add an orphan to
+	// exercise the floated band + caption.
+	wm.Clusters[0].Docs = append(wm.Clusters[0].Docs,
+		domain.FloorDoc{Path: "/lonely.md", Title: "Lonely", Status: "draft", Orphan: true})
 	tr := trail{Panes: []paneAddr{{Kind: paneFloor}, {Kind: paneFloor, World: "team-a"}}, Focus: 1}
-	svg := string(worldMapSVG(testWorldMap(),
-		func(p string) string {
-			return trailURL(trailAfterClick(tr, 1, paneAddr{Kind: paneDoc, World: "team-a", Value: p}))
-		},
-		func(p string) string {
-			return trailURL(trailAfterClick(tr, 1, paneAddr{Kind: paneDoc, World: "team-a", Value: p}))
-		},
-		"/w/team-a/new?dir=%2F"))
+	docURL := func(p string) string {
+		return trailURL(trailAfterClick(tr, 1, paneAddr{Kind: paneDoc, World: "team-a", Value: p}))
+	}
+	svg := string(worldMapSVG(wm, docURL, "/w/team-a/new?dir=%2F"))
 
 	for _, want := range []string{
 		`class="floor world-map"`,
-		// Directory hub → its listing pane (the stacks).
-		`href="/t/u/~/team-a/u//~/team-a/d/plans/"`,
-		// Document node → the document pane, status-coded.
+		`class="world-map-caption"`,
+		`2 linked · 1 orphan`,
+		// Linked doc node → the document pane, status-coded.
 		`class="floor-doc status-wip"`,
 		`href="/t/u/~/team-a/u//~/team-a/d/plans/a.md"`,
-		// "+N more" aggregate node + label, opens the listing pane.
-		`class="floor-doc world-map-more"`,
-		`>+4</text>`,
-		// Intra-world edge drawn between two rendered nodes.
+		// Reference edge drawn between two linked nodes.
 		`class="graph-edge"`,
-		// Root cluster labels as "/".
-		`>/</text>`,
+		// Orphan floated into the band with its own class + a band label.
+		`world-map-orphan`,
+		`href="/t/u/~/team-a/u//~/team-a/d/lonely.md"`,
+		`>orphans</text>`,
 		// The authenticated "new document" affordance.
 		`class="world-map-new"`,
 		`href="/w/team-a/new?dir=%2F"`,
@@ -58,17 +58,21 @@ func TestWorldMapSVGNodesEdgesAggregate(t *testing.T) {
 			t.Errorf("world-map svg missing %q\n---\n%s", want, svg)
 		}
 	}
+	// Reference-only: no directory containment hubs or "+N more" aggregates.
+	if strings.Contains(svg, "world-map-more") || strings.Contains(svg, `class="floor-world"`) {
+		t.Errorf("reference-only map must not render dir hubs/aggregates:\n%s", svg)
+	}
 }
 
 func TestWorldMapSVGEmptyCatalog(t *testing.T) {
 	id := func(p string) string { return p }
 	// Anonymous: empty message, no create link.
-	svg := string(worldMapSVG(domain.WorldMap{World: domain.WorldInfo{Name: "w"}}, id, id, ""))
+	svg := string(worldMapSVG(domain.WorldMap{World: domain.WorldInfo{Name: "w"}}, id, ""))
 	if !strings.Contains(svg, "catalog is empty") || strings.Contains(svg, "Create the first") {
 		t.Errorf("empty world map (anon) wrong: %s", svg)
 	}
 	// Authenticated: the empty world is the one place to create the first doc.
-	svg = string(worldMapSVG(domain.WorldMap{World: domain.WorldInfo{Name: "w"}}, id, id, "/w/w/new?dir=%2F"))
+	svg = string(worldMapSVG(domain.WorldMap{World: domain.WorldInfo{Name: "w"}}, id, "/w/w/new?dir=%2F"))
 	if !strings.Contains(svg, "Create the first document") || !strings.Contains(svg, `href="/w/w/new?dir=%2F"`) {
 		t.Errorf("empty world map (authed) should offer create: %s", svg)
 	}
@@ -78,7 +82,7 @@ func TestWorldMapSVGUnreadable(t *testing.T) {
 	id := func(p string) string { return p }
 	// Unreadable ≠ empty: a notice, and no "create" link even when authed (we
 	// don't know the catalog is empty).
-	svg := string(worldMapSVG(domain.WorldMap{World: domain.WorldInfo{Name: "w"}, Unreadable: true}, id, id, "/w/w/new?dir=%2F"))
+	svg := string(worldMapSVG(domain.WorldMap{World: domain.WorldInfo{Name: "w"}, Unreadable: true}, id, "/w/w/new?dir=%2F"))
 	if !strings.Contains(svg, "could not be read") {
 		t.Errorf("unreadable world map should say so: %s", svg)
 	}
@@ -92,7 +96,7 @@ func TestWorldMapSVGEscapesContent(t *testing.T) {
 		{Dir: "x", ListPath: "/x/", Docs: []domain.FloorDoc{
 			{Path: "/x/e.md", Title: `<script>"x"</script>`, Importance: 0.5, Status: "draft"}}},
 	}}
-	svg := string(worldMapSVG(wm, func(p string) string { return p }, func(p string) string { return p }, ""))
+	svg := string(worldMapSVG(wm, func(p string) string { return p }, ""))
 	if strings.Contains(svg, "<script>") {
 		t.Errorf("unescaped title in svg: %s", svg)
 	}

@@ -170,10 +170,14 @@
     .floor-edge { stroke: var(--faint); stroke-width: 1.5; }
     .floor-portal-node { fill: var(--paper); stroke: var(--muted);
                          stroke-width: 1.5; stroke-dasharray: 3 2; }
-    /* World map (zoom level 2): the "+N more" aggregate bubble opens a dir's
-       listing pane. Directory hubs reuse .floor-world; docs reuse .floor-doc. */
-    .world-map-more { fill: var(--faint); stroke: var(--muted); stroke-width: 1.5; }
+    /* World map (zoom level 2), reference-only (ADR 0006 §5): linked docs in a
+       connected ring (reuse .floor-doc + .graph-edge), orphans floated in a band
+       below — dashed + dimmed so "unconnected" reads at a glance. */
     .world-map .floor-doc-label { fill: var(--ink); }
+    .world-map-caption { font-family: system-ui, sans-serif; font-size: 11px; fill: var(--muted); }
+    .world-map-band { font-family: system-ui, sans-serif; font-size: 10px; fill: var(--muted);
+                      text-transform: uppercase; letter-spacing: .05em; }
+    .floor-doc.world-map-orphan { stroke-dasharray: 3 2; opacity: .7; }
     .world-map-new { margin-top: .6rem; font-family: system-ui, sans-serif; font-size: .85rem; }
 
     /* ── Backlinks: the observed-links map made visible (R3). Last margin
@@ -319,6 +323,28 @@
     .palette-hint { padding: .4rem .8rem; border-top: 1px solid var(--faint);
                   font-size: .7rem; color: var(--muted); }
     @media (max-width: 640px) { .palette-loc { display: none; } }
+
+    /* ── World index (ADR 0006 §5): the universe lists worlds as doors, never
+          loose documents. A card carries door affordances (glyph, chevron) a
+          document row never has; federated worlds read as a remote server. ── */
+    .floor-view { font-family: system-ui, sans-serif; font-size: .75rem;
+            color: var(--muted); text-decoration: none; }
+    .floor-view:hover { color: var(--ink); }
+    .worlds { list-style: none; margin: 1rem 0 0; padding: 0;
+            display: grid; gap: .6rem; }
+    .world-card { display: flex; align-items: center; gap: .7rem;
+            padding: .7rem .9rem; border: 1px solid var(--faint); border-radius: 8px;
+            text-decoration: none; color: inherit; font-family: system-ui, sans-serif; }
+    .world-card:hover { border-color: var(--muted); background: var(--faint); }
+    .world-glyph { font-size: 1.1rem; color: var(--muted); }
+    .world-name { font-weight: 600; }
+    .world-chev { margin-left: auto; color: var(--muted); }
+    .world-tag { margin-left: auto; font-size: .65rem; text-transform: uppercase;
+            letter-spacing: .04em; color: var(--muted); border: 1px solid var(--faint);
+            border-radius: 4px; padding: 0 .35rem; }
+    .world-card.federated { border-style: dashed; }
+    .world-card.federated .world-chev { margin-left: .4rem; }
+    .world-card.gone { opacity: .55; }
 
     /* ── Trail dock (ADR 0006 §2): bottom orientation strip. Fixed; <details>
           gives zero-JS minimize. System-ui sans — an instrument, not prose. ── */
