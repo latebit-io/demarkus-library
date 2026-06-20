@@ -58,9 +58,13 @@ func TestFloorCardsWorldsOnly(t *testing.T) {
 	if strings.Contains(out, "Hub") || strings.Contains(out, "ADR 0005") {
 		t.Errorf("universe must list worlds only, not documents: %s", out)
 	}
-	// Authorized world card → zoom to its map.
-	if !strings.Contains(out, `href="/t/u/~/team-a/u/"`) {
-		t.Errorf("world card should link to its map: %s", out)
+	// Entering a world lands on its stacks (root listing → rich index), not the
+	// map pane — the map is the `m` discovery overlay (ADR 0006 §5).
+	if !strings.Contains(out, `href="/t/u/~/team-a/d/"`) {
+		t.Errorf("world card should enter the world's stacks: %s", out)
+	}
+	if strings.Contains(out, `/team-a/u/`) {
+		t.Errorf("world card must not link to the map pane: %s", out)
 	}
 	// Federated/remote world → dashed federated door with an external root link.
 	if !strings.Contains(out, "world-card federated") || !strings.Contains(out, "federated · sign-in") {
@@ -78,8 +82,8 @@ func TestFloorSVGNodesAndLinks(t *testing.T) {
 
 	for _, want := range []string{
 		`class="floor-world"`,
-		// World node click → its map (the world-view zoom), appended to the trail.
-		`href="/t/u/~/team-a/u/"`,
+		// World node click → the world's stacks (root listing → rich index).
+		`href="/t/u/~/team-a/d/"`,
 		// Doc node click → the document pane.
 		`href="/t/u/~/team-a/d/index.md"`,
 		`class="floor-doc status-accepted"`,
