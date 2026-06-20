@@ -36,8 +36,8 @@
         <a href="/w/{{ .WorldPath }}/raw{{ .Path }}">source</a>
         · <a href="/w/{{ .WorldPath }}/versions{{ .Path }}">editions</a>
         {{- if .ReaderURL }} · <a href="{{ .ReaderURL }}">reader</a>{{ end }}
-        {{- if .GraphURL }} · <a href="{{ .GraphURL }}">graph</a>{{ end }}
-        {{- if .MapURL }} · <a href="{{ .MapURL }}">map</a>{{ end }}
+        {{- if .GraphURL }} · <a href="{{ .GraphURL }}" class="graph-open">graph</a>{{ end }}
+        {{- if .MapURL }} · <a href="{{ .MapURL }}" class="map-open">map</a>{{ end }}
         {{- if .EditURL }} · <a href="{{ .EditURL }}" hx-boost="false" class="edit-link">edit</a>{{ end }}
         {{- if .NewURL }} · <a href="{{ .NewURL }}" hx-boost="false" class="edit-link">new</a>{{ end }}
         {{- if .AppendURL }} · <a href="{{ .AppendURL }}" hx-boost="false" class="edit-link">append</a>{{ end }}

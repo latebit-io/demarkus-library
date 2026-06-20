@@ -37,9 +37,42 @@
   {{template "reader" .}}
   {{- end }}
   {{template "dock" .Dock}}
+  {{template "graph-overlay" .Graph}}
+  {{template "map-overlay" .}}
   {{template "palette" .}}
 </body>
 </html>{{end}}
+
+{{/* The graph overlay (ADR 0006 §4): an on-demand pull-up of the focused doc's
+     reference neighborhood, summoned by `g` (islands.js) and closed by Esc /
+     click-outside. Server-rendered SVG, hidden until summoned; node clicks are
+     plain trail links, so a click jumps and the navigation dismisses it. It
+     replaces the in-trail graph pane. */}}
+{{define "graph-overlay"}}
+{{- if .Has}}
+<div id="graph-overlay" class="graph-backdrop" hidden>
+  <div class="graph-panel" role="dialog" aria-modal="true" aria-label="Document graph">
+    <div class="graph-head"><span class="graph-title">{{ .Title }}</span><span class="graph-hint">g · esc</span></div>
+    <div class="graph-canvas">{{ .Content }}</div>
+  </div>
+</div>
+{{- end}}
+{{end}}
+
+{{/* The world-map overlay (ADR 0006 §5): on-demand discovery pull-up, like the
+     graph. Lazy — the SVG is htmx-loaded into #map-canvas on summon (`m` / the
+     margin "map" link, islands.js), so an unopened map costs no catalog read.
+     Nodes extend the trail; navigating dismisses it. Reuses the overlay chrome. */}}
+{{define "map-overlay"}}
+{{- if .MapHas}}
+<div id="map-overlay" class="graph-backdrop" hidden data-map-url="/w/{{ .MapWorldPath }}/u?overlay=1">
+  <div class="graph-panel">
+    <div class="graph-head"><span class="graph-title">Map: {{ .MapWorld }}</span><span class="graph-hint">m · esc</span></div>
+    <div id="map-canvas" class="graph-canvas"></div>
+  </div>
+</div>
+{{- end}}
+{{end}}
 
 {{/* The trail dock (ADR 0006 §2): the bottom orientation strip. A <details>
      gives zero-JS minimize — closed shows just the header, freeing vertical

@@ -36,7 +36,7 @@ func (h *ReadingHandler) GraphPage(c *echo.Context) error {
 	p := "/" + c.Param("*")
 	n := h.reading.Neighborhood(world, p)
 	// Single-pane permalink: nodes link to /w/ document permalinks.
-	svg := graphSVG(n, func(r domain.Ref) string { return docRoute(r.World, r.Path) })
+	svg := graphSVG(n, func(r domain.Ref) string { return docRoute(r.World, r.Path) }, nil)
 	vm := page{
 		Title:         "Graph: " + p,
 		Host:          world,
@@ -75,7 +75,7 @@ func (h *ReadingHandler) graphPaneView(t trail, i int, addr paneAddr) paneVM {
 	n := h.reading.Neighborhood(addr.World, addr.Value)
 	vm.Content = graphSVG(n, func(r domain.Ref) string {
 		return trailURL(trailAfterClick(t, i, paneAddr{Kind: paneDoc, World: r.World, Value: r.Path}))
-	})
+	}, trailDocRefs(t))
 	return vm
 }
 
@@ -83,7 +83,7 @@ func (h *ReadingHandler) graphPaneView(t trail, i int, addr paneAddr) paneVM {
 // physics): the center document in the middle, its neighbors on a ring —
 // backlinks on the left arc, outbound links on the right — each joined to the
 // center by an edge. urlFor turns each ref into its navigation target.
-func graphSVG(n domain.Neighborhood, urlFor func(domain.Ref) string) template.HTML {
+func graphSVG(n domain.Neighborhood, urlFor func(domain.Ref) string, onTrail map[domain.Ref]bool) template.HTML {
 	if len(n.In) == 0 && len(n.Out) == 0 {
 		return template.HTML(`<p class="graph-empty">No links observed yet — the neighborhood fills in as connected documents are read.</p>`) //nolint:gosec // static markup
 	}
@@ -111,8 +111,12 @@ func graphSVG(n domain.Neighborhood, urlFor func(domain.Ref) string) template.HT
 		if !pn.inbound {
 			dir = "out"
 		}
-		fmt.Fprintf(&b, `<a href="%s"><circle class="graph-node graph-%s" cx="%d" cy="%d" r="%d"/>`,
-			html.EscapeString(urlFor(pn.ref)), dir, pn.x, pn.y, graphNodeR)
+		cls := "graph-node graph-" + dir
+		if onTrail[pn.ref] {
+			cls += " graph-walked" // a neighbor already on your trail
+		}
+		fmt.Fprintf(&b, `<a href="%s"><circle class="%s" cx="%d" cy="%d" r="%d"/>`,
+			html.EscapeString(urlFor(pn.ref)), html.EscapeString(cls), pn.x, pn.y, graphNodeR)
 		anchor := "middle"
 		if pn.x < cx {
 			anchor = "end"
@@ -158,6 +162,18 @@ func arcNodes(refs []domain.Ref, cx, cy int, inbound bool) []placedNode {
 		})
 	}
 	return out
+}
+
+// trailDocRefs is the set of document refs on the trail — the graph overlay
+// marks these neighbors as already-walked (ADR 0006 §4).
+func trailDocRefs(t trail) map[domain.Ref]bool {
+	refs := map[domain.Ref]bool{}
+	for _, p := range t.Panes {
+		if p.Kind == paneDoc && !domain.IsListingPath(p.Value) {
+			refs[domain.Ref{World: p.World, Path: p.Value}] = true
+		}
+	}
+	return refs
 }
 
 func trimGraphLabel(s string) string {

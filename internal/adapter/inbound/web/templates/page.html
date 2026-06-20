@@ -215,6 +215,9 @@
     .graph-node { fill: var(--paper); stroke: var(--muted); stroke-width: 1.5; }
     .graph-node.graph-in  { stroke: light-dark(#0969da, #4493f8); }
     .graph-node.graph-out { stroke: light-dark(#1a7f37, #3fb950); }
+    /* A neighbor already on your trail (ADR 0006 §4): filled green = walked. */
+    .graph-node.graph-walked { fill: light-dark(#1a7f37, #3fb950);
+            stroke: light-dark(#1a7f37, #3fb950); stroke-width: 3; }
     .graph-node-label { font-size: 11px; }
     svg.graph a:hover circle { stroke-width: 3; }
     .graph-empty { color: var(--muted); font-style: italic; }
@@ -323,6 +326,24 @@
     .palette-hint { padding: .4rem .8rem; border-top: 1px solid var(--faint);
                   font-size: .7rem; color: var(--muted); }
     @media (max-width: 640px) { .palette-loc { display: none; } }
+
+    /* ── Graph overlay (ADR 0006 §4): on-demand pull-up of the focused doc's
+          reference neighborhood. Hidden until summoned by `g`. ───────────── */
+    .graph-backdrop { position: fixed; inset: 0; z-index: 90;
+            background: light-dark(#11111155, #00000099);
+            display: flex; justify-content: center; align-items: center;
+            padding: 4vh 2vw; }
+    .graph-backdrop[hidden] { display: none; }
+    .graph-panel { background: var(--paper); color: var(--ink);
+            border: 1px solid var(--faint); border-radius: 10px;
+            box-shadow: 0 12px 48px #00000066; max-width: 95vw; max-height: 90vh;
+            overflow: auto; display: flex; flex-direction: column; }
+    .graph-head { display: flex; justify-content: space-between; align-items: baseline;
+            gap: 1rem; padding: .5rem .9rem; border-bottom: 1px solid var(--faint);
+            font-family: system-ui, sans-serif; }
+    .graph-title { font-weight: 600; font-size: .9rem; }
+    .graph-hint { font-size: .68rem; color: var(--muted); }
+    .graph-canvas { padding: .5rem; }
 
     /* ── World index (ADR 0006 §5): the universe lists worlds as doors, never
           loose documents. A card carries door affordances (glyph, chevron) a

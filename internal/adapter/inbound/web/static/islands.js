@@ -207,6 +207,60 @@
     }
   });
 
+  // --- graph overlay (g) — ADR 0006 §4 ----------------------------------
+  // The overlay is server-rendered (templates/graph-overlay); this is the
+  // summon/dismiss glue ADR 0003 sanctions. Node clicks are plain trail links,
+  // so navigating dismisses it. Degrades: the margin "graph" link is a real /g/
+  // permalink; we only intercept it on the canvas (where the overlay exists).
+  function graphOverlay() { return document.getElementById("graph-overlay"); }
+  function openGraph() { var g = graphOverlay(); if (g) g.hidden = false; }
+  function closeGraph() { var g = graphOverlay(); if (g) g.hidden = true; }
+  document.addEventListener("click", function (e) {
+    var link = e.target.closest && e.target.closest("a.graph-open");
+    if (link && graphOverlay()) { e.preventDefault(); openGraph(); return; }
+    if (e.target.id === "graph-overlay") closeGraph(); // click outside the panel
+  });
+  document.addEventListener("keydown", function (e) {
+    var g = graphOverlay();
+    if (e.key === "Escape" && g && !g.hidden) { e.preventDefault(); closeGraph(); return; }
+    if (e.key !== "g" || e.ctrlKey || e.metaKey || e.altKey) return;
+    var tag = (e.target.tagName || "").toLowerCase();
+    if (tag === "input" || tag === "textarea" || e.target.isContentEditable) return;
+    var p = palette();
+    if ((p && !p.hidden) || !g) return; // not while the palette is open / no graph here
+    e.preventDefault();
+    g.hidden ? openGraph() : closeGraph();
+  });
+
+  // --- world-map overlay (m) — ADR 0006 §5 ------------------------------
+  // Same overlay chrome as the graph, but lazy: the SVG is htmx-loaded into
+  // #map-canvas on summon (the map needs a catalog read, so an unopened map
+  // costs nothing). Node clicks are trail links → navigating dismisses it.
+  function mapOverlay() { return document.getElementById("map-overlay"); }
+  function openMap() {
+    var m = mapOverlay();
+    if (!m) return;
+    m.hidden = false;
+    if (window.htmx) window.htmx.ajax("GET", m.dataset.mapUrl, "#map-canvas");
+  }
+  function closeMap() { var m = mapOverlay(); if (m) m.hidden = true; }
+  document.addEventListener("click", function (e) {
+    var link = e.target.closest && e.target.closest("a.map-open");
+    if (link && mapOverlay()) { e.preventDefault(); openMap(); return; }
+    if (e.target.id === "map-overlay") closeMap(); // click outside the panel
+  });
+  document.addEventListener("keydown", function (e) {
+    var m = mapOverlay();
+    if (e.key === "Escape" && m && !m.hidden) { e.preventDefault(); closeMap(); return; }
+    if (e.key !== "m" || e.ctrlKey || e.metaKey || e.altKey) return;
+    var tag = (e.target.tagName || "").toLowerCase();
+    if (tag === "input" || tag === "textarea" || e.target.isContentEditable) return;
+    var p = palette();
+    if ((p && !p.hidden) || !m) return;
+    e.preventDefault();
+    m.hidden ? openMap() : closeMap();
+  });
+
   document.addEventListener("DOMContentLoaded", function () {
     scan(document.body);
     showFocusedPane();
