@@ -2,11 +2,45 @@ package web
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
 )
+
+func TestTrailMapOverlayShell(t *testing.T) {
+	svc := &fakeReading{docs: map[string]domain.Document{"/x.md": {Title: "X", Path: "/x.md", HTML: "<p>x</p>"}}}
+	body := get(readingApp(t, svc), "/t/w.io/d/x.md").Body.String()
+	// The map overlay shell is embedded (lazy htmx target) when the focus is in a world.
+	if !strings.Contains(body, `id="map-overlay"`) || !strings.Contains(body, `data-map-url="/w/w.io/u?overlay=1"`) {
+		t.Errorf("map overlay shell missing: %s", body)
+	}
+	// The margin "map" affordance opens it; href is the /u permalink (degrade).
+	if !strings.Contains(body, `href="/w/w.io/u" class="map-open"`) {
+		t.Errorf("margin map affordance missing: %s", body)
+	}
+}
+
+func TestWorldMapOverlayFragment(t *testing.T) {
+	svc := &fakeReading{worldMap: testWorldMap()}
+	req := httptest.NewRequest(http.MethodGet, "/w/team-a/u?overlay=1", http.NoBody)
+	req.Header.Set("HX-Current-URL", "http://x/t/team-a/d/index.md")
+	rec := httptest.NewRecorder()
+	readingApp(t, svc).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, `class="floor world-map"`) {
+		t.Errorf("overlay fragment should be the map SVG: %s", body)
+	}
+	// Overlay nodes extend the reader's trail (from HX-Current-URL), not /w/ permalinks.
+	if !strings.Contains(body, `href="/t/team-a/d/index.md/~/team-a/d/plans/a.md"`) {
+		t.Errorf("overlay node should extend the trail: %s", body)
+	}
+}
 
 func testWorldMap() domain.WorldMap {
 	return domain.WorldMap{

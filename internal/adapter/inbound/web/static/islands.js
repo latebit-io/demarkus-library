@@ -232,6 +232,35 @@
     g.hidden ? openGraph() : closeGraph();
   });
 
+  // --- world-map overlay (m) — ADR 0006 §5 ------------------------------
+  // Same overlay chrome as the graph, but lazy: the SVG is htmx-loaded into
+  // #map-canvas on summon (the map needs a catalog read, so an unopened map
+  // costs nothing). Node clicks are trail links → navigating dismisses it.
+  function mapOverlay() { return document.getElementById("map-overlay"); }
+  function openMap() {
+    var m = mapOverlay();
+    if (!m) return;
+    m.hidden = false;
+    if (window.htmx) window.htmx.ajax("GET", m.dataset.mapUrl, "#map-canvas");
+  }
+  function closeMap() { var m = mapOverlay(); if (m) m.hidden = true; }
+  document.addEventListener("click", function (e) {
+    var link = e.target.closest && e.target.closest("a.map-open");
+    if (link && mapOverlay()) { e.preventDefault(); openMap(); return; }
+    if (e.target.id === "map-overlay") closeMap(); // click outside the panel
+  });
+  document.addEventListener("keydown", function (e) {
+    var m = mapOverlay();
+    if (e.key === "Escape" && m && !m.hidden) { e.preventDefault(); closeMap(); return; }
+    if (e.key !== "m" || e.ctrlKey || e.metaKey || e.altKey) return;
+    var tag = (e.target.tagName || "").toLowerCase();
+    if (tag === "input" || tag === "textarea" || e.target.isContentEditable) return;
+    var p = palette();
+    if ((p && !p.hidden) || !m) return;
+    e.preventDefault();
+    m.hidden ? openMap() : closeMap();
+  });
+
   document.addEventListener("DOMContentLoaded", function () {
     scan(document.body);
     showFocusedPane();

@@ -38,6 +38,7 @@
   {{- end }}
   {{template "dock" .Dock}}
   {{template "graph-overlay" .Graph}}
+  {{template "map-overlay" .}}
   {{template "palette" .}}
 </body>
 </html>{{end}}
@@ -53,6 +54,21 @@
   <div class="graph-panel" role="dialog" aria-modal="true" aria-label="Document graph">
     <div class="graph-head"><span class="graph-title">{{ .Title }}</span><span class="graph-hint">g · esc</span></div>
     <div class="graph-canvas">{{ .Content }}</div>
+  </div>
+</div>
+{{- end}}
+{{end}}
+
+{{/* The world-map overlay (ADR 0006 §5): on-demand discovery pull-up, like the
+     graph. Lazy — the SVG is htmx-loaded into #map-canvas on summon (`m` / the
+     margin "map" link, islands.js), so an unopened map costs no catalog read.
+     Nodes extend the trail; navigating dismisses it. Reuses the overlay chrome. */}}
+{{define "map-overlay"}}
+{{- if .MapHas}}
+<div id="map-overlay" class="graph-backdrop" hidden data-map-url="/w/{{ .MapWorldPath }}/u?overlay=1">
+  <div class="graph-panel">
+    <div class="graph-head"><span class="graph-title">Map: {{ .MapWorld }}</span><span class="graph-hint">m · esc</span></div>
+    <div id="map-canvas" class="graph-canvas"></div>
   </div>
 </div>
 {{- end}}

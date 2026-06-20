@@ -27,6 +27,12 @@ type canvasVM struct {
 	CloseURL      string         // ✕ / backdrop / Esc target: the bare trail (no overlay)
 	Dock          dockVM         // the bottom orientation strip (ADR 0006 §2)
 	Graph         graphOverlayVM // the on-demand graph overlay (ADR 0006 §4)
+
+	// The world-map overlay shell (ADR 0006 §5, on-demand discovery): empty
+	// until summoned, then htmx-loaded lazily so an unopened map costs no read.
+	MapHas       bool
+	MapWorld     string
+	MapWorldPath string
 }
 
 // graphOverlayVM is the focused doc's graph overlay (ADR 0006 §4): summoned by
@@ -147,6 +153,14 @@ func (h *ReadingHandler) Trail(c *echo.Context) error {
 	focusedPane := vm.Panes[t.Focus]
 	vm.Title = focusedPane.Title
 	vm.World = focusedPane.World
+
+	// The world-map overlay is available whenever the focus sits in a world (a
+	// doc, listing, tag, or world-map pane) — the bare universe floor has none.
+	if fw := t.Panes[t.Focus].World; fw != "" {
+		vm.MapHas = true
+		vm.MapWorld = fw
+		vm.MapWorldPath = url.PathEscape(fw)
+	}
 
 	// The dock is built after the pane loop so the focused doc's links are
 	// already observed (RecordLinks ran during render), giving the walk/jump
@@ -319,7 +333,10 @@ func (h *ReadingHandler) paneView(ctx context.Context, t trail, i int, addr pane
 		// JS is off (islands.js intercepts it on the canvas, where the overlay
 		// exists). The graph is no longer docked as a trail pane.
 		vm.GraphURL = "/w/" + url.PathEscape(addr.World) + "/g" + addr.Value
-		vm.MapURL = trailURL(trailAfterClick(t, i, paneAddr{Kind: paneFloor, World: addr.World}))
+		// "map" opens the world-map overlay (ADR 0006 §5); the href is the /u
+		// permalink so it degrades to the standalone map page without JS. The
+		// map is no longer docked as a trail pane.
+		vm.MapURL = "/w/" + url.PathEscape(addr.World) + "/u"
 		// Edit leaves the canvas into the dedicated editor page (a focused-pane
 		// mode, not a trail chunk); only behind the turnstile.
 		if authed {

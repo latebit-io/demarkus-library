@@ -44,10 +44,26 @@ func (h *ReadingHandler) WorldMapPage(c *echo.Context) error {
 	if err != nil {
 		return presentError(c, err, world, "/")
 	}
+	authed := c.Get(authedKey) != nil
+
+	// Overlay mode (ADR 0006 §5): the on-demand map pull-up htmx-loads this with
+	// ?overlay=1. Its nodes extend the reader's trail (from HX-Current-URL), and
+	// it returns a bare SVG fragment to swap into the overlay.
+	if c.QueryParam("overlay") == "1" {
+		t := currentTrail(c)
+		svg := worldMapSVG(wm, func(p string) string {
+			if len(t.Panes) > 0 {
+				return trailURL(trailAfterClick(t, t.Focus, paneAddr{Kind: paneDoc, World: world, Value: p}))
+			}
+			return docRoute(world, p)
+		}, worldNewURL(world, authed))
+		return c.HTML(http.StatusOK, string(svg))
+	}
+
 	// Single-pane permalink: nodes link to /w/ permalinks.
 	svg := worldMapSVG(wm,
 		func(p string) string { return docRoute(world, p) },
-		worldNewURL(world, c.Get(authedKey) != nil))
+		worldNewURL(world, authed))
 	vm := page{
 		Title:         "Map: " + world,
 		Host:          world,
