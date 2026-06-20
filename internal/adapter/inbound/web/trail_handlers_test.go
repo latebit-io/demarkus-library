@@ -31,14 +31,19 @@ func TestTrailRendersModesAndFocusedLive(t *testing.T) {
 
 	// Display modes by distance from focus (decision 3).
 	for _, wantFrag := range []string{
-		`class="pane spine"`,             // pane A
-		`class="pane body"`,              // pane B — immediate parent
-		`class="pane focused"`,           // pane C
-		`class="status status-accepted"`, // spine carries its badge
+		`class="pane spine"`,   // pane A
+		`class="pane body"`,    // pane B — immediate parent
+		`class="pane focused"`, // pane C
 	} {
 		if !strings.Contains(body, wantFrag) {
 			t.Errorf("canvas missing %q", wantFrag)
 		}
+	}
+	// Spine demotion (ADR 0006 §2): a collapsed pane is a title-only re-expand
+	// rail — no status badge. Pane A is accepted and collapsed, so its badge is
+	// gone; the focused pane (C, wip) still shows its margin badge.
+	if strings.Contains(body, `class="status status-accepted"`) {
+		t.Errorf("spine must not carry a status badge (ADR 0006 §2)")
 	}
 	// Only the focused pane renders the margin.
 	if got := strings.Count(body, `class="doc-meta"`); got != 1 {
