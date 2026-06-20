@@ -257,6 +257,27 @@ func intraWorldEdges(world string, host2name map[string]string, all []domain.Edg
 	return out
 }
 
+// host2name maps each authorized world's dial host to its world name — the join
+// key for hub-graph refs (keyed by host) against world names. Best-effort: an
+// unreadable world list yields an empty map (orphan-ness then unknown).
+func (s *ReadingService) host2name(ctx context.Context) map[string]string {
+	m := map[string]string{}
+	worlds, err := s.world.Worlds(ctx)
+	if err != nil {
+		return m
+	}
+	for _, w := range worlds {
+		addr := w.Address
+		if addr == "" {
+			addr = w.URL
+		}
+		if h := hostOf(addr); h != "" {
+			m[h] = w.Name
+		}
+	}
+	return m
+}
+
 // worldMember reports whether a topology ref's world resolves to world — either
 // it already is the world name (observed map) or its host joins to it (hub
 // graph, via host2name).

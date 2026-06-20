@@ -349,8 +349,9 @@ func TestDocMarginOmitsStatusAxisTag(t *testing.T) {
 func TestBrowseRendersWithoutMargin(t *testing.T) {
 	svc := &fakeReading{doc: domain.Document{Title: "Index of /plans/", Path: "/plans/", HTML: "<ul></ul>"}}
 	body := get(readingApp(t, svc), "/w/soul.demarkus.io/d/plans/").Body.String()
-	if svc.called != "Browse" {
-		t.Fatalf("routed to %s, want Browse", svc.called)
+	// Listing routes through Browse (then NameIndex enriches the rich index).
+	if len(svc.calls) == 0 || !strings.HasPrefix(svc.calls[0], "Browse") {
+		t.Fatalf("routed to %v, want Browse first", svc.calls)
 	}
 	if strings.Contains(body, `class="doc-meta"`) {
 		t.Errorf("listing must not render the margin metadata block")

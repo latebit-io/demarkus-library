@@ -345,6 +345,13 @@
     .world-card.federated { border-style: dashed; }
     .world-card.federated .world-chev { margin-left: .4rem; }
     .world-card.gone { opacity: .55; }
+    /* Rich directory index (ADR 0006 §5): listing rows lead with the title; the
+       *.md filename is mono secondary, with a status badge and orphan tag. */
+    .idx-file { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            font-size: .76rem; color: var(--muted); margin-left: .5rem; }
+    .idx-orphan { font-family: system-ui, sans-serif; font-size: .62rem;
+            text-transform: uppercase; letter-spacing: .04em; color: var(--muted);
+            border: 1px solid var(--faint); border-radius: 4px; padding: 0 .3rem; margin-left: .4rem; }
 
     /* ── Trail dock (ADR 0006 §2): bottom orientation strip. Fixed; <details>
           gives zero-JS minimize. System-ui sans — an instrument, not prose. ── */
