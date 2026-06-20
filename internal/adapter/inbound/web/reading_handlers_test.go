@@ -319,7 +319,7 @@ func TestDocRendersMargin(t *testing.T) {
 		"mark://soul.demarkus.io/adr/0007.md",
 		`href="/w/soul.demarkus.io/raw/adr/0007.md"`,
 		`href="/w/soul.demarkus.io/versions/adr/0007.md"`,
-		`href="/w/soul.demarkus.io/g/adr/0007.md">graph`,
+		`href="/w/soul.demarkus.io/g/adr/0007.md" class="graph-open">graph`,
 		`href="/w/soul.demarkus.io/u">map`,
 	} {
 		if !strings.Contains(body, want) {

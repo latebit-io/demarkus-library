@@ -14,7 +14,7 @@ func TestGraphSVGRendersNeighborhood(t *testing.T) {
 		Out:    []domain.Ref{{World: "soul", Path: "/out.md"}},
 		In:     []domain.Ref{{World: "soul", Path: "/in.md"}},
 	}
-	svg := string(graphSVG(n, func(r domain.Ref) string { return docRoute(r.World, r.Path) }))
+	svg := string(graphSVG(n, func(r domain.Ref) string { return docRoute(r.World, r.Path) }, nil))
 
 	if !strings.Contains(svg, "<svg class=\"graph\"") {
 		t.Errorf("not an svg: %s", svg)
@@ -32,7 +32,7 @@ func TestGraphSVGRendersNeighborhood(t *testing.T) {
 
 func TestGraphSVGEmptyNeighborhood(t *testing.T) {
 	n := domain.Neighborhood{Center: domain.Ref{World: "soul", Path: "/lonely.md"}}
-	svg := string(graphSVG(n, func(_ domain.Ref) string { return "" }))
+	svg := string(graphSVG(n, func(_ domain.Ref) string { return "" }, nil))
 	if !strings.Contains(svg, "graph-empty") {
 		t.Errorf("empty neighborhood should render the honest empty state: %s", svg)
 	}
@@ -76,6 +76,45 @@ func TestTrailGraphPaneContinuesTrail(t *testing.T) {
 	}
 }
 
+func TestGraphOverlayForFocusedDoc(t *testing.T) {
+	svc := &fakeReading{
+		docs: map[string]domain.Document{"/x.md": {Title: "X", Path: "/x.md", HTML: "<p>x</p>"}},
+		neighbor: map[string]domain.Neighborhood{
+			"/x.md": {Center: domain.Ref{World: "w.io", Path: "/x.md"},
+				Out: []domain.Ref{{World: "w.io", Path: "/y.md"}}},
+		},
+	}
+	body := get(readingApp(t, svc), "/t/w.io/d/x.md").Body.String()
+
+	// The focused doc's graph overlay is embedded (summoned by `g`), not a pane.
+	if !strings.Contains(body, `id="graph-overlay"`) {
+		t.Errorf("graph overlay missing for focused doc: %s", body)
+	}
+	// A node click is a trail jump from the focus (navigating dismisses the overlay).
+	if !strings.Contains(body, `href="/t/w.io/d/x.md/~/w.io/d/y.md"`) {
+		t.Errorf("graph overlay node should jump the trail: %s", body)
+	}
+}
+
+func TestGraphOverlayMarksWalkedNeighbors(t *testing.T) {
+	// Trail y → x (focus x); x links to y, and y is on the trail, so y renders
+	// as a walked node in x's overlay.
+	svc := &fakeReading{
+		docs: map[string]domain.Document{
+			"/x.md": {Title: "X", Path: "/x.md", HTML: "<p>x</p>"},
+			"/y.md": {Title: "Y", Path: "/y.md", HTML: "<p>y</p>"},
+		},
+		neighbor: map[string]domain.Neighborhood{
+			"/x.md": {Center: domain.Ref{World: "w.io", Path: "/x.md"},
+				Out: []domain.Ref{{World: "w.io", Path: "/y.md"}}},
+		},
+	}
+	body := get(readingApp(t, svc), "/t/w.io/d/y.md/~/w.io/d/x.md").Body.String()
+	if !strings.Contains(body, "graph-walked") {
+		t.Errorf("neighbor on the trail should render as walked: %s", body)
+	}
+}
+
 func TestDocMarginOffersGraphAndBacklinks(t *testing.T) {
 	svc := &fakeReading{
 		docs: map[string]domain.Document{
@@ -87,8 +126,9 @@ func TestDocMarginOffersGraphAndBacklinks(t *testing.T) {
 	}
 	body := get(readingApp(t, svc), "/t/w.io/d/x.md").Body.String()
 
-	// The margin's graph affordance opens this doc's graph pane on the trail.
-	if !strings.Contains(body, `href="/t/w.io/d/x.md/~/w.io/g/x.md"`) {
+	// The margin's graph affordance opens the graph overlay (ADR 0006 §4): a /g/
+	// permalink (degrade) that islands.js intercepts on the canvas.
+	if !strings.Contains(body, `href="/w/w.io/g/x.md" class="graph-open"`) {
 		t.Errorf("margin graph affordance missing: %s", body)
 	}
 	// The backlinks block lists the referrer with a hover-preview link.

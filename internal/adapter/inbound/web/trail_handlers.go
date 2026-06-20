@@ -23,9 +23,19 @@ type canvasVM struct {
 	Authenticated bool
 	User          string // signed-in identity's email for the nav (empty ⇒ not shown)
 	Panes         []paneVM
-	Reader        *paneVM // the reader overlay (R4); nil when closed
-	CloseURL      string  // ✕ / backdrop / Esc target: the bare trail (no overlay)
-	Dock          dockVM  // the bottom orientation strip (ADR 0006 §2)
+	Reader        *paneVM        // the reader overlay (R4); nil when closed
+	CloseURL      string         // ✕ / backdrop / Esc target: the bare trail (no overlay)
+	Dock          dockVM         // the bottom orientation strip (ADR 0006 §2)
+	Graph         graphOverlayVM // the on-demand graph overlay (ADR 0006 §4)
+}
+
+// graphOverlayVM is the focused doc's graph overlay (ADR 0006 §4): summoned by
+// `g`, it replaces the in-trail graph pane. Has is false when the focused pane
+// is not a document (then `g` has nothing to show).
+type graphOverlayVM struct {
+	Has     bool
+	Title   string
+	Content template.HTML
 }
 
 // paneVM is one pane on the canvas. The margin fields mirror the page VM so
@@ -142,6 +152,20 @@ func (h *ReadingHandler) Trail(c *echo.Context) error {
 	// already observed (RecordLinks ran during render), giving the walk/jump
 	// connectors and "from here →" chips a graph to read.
 	vm.Dock = h.buildDock(t)
+
+	// The graph overlay (ADR 0006 §4): the focused doc's reference neighborhood,
+	// summoned by `g`. Built here (links observed), embedded hidden — it replaces
+	// the in-trail graph pane. Node clicks are trail jumps from the focus.
+	if fa := t.Panes[t.Focus]; fa.Kind == paneDoc && !domain.IsListingPath(fa.Value) {
+		n := h.reading.Neighborhood(fa.World, fa.Value)
+		vm.Graph = graphOverlayVM{
+			Has:   true,
+			Title: refTitle(n.Center),
+			Content: graphSVG(n, func(r domain.Ref) string {
+				return trailURL(trailAfterClick(t, t.Focus, paneAddr{Kind: paneDoc, World: r.World, Value: r.Path}))
+			}, trailDocRefs(t)),
+		}
+	}
 
 	// The reader overlay reuses the addressed pane's already-fetched document —
 	// no extra world read (the overlay is pure presentation), and focus is
@@ -290,7 +314,11 @@ func (h *ReadingHandler) paneView(ctx context.Context, t trail, i int, addr pane
 		// Graph/map open non-prose panes, so they exit the overlay (plain
 		// trail URLs) even in reader mode; backlinks point at docs, so they
 		// persist the overlay like any other prose link.
-		vm.GraphURL = trailURL(trailAfterClick(t, i, paneAddr{Kind: paneGraph, World: addr.World, Value: addr.Value}))
+		// The "graph" affordance opens the graph overlay (ADR 0006 §4); the href
+		// is the /g/ permalink so it degrades to the standalone graph page when
+		// JS is off (islands.js intercepts it on the canvas, where the overlay
+		// exists). The graph is no longer docked as a trail pane.
+		vm.GraphURL = "/w/" + url.PathEscape(addr.World) + "/g" + addr.Value
 		vm.MapURL = trailURL(trailAfterClick(t, i, paneAddr{Kind: paneFloor, World: addr.World}))
 		// Edit leaves the canvas into the dedicated editor page (a focused-pane
 		// mode, not a trail chunk); only behind the turnstile.
