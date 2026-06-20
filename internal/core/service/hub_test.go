@@ -42,8 +42,8 @@ func TestParseGraphExport(t *testing.T) {
 	}
 	// Two mark://→mark:// edges; the https→mark row is dropped.
 	want := []domain.Edge{
-		{From: domain.Ref{World: "root.svc:6309", Path: "/index.md"}, To: domain.Ref{World: "world-a.svc:6309", Path: "/guide.md"}},
-		{From: domain.Ref{World: "world-a.svc:6309", Path: "/guide.md"}, To: domain.Ref{World: "wiki.example.org", Path: "/notes.md"}},
+		{From: domain.Ref{World: "root.svc:6309", Path: "/index.md"}, To: domain.Ref{World: "world-a.svc:6309", Path: "/guide.md"}, Type: domain.EdgeReference},
+		{From: domain.Ref{World: "world-a.svc:6309", Path: "/guide.md"}, To: domain.Ref{World: "wiki.example.org", Path: "/notes.md"}, Type: domain.EdgeReference},
 	}
 	if !reflect.DeepEqual(g.edges, want) {
 		t.Errorf("edges = %+v, want %+v", g.edges, want)
@@ -165,7 +165,7 @@ func TestFloorJoinsCrossWorldEdgeViaAddress(t *testing.T) {
 		t.Fatalf("Floor: %v", err)
 	}
 	if len(floor.Edges) != 1 ||
-		floor.Edges[0] != (domain.Edge{From: domain.Ref{World: "world-a"}, To: domain.Ref{World: "root"}}) {
+		floor.Edges[0] != (domain.Edge{From: domain.Ref{World: "world-a"}, To: domain.Ref{World: "root"}, Type: domain.EdgeReference}) {
 		t.Errorf("edges = %+v, want one world-a→root (joined by address)", floor.Edges)
 	}
 	for _, w := range floor.Worlds {

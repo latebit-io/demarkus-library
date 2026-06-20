@@ -1,0 +1,37 @@
+{{/* The command palette (ADR 0006 §3): an htmx active-search overlay, SSR-first
+     and degrading without JS (ADR 0003). The overlay is server-rendered markup
+     in every shell; typing fires hx-get /palette which swaps in the results
+     fragment below. The form's method=GET action=/search is the no-JS fallback —
+     submitting jumps to the full, server-rendered catalog page. The only JS is
+     the keyboard glue in islands.js (open/close + arrow selection). */}}
+{{define "palette"}}
+<div id="palette" class="palette-backdrop" hidden>
+  <div class="palette-panel" role="dialog" aria-modal="true" aria-label="Search documents">
+    <form class="palette-head" method="get" action="/search" role="search">
+      <input id="palette-input" class="palette-input" type="search" name="q"
+             placeholder="Jump to a document…" autocomplete="off" autocapitalize="off"
+             spellcheck="false" aria-label="Search documents"
+             hx-get="/palette" hx-trigger="focus, input changed delay:200ms"
+             hx-target="#palette-results" hx-swap="innerHTML">
+    </form>
+    <div id="palette-results" class="palette-results"></div>
+    <div class="palette-hint">↑↓ move · ↵ open · esc close</div>
+  </div>
+</div>
+{{end}}
+
+{{define "palette-results"}}
+{{- if .Rows}}
+<ul class="palette-list" role="listbox">
+  {{- range .Rows}}
+  <li class="palette-row" role="option"><a href="{{ .URL }}">
+    <span class="palette-title">{{ .Title }}</span>
+    <span class="palette-loc">{{ .Loc }}</span>
+    {{- if .Status }} <span class="palette-badge">{{ .Status }}</span>{{ end }}
+  </a></li>
+  {{- end}}
+</ul>
+{{- else}}
+<div class="palette-empty">{{ if .Query }}No matches.{{ else }}Nothing recent — type to search.{{ end }}</div>
+{{- end}}
+{{end}}

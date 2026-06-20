@@ -77,12 +77,12 @@ func (g *Gateway) Versions(ctx context.Context, w, path string) (domain.RawDocum
 }
 
 // Lookup routes to the world's transport.
-func (g *Gateway) Lookup(ctx context.Context, w, scope, query, filter string) (domain.RawDocument, error) {
+func (g *Gateway) Lookup(ctx context.Context, w, scope, query, filter string, limit int) (domain.RawDocument, error) {
 	gw, err := g.route(w)
 	if err != nil {
 		return domain.RawDocument{}, err
 	}
-	return gw.Lookup(ctx, w, scope, query, filter)
+	return gw.Lookup(ctx, w, scope, query, filter, limit)
 }
 
 // Publish routes the write to the world's transport (Phase 3): knowledge-system

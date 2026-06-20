@@ -279,12 +279,55 @@
       .reader-panel { padding: 2.2rem 1.2rem 2.5rem; }
       .reader-panel .pane-cols { grid-template-columns: minmax(0, 1fr); }
     }
+
+    /* ── Command palette (⌃K), ADR 0006 §3: htmx active-search overlay. The
+          markup is server-rendered (templates/palette.html); islands.js only
+          toggles [hidden] and moves the .sel selection. System-ui sans —
+          chrome, not prose. ─────────────────────────────────────────────── */
+    .nav-search { font-size: .8rem; color: var(--muted); text-decoration: none;
+                  border: 1px solid var(--faint); border-radius: 6px;
+                  padding: .25rem .6rem; white-space: nowrap; font-family: system-ui, sans-serif; }
+    .nav-search:hover { color: var(--ink); }
+    .palette-backdrop { position: fixed; inset: 0; z-index: 100;
+                  background: light-dark(#11111144, #00000099);
+                  display: flex; justify-content: center; align-items: flex-start;
+                  padding: 12vh 1rem 1rem; font-family: system-ui, sans-serif; }
+    .palette-backdrop[hidden] { display: none; }
+    .palette-panel { width: 640px; max-width: 100%; background: var(--paper);
+                  color: var(--ink); border: 1px solid var(--faint);
+                  border-radius: 10px; box-shadow: 0 12px 48px #00000066;
+                  overflow: hidden; display: flex; flex-direction: column;
+                  max-height: 70vh; }
+    .palette-head { margin: 0; padding: .5rem .8rem; border-bottom: 1px solid var(--faint); }
+    .palette-input { width: 100%; box-sizing: border-box; font: inherit; font-size: 1rem;
+                  border: 0; background: transparent; color: inherit; outline: none; padding: .35rem 0; }
+    .palette-results { overflow-y: auto; }
+    .palette-list { list-style: none; margin: 0; padding: .3rem; }
+    .palette-empty { padding: 1rem .8rem; color: var(--muted); font-size: .85rem; }
+    .palette-row a { display: flex; align-items: baseline; gap: .6rem;
+                  padding: .45rem .6rem; border-radius: 6px; text-decoration: none; color: inherit; }
+    .palette-row a:hover, .palette-row a.sel { background: var(--faint); }
+    .palette-title { font-size: .95rem; white-space: nowrap; overflow: hidden;
+                  text-overflow: ellipsis; }
+    .palette-loc { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+                  font-size: .72rem; color: var(--muted); flex: 1;
+                  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+                  text-align: right; }
+    .palette-badge { font-size: .65rem; text-transform: uppercase; letter-spacing: .04em;
+                  color: var(--muted); border: 1px solid var(--faint);
+                  border-radius: 4px; padding: 0 .3rem; }
+    .palette-hint { padding: .4rem .8rem; border-top: 1px solid var(--faint);
+                  font-size: .7rem; color: var(--muted); }
+    @media (max-width: 640px) { .palette-loc { display: none; } }
   </style>
 </head>{{end}}
 
 {{define "nav"}}<nav>
     <a class="brand" href="/">demarkus Library</a>
     <span class="world">{{ .World }}</span>
+    <!-- Search affordance: a real link to the catalog page (works with JS off);
+         islands.js intercepts the click to open the ⌃K palette overlay instead. -->
+    <a class="nav-search" href="/search" title="Search (⌃K)">Search ⌃K</a>
     {{- if .Authenticated }}
     {{- if .User }}<span class="user" title="signed in as">{{ .User }}</span>{{ end }}
     <!-- Real form, POST: logout is a state change and works without JS.
@@ -306,5 +349,6 @@
   <main id="main">
     {{ template "content" . }}
   </main>
+  {{template "palette" .}}
 </body>
 </html>{{end}}

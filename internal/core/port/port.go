@@ -45,6 +45,12 @@ type Reader interface {
 	// Raw returns the unrendered source of the document at (world, path) —
 	// the projection's escape to protocol (ADR 0005 decision 12).
 	Raw(ctx context.Context, world, path string) (domain.RawDocument, error)
+	// NameIndex returns the command palette's name-mode index (ADR 0006 §3): the
+	// catalog entries (title, path, world, status) the client fuzzy-matches. scope
+	// "universe" spans every authorized world; anything else is the single given
+	// world. Best-effort per world — an unreadable world is skipped, not fatal —
+	// so the palette degrades to the worlds it can see.
+	NameIndex(ctx context.Context, scope, world string) ([]domain.IndexEntry, error)
 
 	// ReadCached, BrowseCached, OpenCached, and TagCached are the trail
 	// engine's unfocused-pane reads (ADR 0005 decision 9): served from the
@@ -144,8 +150,11 @@ type WorldGateway interface {
 	// catalog's comma-separated key=value predicate string ("" for none) —
 	// tag pages use tag=<tag>. The query "*" is the match-all form (whole
 	// catalog under scope, importance order) on servers ≥ the match-all
-	// release; older servers reject it.
-	Lookup(ctx context.Context, world, scope, query, filter string) (domain.RawDocument, error)
+	// release; older servers reject it. limit caps the rows returned; <= 0
+	// lets the server apply its default (10) — the match-all callers (floor,
+	// world map, palette index) pass an explicit cap so the catalog isn't
+	// silently truncated to that default.
+	Lookup(ctx context.Context, world, scope, query, filter string, limit int) (domain.RawDocument, error)
 	// Worlds enumerates the universe this gateway can reach: the broker's
 	// mark_worlds (authorization-filtered) or the single home world over
 	// QUIC. The non-brokered universe is extensional — one world — so an

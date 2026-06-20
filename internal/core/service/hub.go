@@ -77,7 +77,7 @@ func parseGraphExport(body string) hubTopology {
 			from, okF := parseMarkRef(cells[0])
 			to, okT := parseMarkRef(cells[1])
 			if okF && okT {
-				t.edges = append(t.edges, domain.Edge{From: from, To: to})
+				t.edges = append(t.edges, domain.Edge{From: from, To: to, Type: domain.EdgeReference})
 			}
 		}
 	}
@@ -165,7 +165,7 @@ func worldEdges(edges []domain.Edge, host2name map[string]string, authorized map
 		if tp {
 			portals[to] = true
 		}
-		we := domain.Edge{From: domain.Ref{World: from}, To: domain.Ref{World: to}}
+		we := domain.Edge{From: domain.Ref{World: from}, To: domain.Ref{World: to}, Type: e.Type}
 		if _, dup := seen[we]; dup {
 			continue
 		}

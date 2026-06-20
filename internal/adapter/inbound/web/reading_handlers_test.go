@@ -27,19 +27,22 @@ type fakeReading struct {
 	worldMap    domain.WorldMap
 	worldMapErr error
 
-	draft       domain.EditDraft
-	editErr     error
-	publishErr  error
-	publishCand *domain.MergeCandidate // when set, Publish returns this merge candidate
-	gotBody     string
-	gotMeta     domain.PublishMeta
-	gotVersion  int
-	backlink    map[string][]domain.Ref // keyed by path; the graph store's reverse edges
-	neighbor    map[string]domain.Neighborhood
-	recorded    map[string][]domain.Ref // path → links RecordLinks captured
-	called      string
-	calls       []string
-	gotTag      string
+	draft        domain.EditDraft
+	editErr      error
+	publishErr   error
+	publishCand  *domain.MergeCandidate // when set, Publish returns this merge candidate
+	gotBody      string
+	gotMeta      domain.PublishMeta
+	gotVersion   int
+	nameIndex    []domain.IndexEntry
+	nameIndexErr error
+
+	backlink map[string][]domain.Ref // keyed by path; the graph store's reverse edges
+	neighbor map[string]domain.Neighborhood
+	recorded map[string][]domain.Ref // path → links RecordLinks captured
+	called   string
+	calls    []string
+	gotTag   string
 }
 
 func (f *fakeReading) record(method, key string) (domain.Document, error) {
@@ -78,6 +81,12 @@ func (f *fakeReading) Tag(_ context.Context, _, tag string) (domain.Document, er
 func (f *fakeReading) Raw(_ context.Context, _, _ string) (domain.RawDocument, error) {
 	f.called = "Raw"
 	return f.raw, f.err
+}
+
+func (f *fakeReading) NameIndex(_ context.Context, _, _ string) ([]domain.IndexEntry, error) {
+	f.called = "NameIndex"
+	f.calls = append(f.calls, "NameIndex")
+	return f.nameIndex, f.nameIndexErr
 }
 
 func (f *fakeReading) ReadCached(_ context.Context, _, path string) (domain.Document, error) {
@@ -222,6 +231,69 @@ func TestReadingRoutesAreNoStore(t *testing.T) {
 	}
 }
 
+func TestPaletteHtmxRendersHTMLFragmentWithTrailLinks(t *testing.T) {
+	svc := &fakeReading{nameIndex: []domain.IndexEntry{
+		{Title: "Mission", Path: "/nib/mission.md", World: "world-a", Status: "accepted"},
+	}}
+	req := httptest.NewRequest(http.MethodGet, "/palette?q=mission", http.NoBody)
+	req.Header.Set("HX-Request", "true")
+	req.Header.Set("HX-Current-URL", "http://x/t/world-a/d/nib/index.md")
+	rec := httptest.NewRecorder()
+	readingApp(t, svc).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	// SSR/htmx contract (ADR 0003): HTML, never JSON.
+	if ct := rec.Header().Get("Content-Type"); strings.Contains(ct, "application/json") {
+		t.Errorf("Content-Type = %q, must not be JSON", ct)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "Mission") || !strings.Contains(body, "accepted") {
+		t.Errorf("fragment missing title/status: %s", body)
+	}
+	// The row link extends the current trail (push) — computed server-side.
+	if !strings.Contains(body, `href="/t/world-a/d/nib/index.md/~/world-a/d/nib/mission.md"`) {
+		t.Errorf("fragment missing trail-extending link: %s", body)
+	}
+	if svc.called != "NameIndex" {
+		t.Errorf("called = %q, want NameIndex", svc.called)
+	}
+}
+
+func TestPaletteNonHtmxDegradesToSearch(t *testing.T) {
+	// No JS / direct hit: the palette is an enhancement, so it redirects to the
+	// durable server-rendered /search surface.
+	rec := get(readingApp(t, &fakeReading{}), "/palette?q=mission")
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want 303", rec.Code)
+	}
+	if loc := rec.Header().Get("Location"); loc != "/search?q=mission" {
+		t.Errorf("Location = %q, want /search?q=mission", loc)
+	}
+}
+
+func TestPaletteEmptyQueryShowsRecentTrail(t *testing.T) {
+	// Empty query → recent: the trail in reverse, active pane excluded, no catalog read.
+	svc := &fakeReading{}
+	req := httptest.NewRequest(http.MethodGet, "/palette", http.NoBody)
+	req.Header.Set("HX-Request", "true")
+	req.Header.Set("HX-Current-URL", "http://x/t/world-a/d/nib/index.md/~/world-a/d/nib/mission.md")
+	rec := httptest.NewRecorder()
+	readingApp(t, svc).ServeHTTP(rec, req)
+
+	body := rec.Body.String()
+	if !strings.Contains(body, "index") { // the non-focused pane shows as recent
+		t.Errorf("recent view missing prior pane: %s", body)
+	}
+	if !strings.Contains(body, `href="/t/world-a/d/nib/index.md/~/world-a/d/nib/mission.md?focus=0"`) {
+		t.Errorf("recent row should rewind via focus: %s", body)
+	}
+	if svc.called == "NameIndex" {
+		t.Errorf("empty query must not read the catalog")
+	}
+}
+
 func TestDocRendersMargin(t *testing.T) {
 	svc := &fakeReading{doc: domain.Document{
 		Title:      "ADR 7",
@@ -254,8 +326,10 @@ func TestDocRendersMargin(t *testing.T) {
 			t.Errorf("doc page missing %q", want)
 		}
 	}
-	if strings.Contains(body, `role="search"`) || strings.Contains(body, "type=\"search\"") {
-		t.Errorf("global search box must be gone (ADR 0005 decision 5)")
+	// ADR 0006 supersedes ADR 0005 d5: the command palette IS the global search
+	// now — an SSR htmx active-search overlay rendered into every shell.
+	if !strings.Contains(body, `id="palette"`) || !strings.Contains(body, `hx-get="/palette"`) {
+		t.Errorf("command palette overlay must be present (ADR 0006)")
 	}
 }
 
