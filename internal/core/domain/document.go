@@ -251,6 +251,7 @@ type IndexEntry struct {
 	Path   string
 	World  string
 	Status string
+	Orphan bool // zero reference edges (ADR 0006 §0.2); the rich index tags it
 }
 
 // Document is a rendered, display-ready document. HTML is already sanitized; the

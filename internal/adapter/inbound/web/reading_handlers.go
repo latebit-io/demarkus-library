@@ -197,6 +197,11 @@ func (h *ReadingHandler) present(c *echo.Context, doc domain.Document, err error
 	if opts.catalog {
 		content = linkifyCatalogPaths(content, opts.world)
 	}
+	if domain.IsListingPath(opts.path) {
+		// Rich index (ADR 0006 §5): enrich the bare ls with catalog title/status/
+		// orphan. Runs while hrefs are still /w/ doc routes.
+		content = h.richIndex(c.Request().Context(), opts.world, content)
+	}
 	content = previewize(content)
 	if opts.doc {
 		// Feed the observed-links map (R3): only real documents are edge

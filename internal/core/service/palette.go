@@ -27,8 +27,20 @@ const nameIndexMaxPerWorld = 1000
 // whole index. Cancellation/timeout always propagates — a terminated request
 // must not render a half-index.
 func (s *ReadingService) NameIndex(ctx context.Context, scope, world string) ([]domain.IndexEntry, error) {
+	// The durable topology sources the orphan flag (ADR 0006 §0.2). Read once;
+	// when no hub is configured it's empty and free, so the per-keystroke palette
+	// pays nothing — only orphan-aware callers on hub systems incur the join.
+	topo := s.readHub(ctx, s.hub)
+	var host2name map[string]string
+	if len(topo.nodes) > 0 {
+		var err error
+		if host2name, err = s.host2name(ctx); err != nil {
+			return nil, err // outbound failure propagates; the web layer decides
+		}
+	}
+
 	if scope != "universe" {
-		return s.worldNameIndex(ctx, world)
+		return s.worldNameIndex(ctx, world, worldOrphans(world, host2name, topo))
 	}
 
 	var worlds []string
@@ -46,7 +58,7 @@ func (s *ReadingService) NameIndex(ctx context.Context, scope, world string) ([]
 
 	var out []domain.IndexEntry
 	for _, w := range worlds {
-		entries, err := s.worldNameIndex(ctx, w)
+		entries, err := s.worldNameIndex(ctx, w, worldOrphans(w, host2name, topo))
 		if err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return nil, err
@@ -58,10 +70,11 @@ func (s *ReadingService) NameIndex(ctx context.Context, scope, world string) ([]
 	return out, nil
 }
 
-// worldNameIndex returns one world's catalog as palette entries. A read failure
-// returns the error (the caller decides whether to degrade or propagate); a
-// canceled/timed-out context always propagates.
-func (s *ReadingService) worldNameIndex(ctx context.Context, world string) ([]domain.IndexEntry, error) {
+// worldNameIndex returns one world's catalog as index entries, tagging each with
+// orphan membership (orphans is the world's reference-orphan path set, possibly
+// nil). A read failure returns the error (the caller decides whether to degrade
+// or propagate); a canceled/timed-out context always propagates.
+func (s *ReadingService) worldNameIndex(ctx context.Context, world string, orphans map[string]bool) ([]domain.IndexEntry, error) {
 	raw, err := s.world.Lookup(ctx, world, "/", "*", "", nameIndexMaxPerWorld)
 	if err != nil {
 		return nil, err
@@ -74,6 +87,7 @@ func (s *ReadingService) worldNameIndex(ctx context.Context, world string) ([]do
 			Path:   d.Path,
 			World:  world,
 			Status: d.Status,
+			Orphan: orphans[d.Path],
 		})
 	}
 	return out, nil

@@ -130,7 +130,7 @@ func (h *ReadingHandler) Trail(c *echo.Context) error {
 			if i == t.Reader {
 				readerDoc, readerAddr, haveReaderDoc = doc, addr, true
 			}
-			vm.Panes[i] = h.paneView(t, i, addr, doc, authed, false)
+			vm.Panes[i] = h.paneView(ctx, t, i, addr, doc, authed, false)
 		}
 	}
 
@@ -149,7 +149,7 @@ func (h *ReadingHandler) Trail(c *echo.Context) error {
 	// overlay (reader=true); ✕/backdrop/Esc close to trailURL(t), which keeps
 	// the original focus.
 	if t.Reader >= 0 && haveReaderDoc {
-		rp := h.paneView(t, t.Reader, readerAddr, readerDoc, authed, true)
+		rp := h.paneView(ctx, t, t.Reader, readerAddr, readerDoc, authed, true)
 		vm.Reader = &rp
 		vm.CloseURL = trailURL(t)
 	}
@@ -220,7 +220,7 @@ func (h *ReadingHandler) readPane(ctx context.Context, addr paneAddr, live bool)
 // focused doc + margin, but body and backlink hrefs persist the overlay
 // (reader-mode links), edges are not re-recorded (the canvas build already
 // did), and the pane carries no "open reader" affordance (it is already open).
-func (h *ReadingHandler) paneView(t trail, i int, addr paneAddr, doc domain.Document, authed, reader bool) paneVM {
+func (h *ReadingHandler) paneView(ctx context.Context, t trail, i int, addr paneAddr, doc domain.Document, authed, reader bool) paneVM {
 	focused := i == t.Focus
 
 	mode := "spine"
@@ -265,6 +265,12 @@ func (h *ReadingHandler) paneView(t trail, i int, addr paneAddr, doc domain.Docu
 	}
 	if addr.Kind == paneTag {
 		content = linkifyCatalogPaths(content, addr.World)
+	}
+	if focused && addr.Kind == paneDoc && domain.IsListingPath(addr.Value) {
+		// Rich index (ADR 0006 §5): enrich the focused listing pane's bare ls
+		// before its links are trailized. Focused-only keeps the per-click read
+		// budget (an unfocused listing stays a plain ls — it's context).
+		content = h.richIndex(ctx, addr.World, content)
 	}
 	// previewize runs on /w/ hrefs (it derives each card's source from them),
 	// then trailizeLinks rewrites those hrefs to post-click trail URLs — in the
