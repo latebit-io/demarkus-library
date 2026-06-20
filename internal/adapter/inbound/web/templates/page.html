@@ -412,7 +412,7 @@
     <span class="world">{{ .World }}</span>
     <!-- Search affordance: a real link to the catalog page (works with JS off);
          islands.js intercepts the click to open the ⌃K palette overlay instead. -->
-    <a class="nav-search" href="/search" title="Search (⌃K)">Search ⌃K</a>
+    <a class="nav-search" href="/search" title="Search (⌃K)" hx-boost="false">Search ⌃K</a>
     {{- if .Authenticated }}
     {{- if .User }}<span class="user" title="signed in as">{{ .User }}</span>{{ end }}
     <!-- Real form, POST: logout is a state change and works without JS.

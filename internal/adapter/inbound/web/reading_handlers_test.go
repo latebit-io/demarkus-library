@@ -319,8 +319,10 @@ func TestDocRendersMargin(t *testing.T) {
 		"mark://soul.demarkus.io/adr/0007.md",
 		`href="/w/soul.demarkus.io/raw/adr/0007.md"`,
 		`href="/w/soul.demarkus.io/versions/adr/0007.md"`,
-		`href="/w/soul.demarkus.io/g/adr/0007.md" class="graph-open">graph`,
-		`href="/w/soul.demarkus.io/u" class="map-open">map`,
+		// hx-boost off so islands.js intercepts to the overlay instead of htmx
+		// boosting the permalink into a pane (the fix this asserts).
+		`href="/w/soul.demarkus.io/g/adr/0007.md" class="graph-open" hx-boost="false"`,
+		`href="/w/soul.demarkus.io/u" class="map-open" hx-boost="false"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("doc page missing %q", want)

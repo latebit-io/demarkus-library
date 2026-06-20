@@ -36,8 +36,11 @@
         <a href="/w/{{ .WorldPath }}/raw{{ .Path }}">source</a>
         · <a href="/w/{{ .WorldPath }}/versions{{ .Path }}">editions</a>
         {{- if .ReaderURL }} · <a href="{{ .ReaderURL }}">reader</a>{{ end }}
-        {{- if .GraphURL }} · <a href="{{ .GraphURL }}" class="graph-open">graph</a>{{ end }}
-        {{- if .MapURL }} · <a href="{{ .MapURL }}" class="map-open">map</a>{{ end }}
+        {{- /* graph/map open the on-demand overlays (islands.js intercepts);
+               hx-boost off so htmx doesn't boost the permalink first. With JS
+               off they navigate to the /g/ and /u permalinks (degrade). */ -}}
+        {{- if .GraphURL }} · <a href="{{ .GraphURL }}" class="graph-open" hx-boost="false">graph</a>{{ end }}
+        {{- if .MapURL }} · <a href="{{ .MapURL }}" class="map-open" hx-boost="false">map</a>{{ end }}
         {{- if .EditURL }} · <a href="{{ .EditURL }}" hx-boost="false" class="edit-link">edit</a>{{ end }}
         {{- if .NewURL }} · <a href="{{ .NewURL }}" hx-boost="false" class="edit-link">new</a>{{ end }}
         {{- if .AppendURL }} · <a href="{{ .AppendURL }}" hx-boost="false" class="edit-link">append</a>{{ end }}

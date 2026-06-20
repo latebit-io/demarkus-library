@@ -105,12 +105,13 @@ func floorCards(floor domain.Floor, t trail, idx int) template.HTML {
 	b.WriteString(`<ul class="worlds">`)
 	for _, fw := range floor.Worlds {
 		cls := "world-card"
-		var href string
+		// Entering a world lands on its stacks — the root listing, rendered as
+		// the rich title-first index (ADR 0006 §5). That is the nav surface; the
+		// world map is discovery-only, summoned as the `m` overlay. (Both local
+		// and federated worlds enter at the root listing.)
+		href := trailURL(trailAfterClick(t, idx, paneAddr{Kind: paneDoc, World: fw.World.Name, Value: "/"}))
 		if fw.Portal {
 			cls += " federated"
-			href = trailURL(trailAfterClick(t, idx, paneAddr{Kind: paneDoc, World: fw.World.Name, Value: "/"}))
-		} else {
-			href = trailURL(trailAfterClick(t, idx, paneAddr{Kind: paneFloor, World: fw.World.Name}))
 		}
 		if fw.Err {
 			cls += " gone"
@@ -159,7 +160,9 @@ func floorSystem(b *strings.Builder, fw domain.FloorWorld, c floorPoint, t trail
 
 	// Clicking a world zooms one level in to its map (the world-view zoom
 	// level); the stacks stay one click further via the map's dir aggregates.
-	worldHref := trailURL(trailAfterClick(t, idx, paneAddr{Kind: paneFloor, World: fw.World.Name}))
+	// Enter the world at its stacks (root listing → rich index); the map is the
+	// `m` discovery overlay, not a docked pane (ADR 0006 §5).
+	worldHref := trailURL(trailAfterClick(t, idx, paneAddr{Kind: paneDoc, World: fw.World.Name, Value: "/"}))
 	fmt.Fprintf(b, `<a href="%s"><circle class="floor-world" cx="%d" cy="%d" r="%d"/>`,
 		html.EscapeString(worldHref), c.x, c.y, worldR)
 	fmt.Fprintf(b, `<text class="floor-world-label" x="%d" y="%d" text-anchor="middle">%s</text>`,
