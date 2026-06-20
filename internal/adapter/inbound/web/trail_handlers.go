@@ -90,7 +90,7 @@ func (h *ReadingHandler) Trail(c *echo.Context) error {
 			var err error
 			scope := "universe"
 			if addr.World == "" {
-				pane, err = h.floorPaneView(ctx, t, i)
+				pane, err = h.floorPaneView(ctx, t, i, c.QueryParam("view") == "map")
 			} else {
 				scope = addr.World
 				pane, err = h.worldMapPaneView(ctx, t, i, addr, authed)
@@ -159,7 +159,7 @@ func (h *ReadingHandler) Trail(c *echo.Context) error {
 // floorPaneView builds the universe pane: floor data (focused-live like
 // every pane), rendered as trail-aware SVG. The floor has no margin — its
 // trust signals are ON the nodes (status strokes, importance sizing).
-func (h *ReadingHandler) floorPaneView(ctx context.Context, t trail, i int) (paneVM, error) {
+func (h *ReadingHandler) floorPaneView(ctx context.Context, t trail, i int, mapView bool) (paneVM, error) {
 	focused := i == t.Focus
 	var floor domain.Floor
 	var err error
@@ -187,7 +187,13 @@ func (h *ReadingHandler) floorPaneView(ctx context.Context, t trail, i int) (pan
 		World:    "universe",
 	}
 	if mode != "spine" {
-		vm.Content = floorSVG(floor, t, i)
+		// Worlds-only door cards by default (ADR 0006 §5); the SVG topology is
+		// the deliberate "view as map" secondary view.
+		body := floorCards(floor, t, i)
+		if mapView {
+			body = floorSVG(floor, t, i)
+		}
+		vm.Content = floorViewToggle(t, mapView) + body
 	}
 	return vm, nil
 }

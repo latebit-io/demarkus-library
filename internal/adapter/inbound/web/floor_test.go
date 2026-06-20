@@ -43,6 +43,35 @@ func TestFloorChunkRoundTrip(t *testing.T) {
 	}
 }
 
+func TestFloorCardsWorldsOnly(t *testing.T) {
+	floor := testFloor()
+	floor.Worlds = append(floor.Worlds, domain.FloorWorld{
+		World: domain.WorldInfo{Name: "remote.example.org"}, Portal: true,
+	})
+	tr := trail{Panes: []paneAddr{{Kind: paneFloor}}, Focus: 0}
+	out := string(floorCards(floor, tr, 0))
+
+	// Worlds render as door cards; no loose documents at the universe level.
+	if !strings.Contains(out, `class="world-card"`) {
+		t.Error("expected world door cards")
+	}
+	if strings.Contains(out, "Hub") || strings.Contains(out, "ADR 0005") {
+		t.Errorf("universe must list worlds only, not documents: %s", out)
+	}
+	// Authorized world card → zoom to its map.
+	if !strings.Contains(out, `href="/t/u/~/team-a/u/"`) {
+		t.Errorf("world card should link to its map: %s", out)
+	}
+	// Federated/remote world → dashed federated door with an external root link.
+	if !strings.Contains(out, "world-card federated") || !strings.Contains(out, "federated · sign-in") {
+		t.Errorf("portal world should render as a federated door: %s", out)
+	}
+	// Unreadable world still renders, tagged (absence would read as nonexistence).
+	if !strings.Contains(out, "unreadable") {
+		t.Errorf("unreadable world should render, tagged: %s", out)
+	}
+}
+
 func TestFloorSVGNodesAndLinks(t *testing.T) {
 	tr := trail{Panes: []paneAddr{{Kind: paneFloor}}, Focus: 0}
 	svg := string(floorSVG(testFloor(), tr, 0))
@@ -120,8 +149,10 @@ func TestTrailFloorPaneFocusedLive(t *testing.T) {
 	if got := strings.Join(svc.calls, ","); got != want {
 		t.Errorf("calls = %q, want %q", got, want)
 	}
-	if !strings.Contains(rec.Body.String(), `svg class="floor"`) {
-		t.Errorf("floor svg missing from body pane")
+	// ADR 0006 §5: the universe renders worlds-only door cards by default
+	// (the SVG topology is the secondary ?view=map).
+	if !strings.Contains(rec.Body.String(), `class="world-card"`) {
+		t.Errorf("floor body pane missing world cards")
 	}
 
 	svc2 := &fakeReading{floor: testFloor()}

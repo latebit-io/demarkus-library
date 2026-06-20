@@ -91,6 +91,62 @@ func floorSVG(floor domain.Floor, t trail, idx int) template.HTML {
 	return template.HTML(b.String()) //nolint:gosec // built here from escaped parts; node text/attrs all pass html.EscapeString
 }
 
+// floorCards renders the universe as worlds-only "door" cards (ADR 0006 §5):
+// the universe lists worlds, never loose documents. Each card reads as a door at
+// rest — a container glyph, the world name, a trailing chevron — affordances a
+// document row never has. Federated/remote worlds (portals) get a dashed,
+// external-link treatment: visibly "a server you connect to," not a local world
+// you enter. This is the default cold-entry view; floorSVG is the "view as map".
+func floorCards(floor domain.Floor, t trail, idx int) template.HTML {
+	if len(floor.Worlds) == 0 {
+		return template.HTML(`<p class="floor-empty">The universe is empty — no worlds visible to your identity.</p>`) //nolint:gosec // static markup
+	}
+	var b strings.Builder
+	b.WriteString(`<ul class="worlds">`)
+	for _, fw := range floor.Worlds {
+		cls := "world-card"
+		var href string
+		if fw.Portal {
+			cls += " federated"
+			href = trailURL(trailAfterClick(t, idx, paneAddr{Kind: paneDoc, World: fw.World.Name, Value: "/"}))
+		} else {
+			href = trailURL(trailAfterClick(t, idx, paneAddr{Kind: paneFloor, World: fw.World.Name}))
+		}
+		if fw.Err {
+			cls += " gone"
+		}
+		fmt.Fprintf(&b, `<li><a class="%s" href="%s">`, cls, html.EscapeString(href))
+		b.WriteString(`<span class="world-glyph" aria-hidden="true">▤</span>`)
+		fmt.Fprintf(&b, `<span class="world-name">%s</span>`, html.EscapeString(fw.World.Name))
+		switch {
+		case fw.Portal:
+			b.WriteString(`<span class="world-tag">federated · sign-in</span><span class="world-chev" aria-hidden="true">↗</span>`)
+		case fw.Err:
+			b.WriteString(`<span class="world-tag">unreadable</span>`)
+		default:
+			b.WriteString(`<span class="world-chev" aria-hidden="true">›</span>`)
+		}
+		b.WriteString(`</a></li>`)
+	}
+	b.WriteString(`</ul>`)
+	return template.HTML(b.String()) //nolint:gosec // built from html.EscapeString'd parts only
+}
+
+// floorViewToggle is the "view as map / worlds" switch (ADR 0006 §5): the
+// universe is worlds-by-default, with the federation topology a deliberate
+// secondary view at ?view=map.
+func floorViewToggle(t trail, mapView bool) template.HTML {
+	base := trailURL(t)
+	if mapView {
+		return template.HTML(`<a class="floor-view" href="` + html.EscapeString(base) + `">← worlds</a>`) //nolint:gosec // escaped
+	}
+	sep := "?"
+	if strings.Contains(base, "?") {
+		sep = "&"
+	}
+	return template.HTML(`<a class="floor-view" href="` + html.EscapeString(base+sep+"view=map") + `">view as map →</a>`) //nolint:gosec // escaped
+}
+
 // floorSystem renders one authorized world: the world node (zooms into the
 // world map) plus its top-importance documents as satellites on an orbit ring.
 func floorSystem(b *strings.Builder, fw domain.FloorWorld, c floorPoint, t trail, idx int) {
