@@ -1,7 +1,9 @@
+{{/* A collapsed pane is a spatial re-expand rail only (ADR 0006 §2 / D2): title
+     to identify it, click to re-focus. Orientation (status, path, walk/jump,
+     cross-world) moved to the bottom dock, so the spine stays minimal. */}}
 {{define "pane"}}{{if eq .Mode "spine"}}<a class="pane spine{{if .Gone}} gone{{end}}" href="{{ .FocusURL }}" title="{{ .Title }}">
   <span class="spine-title">{{ .Title }}</span>
-  {{- if .Gone }}<span class="status">gone</span>
-  {{- else if .Status }}<span class="status status-{{ .Status }}">{{ .Status }}</span>{{ end }}
+  {{- if .Gone }}<span class="status">gone</span>{{ end }}
 </a>{{else}}<section class="pane {{ .Mode }}">
   <header class="pane-head"><a href="{{ .FocusURL }}"><code>{{ .World }}{{ .Path }}</code></a>{{if .ReaderURL}} <a class="reader-link" href="{{ .ReaderURL }}">reader</a>{{end}}</header>
   <div class="pane-cols">
@@ -34,9 +36,38 @@
   {{- if .Reader }}
   {{template "reader" .}}
   {{- end }}
+  {{template "dock" .Dock}}
   {{template "palette" .}}
 </body>
 </html>{{end}}
+
+{{/* The trail dock (ADR 0006 §2): the bottom orientation strip. A <details>
+     gives zero-JS minimize — closed shows just the header, freeing vertical
+     space. Entries rewind on click; connectors show walk (solid) vs jump
+     (dashed); "from here →" chips extend into one-hop reference neighbors. */}}
+{{define "dock"}}
+<details class="dock" open>
+  <summary class="dock-head">trail</summary>
+  <div class="dock-body">
+    <ol class="dock-trail">
+      {{- range .Entries }}
+      <li class="dock-entry{{if .Active}} active{{end}}{{if not .First}}{{if .Walked}} walked{{else}} jumped{{end}}{{end}}">
+        {{- if .ShowWorld }}<span class="dock-world">{{ .World }}</span>{{ end }}
+        <a class="dock-link" href="{{ .URL }}">{{ .Label }}</a>
+      </li>
+      {{- end }}
+    </ol>
+    {{- if .Chips }}
+    <div class="dock-chips">
+      <span class="dock-from">from here →</span>
+      {{- range .Chips }}
+      <a class="dock-chip" href="{{ .URL }}">{{ .Label }}</a>
+      {{- end }}
+    </div>
+    {{- end }}
+  </div>
+</details>
+{{end}}
 
 {{/* The reader overlay (R4): a focus lens over the dimmed trail — the same
      doc-body + margin as the focused pane, centered. URL state (?reader=i);

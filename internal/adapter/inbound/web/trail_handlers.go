@@ -25,6 +25,7 @@ type canvasVM struct {
 	Panes         []paneVM
 	Reader        *paneVM // the reader overlay (R4); nil when closed
 	CloseURL      string  // ✕ / backdrop / Esc target: the bare trail (no overlay)
+	Dock          dockVM  // the bottom orientation strip (ADR 0006 §2)
 }
 
 // paneVM is one pane on the canvas. The margin fields mirror the page VM so
@@ -136,6 +137,11 @@ func (h *ReadingHandler) Trail(c *echo.Context) error {
 	focusedPane := vm.Panes[t.Focus]
 	vm.Title = focusedPane.Title
 	vm.World = focusedPane.World
+
+	// The dock is built after the pane loop so the focused doc's links are
+	// already observed (RecordLinks ran during render), giving the walk/jump
+	// connectors and "from here →" chips a graph to read.
+	vm.Dock = h.buildDock(t)
 
 	// The reader overlay reuses the addressed pane's already-fetched document —
 	// no extra world read (the overlay is pure presentation), and focus is

@@ -204,10 +204,7 @@ func paneLabel(p paneAddr) (title, loc string) {
 	case paneTag:
 		return "#" + p.Value, p.World
 	default: // paneDoc, paneGraph
-		name := strings.TrimSuffix(p.Value[strings.LastIndex(p.Value, "/")+1:], ".md")
-		if name == "" {
-			name = p.Value
-		}
+		name := docName(p.Value)
 		if p.Kind == paneGraph {
 			name = "graph: " + name
 		}
