@@ -244,8 +244,8 @@ type Floor struct {
 // the minimum the server fuzzy-matches on title + path and renders into the
 // results fragment. World lets universe-scope results show where each doc lives;
 // Status badges the row. It carries no body — name-mode is a known-item
-// switcher, not full-text search (content-mode is the separate SEARCH path,
-// ADR 0006 §0.3).
+// switcher, not full-text search. The protocol has no search verb (and won't),
+// so content/full-text search is out of scope by design, not deferred (ADR 0006).
 type IndexEntry struct {
 	Title  string
 	Path   string

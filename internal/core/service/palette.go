@@ -11,7 +11,9 @@ import (
 // switcher: the server supplies the catalog (title/path/world/status), the client
 // fuzzy-matches it. This reuses the same MCP-readable channel the floor and world
 // map use — mark_lookup "*", importance order — so the index adds no new protocol
-// surface (content-mode/full-text is the separate SEARCH path, ADR 0006 §0.3).
+// surface. Name-mode is the whole palette, by design: the demarkus protocol has
+// no search verb and never will (LOOKUP is catalog title/tags only), so full-text
+// content search is out of scope, not deferred (ADR 0006).
 
 // nameIndexMaxPerWorld caps a single world's contribution to the index — a
 // switcher wants reach, not the whole long tail; the catalog's importance order
