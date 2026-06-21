@@ -250,11 +250,11 @@ func TestCreateDocPathExistsConflict(t *testing.T) {
 func TestNewAffordanceGatedAndFolderScoped(t *testing.T) {
 	svc := &fakeReading{doc: domain.Document{Title: "D", Path: "/plans/x.md"}}
 	// Unauthenticated: no new link.
-	if body := get(readingApp(t, svc), "/w/root/d/plans/x.md").Body.String(); strings.Contains(body, "/new?dir=") {
+	if body := get(readingApp(t, svc), "/t/root/d/plans/x.md").Body.String(); strings.Contains(body, "/new?dir=") {
 		t.Errorf("new affordance must be hidden without a session")
 	}
 	// Authenticated: new link pre-fills the current folder.
-	body := get(authedApp(t, svc), "/w/root/d/plans/x.md").Body.String()
+	body := get(authedApp(t, svc), "/t/root/d/plans/x.md").Body.String()
 	if !strings.Contains(body, "/w/root/new?dir=%2Fplans%2F") {
 		t.Errorf("new affordance missing or wrong folder: %s", body)
 	}
@@ -311,10 +311,10 @@ func TestAppendDocRejectsEmpty(t *testing.T) {
 
 func TestAppendAffordanceGatedOnAuth(t *testing.T) {
 	svc := &fakeReading{doc: domain.Document{Title: "D", Path: "/log.md"}}
-	if body := get(readingApp(t, svc), "/w/root/d/log.md").Body.String(); strings.Contains(body, "/append/") {
+	if body := get(readingApp(t, svc), "/t/root/d/log.md").Body.String(); strings.Contains(body, "/append/") {
 		t.Errorf("append affordance must be hidden without a session")
 	}
-	if body := get(authedApp(t, svc), "/w/root/d/log.md").Body.String(); !strings.Contains(body, "/w/root/append/log.md") {
+	if body := get(authedApp(t, svc), "/t/root/d/log.md").Body.String(); !strings.Contains(body, "/w/root/append/log.md") {
 		t.Errorf("append affordance missing for an authed reader")
 	}
 }
@@ -333,11 +333,11 @@ func TestEditPreviewRendersFragment(t *testing.T) {
 func TestEditAffordanceGatedOnAuth(t *testing.T) {
 	svc := &fakeReading{doc: domain.Document{Title: "D", Path: "/adr/0007.md"}}
 	// Unauthenticated: no edit link.
-	if body := get(readingApp(t, svc), "/w/soul.demarkus.io/d/adr/0007.md").Body.String(); strings.Contains(body, "/edit/") {
+	if body := get(readingApp(t, svc), "/t/soul.demarkus.io/d/adr/0007.md").Body.String(); strings.Contains(body, "/edit/") {
 		t.Errorf("edit affordance must be hidden without a session")
 	}
 	// Authenticated: edit link present.
-	if body := get(authedApp(t, svc), "/w/soul.demarkus.io/d/adr/0007.md").Body.String(); !strings.Contains(body, `/w/soul.demarkus.io/edit/adr/0007.md`) {
+	if body := get(authedApp(t, svc), "/t/soul.demarkus.io/d/adr/0007.md").Body.String(); !strings.Contains(body, `/w/soul.demarkus.io/edit/adr/0007.md`) {
 		t.Errorf("edit affordance missing for an authed reader")
 	}
 }

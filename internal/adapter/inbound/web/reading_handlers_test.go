@@ -307,7 +307,7 @@ func TestDocRendersMargin(t *testing.T) {
 		Version:    "7",
 		Agent:      "claude-code",
 	}}
-	body := get(readingApp(t, svc), "/w/soul.demarkus.io/d/adr/0007.md").Body.String()
+	body := get(readingApp(t, svc), "/t/soul.demarkus.io/d/adr/0007.md").Body.String()
 
 	for _, want := range []string{
 		`class="status status-accepted"`,
@@ -339,7 +339,7 @@ func TestDocMarginOmitsStatusAxisTag(t *testing.T) {
 	svc := &fakeReading{doc: domain.Document{
 		Path: "/x.md", Status: "accepted", Tags: []string{"status:accepted", "adr"},
 	}}
-	body := get(readingApp(t, svc), "/w/soul.demarkus.io/d/x.md").Body.String()
+	body := get(readingApp(t, svc), "/t/soul.demarkus.io/d/x.md").Body.String()
 	if strings.Contains(body, "tags/status") {
 		t.Errorf("status: axis tag must not appear in the tag list (the badge carries it)")
 	}
@@ -350,7 +350,7 @@ func TestDocMarginOmitsStatusAxisTag(t *testing.T) {
 
 func TestBrowseRendersWithoutMargin(t *testing.T) {
 	svc := &fakeReading{doc: domain.Document{Title: "Index of /plans/", Path: "/plans/", HTML: "<ul></ul>"}}
-	body := get(readingApp(t, svc), "/w/soul.demarkus.io/d/plans/").Body.String()
+	body := get(readingApp(t, svc), "/t/soul.demarkus.io/d/plans/").Body.String()
 	// Listing routes through Browse (then NameIndex enriches the rich index).
 	if len(svc.calls) == 0 || !strings.HasPrefix(svc.calls[0], "Browse") {
 		t.Fatalf("routed to %v, want Browse first", svc.calls)
@@ -362,7 +362,7 @@ func TestBrowseRendersWithoutMargin(t *testing.T) {
 
 func TestTagPageRoutesToTag(t *testing.T) {
 	svc := &fakeReading{doc: domain.Document{Title: "Tagged: adr", HTML: "<table></table>"}}
-	rec := get(readingApp(t, svc), "/w/soul.demarkus.io/tags/adr")
+	rec := get(readingApp(t, svc), "/t/soul.demarkus.io/tags/adr")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d", rec.Code)
 	}
@@ -373,7 +373,7 @@ func TestTagPageRoutesToTag(t *testing.T) {
 
 func TestTagPageUnescapesTag(t *testing.T) {
 	svc := &fakeReading{doc: domain.Document{}}
-	get(readingApp(t, svc), "/w/soul.demarkus.io/tags/category%3Areference")
+	get(readingApp(t, svc), "/t/soul.demarkus.io/tags/category%3Areference")
 	if svc.gotTag != "category:reference" {
 		t.Errorf("tag = %q, want category:reference", svc.gotTag)
 	}

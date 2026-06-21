@@ -210,6 +210,14 @@
     svg.graph { max-width: 100%; height: auto; }
     svg.graph text { fill: var(--muted); font-family: system-ui, sans-serif; }
     .graph-edge { stroke: var(--faint); stroke-width: 1.5; }
+    .edge-arrow { fill: var(--muted); }
+    /* Node hover (islands.js) lights up the incident edges and the nodes they
+       connect, so the relationship reads. */
+    .edge-arrow-hot { fill: light-dark(#1a7f37, #3fb950); }
+    .graph-edge.edge-hot { stroke: light-dark(#1a7f37, #3fb950); stroke-width: 2.5;
+            marker-end: url(#arrow-hot); }
+    .node-hot circle, circle.node-hot { stroke: light-dark(#1a7f37, #3fb950);
+            stroke-width: 3; }
     .graph-center { fill: var(--ink); stroke: var(--ink); }
     .graph-center-label { font-size: 13px; font-weight: 600; fill: var(--ink); }
     .graph-node { fill: var(--paper); stroke: var(--muted); stroke-width: 1.5; }
@@ -336,14 +344,24 @@
     .graph-backdrop[hidden] { display: none; }
     .graph-panel { background: var(--paper); color: var(--ink);
             border: 1px solid var(--faint); border-radius: 10px;
-            box-shadow: 0 12px 48px #00000066; max-width: 95vw; max-height: 90vh;
-            overflow: auto; display: flex; flex-direction: column; }
+            box-shadow: 0 12px 48px #00000066;
+            /* The summoned map/graph is near-fullscreen — the content fills
+               the overlay rather than shrinking to the SVG's intrinsic ~760px. */
+            width: 99vw; height: 97vh; max-width: 99vw; max-height: 97vh;
+            overflow: hidden; display: flex; flex-direction: column; }
     .graph-head { display: flex; justify-content: space-between; align-items: baseline;
             gap: 1rem; padding: .5rem .9rem; border-bottom: 1px solid var(--faint);
             font-family: system-ui, sans-serif; }
     .graph-title { font-weight: 600; font-size: .9rem; }
     .graph-hint { font-size: .68rem; color: var(--muted); }
-    .graph-canvas { padding: .5rem; }
+    /* Canvas fills the panel below the head; its SVG scales up to the box
+       (viewBox + preserveAspectRatio keeps the layout centered, not stretched). */
+    .graph-canvas { padding: .15rem; flex: 1 1 auto; min-height: 0;
+            display: flex; flex-direction: column; align-items: stretch;
+            justify-content: center; overflow: auto; }
+    .graph-canvas svg { width: 100%; height: 100%; max-width: 100%; min-height: 0;
+            flex: 1 1 auto; }
+    .graph-canvas .world-map-new { flex: 0 0 auto; margin-top: .4rem; }
 
     /* ── World index (ADR 0006 §5): the universe lists worlds as doors, never
           loose documents. A card carries door affordances (glyph, chevron) a

@@ -136,7 +136,7 @@ func (s *ReadingService) buildFloor(ctx context.Context) (domain.Floor, error) {
 			joinAddr = w.URL
 		}
 		if h := hostOf(joinAddr); h != "" {
-			host2name[h] = w.Name
+			host2name[hostKey(h)] = w.Name
 		}
 	}
 

@@ -74,16 +74,16 @@ func TestWorldMapSVGReferenceLayout(t *testing.T) {
 	for _, want := range []string{
 		`class="floor world-map"`,
 		`class="world-map-caption"`,
-		`2 linked · 1 orphan`,
+		`2 connected · 1 unlinked`,
 		// Linked doc node → the document pane, status-coded.
 		`class="floor-doc status-wip"`,
 		`href="/t/u/~/team-a/u//~/team-a/d/plans/a.md"`,
 		// Reference edge drawn between two linked nodes.
 		`class="graph-edge"`,
-		// Orphan floated into the band with its own class + a band label.
+		// Edgeless doc floated into the band with its own class + a band label.
 		`world-map-orphan`,
 		`href="/t/u/~/team-a/u//~/team-a/d/lonely.md"`,
-		`>orphans</text>`,
+		`>unlinked</text>`,
 		// The authenticated "new document" affordance.
 		`class="world-map-new"`,
 		`href="/w/team-a/new?dir=%2F"`,
@@ -162,12 +162,15 @@ func TestTrailWorldMapPaneFocusedLive(t *testing.T) {
 func TestWorldMapPagePermalink(t *testing.T) {
 	svc := &fakeReading{worldMap: testWorldMap()}
 	rec := get(readingApp(t, svc), "/w/team-a/u")
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d", rec.Code)
+	// A plain navigation to the map permalink lands on the canvas (the map as a
+	// pane), not the standalone centered page. The /w/ URL stays shareable
+	// (recipients follow this redirect); the overlay pull-up (?overlay=1) and
+	// no-JS both still resolve to a usable view.
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want 303", rec.Code)
 	}
-	// Permalink nodes use /w/ document routes, not trail URLs.
-	if !strings.Contains(rec.Body.String(), `href="/w/team-a/d/plans/a.md"`) {
-		t.Errorf("permalink world map should link to /w/ doc routes:\n%s", rec.Body.String())
+	if loc := rec.Header().Get("Location"); loc != "/t/team-a/u/" {
+		t.Errorf("Location = %q, want /t/team-a/u/", loc)
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"math"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -26,13 +27,21 @@ import (
 // orbit spokes here. Reference-linked documents sit in a connected ring; orphans
 // (zero reference edges, per the durable hub graph) float apart in a band below.
 const (
-	wmWidth       = 720 // canvas width
-	wmRingMin     = 120 // connected-ring radius floor
-	wmRingMax     = 280 // connected-ring radius ceiling
-	wmLabelTrim   = 18  // node label length cap (full title in <title>)
-	wmOrphanCols  = 6   // orphan-band columns
-	wmOrphanCellW = 116
-	wmOrphanCellH = 62
+	wmTierTop   = 44   // top margin above the outermost ring (clears the caption)
+	wmTierBaseR = 90   // innermost (hub) ring vertical radius (ry)
+	wmTierGap   = 86   // ry step between concentric rings
+	wmTierMaxR  = 300  // outermost ry cap (the radial tail soaks into this ring)
+	wmTierArc   = 58   // min arc (px) between adjacent nodes on a ring → capacity
+	wmTierRatio = 1.85 // x:y stretch — rings are wide ellipses so the radial layout
+	// fills a wide overlay instead of letterboxing a near-square box.
+	wmSideMargin = 80 // horizontal margin beyond the widest ring (room for labels)
+	wmLabelTrim  = 18 // ring node label length cap (full title in <title>)
+	// The unlinked band is a secondary signal — kept compact so the connected
+	// graph dominates: shallow rows, small nodes, harder-trimmed labels. Its
+	// column count is derived from the canvas width (full-width strip).
+	wmBandLabelTrim = 10 // band node label length cap (tighter than the ring)
+	wmOrphanCellW   = 70
+	wmOrphanCellH   = 44
 )
 
 // WorldMapPage renders a world's map as a standalone permalink — /w/:world/u —
@@ -40,6 +49,13 @@ const (
 // canvas the same map renders as a trail pane.
 func (h *ReadingHandler) WorldMapPage(c *echo.Context) error {
 	world := c.Param("world")
+	// A plain navigation to the standalone map lands on the canvas (with the map
+	// pane); the overlay pull-up (?overlay=1) is always served as a fragment.
+	if c.QueryParam("overlay") != "1" {
+		if u := canvasTrailURL(c, paneAddr{Kind: paneFloor, World: world}); u != "" {
+			return c.Redirect(http.StatusSeeOther, u)
+		}
+	}
 	wm, err := h.reading.WorldMap(c.Request().Context(), world)
 	if err != nil {
 		return presentError(c, err, world, "/")
@@ -137,12 +153,12 @@ type wmPlaced struct {
 }
 
 // worldMapSVG draws the world's documents by reference connectivity (ADR 0006
-// §5): linked documents (≥1 reference edge, per the durable hub graph) in a
-// connected ring with their reference edges, orphans floated apart in a band
-// below — the one signal the index can't give. A caption tallies linked vs
-// orphan. docURL turns a document path into its navigation target; newURL, when
-// non-empty, adds the "new document" affordance (the only entry point for an
-// empty world, where there is no doc margin to host the usual "new" link).
+// §5): documents with ≥1 drawn edge in a connected ring with their reference
+// edges, the rest floated apart in a band below — the one signal the index
+// can't give. A caption tallies connected vs unlinked. docURL turns a document
+// path into its navigation target; newURL, when non-empty, adds the "new
+// document" affordance (the only entry point for an empty world, where there is
+// no doc margin to host the usual "new" link).
 func worldMapSVG(wm domain.WorldMap, docURL func(string) string, newURL string) template.HTML {
 	n := 0
 	for _, cl := range wm.Clusters {
@@ -167,58 +183,131 @@ func worldMapSVG(wm domain.WorldMap, docURL func(string) string, newURL string) 
 		return template.HTML(msg) //nolint:gosec // newURL is server-constructed (/w/<escaped world>/new), text is static
 	}
 
-	var linked, orphans []domain.FloorDoc
+	// Ring membership is by drawn connectivity, not the hub's orphan verdict: a
+	// node joins the connected ring iff it has ≥1 edge in the set we actually
+	// draw (wm.Edges = hub ∪ observed, already filtered to labeled nodes).
+	// Keying off d.Orphan instead silently collapses to "everything" whenever
+	// the durable hub graph is sparse — worldOrphans then flags nothing, so the
+	// whole catalog defaults onto one ring (a 30+ node hairball over a handful
+	// of edges) while the band sits empty. Connectivity is the signal the index
+	// can't give and the one the ring exists to show.
+	connected := make(map[string]bool, len(wm.Edges)*2)
+	for _, e := range wm.Edges {
+		connected[e.From.Path] = true
+		connected[e.To.Path] = true
+	}
+	var linked, loose []domain.FloorDoc
 	for _, d := range docs {
-		if d.Orphan {
-			orphans = append(orphans, d)
-		} else {
+		if connected[d.Path] {
 			linked = append(linked, d)
+		} else {
+			loose = append(loose, d)
 		}
 	}
 
-	// Connected ring: linked docs evenly spaced, radius growing with count.
-	ringR := min(max(wmRingMin, 14*len(linked)), wmRingMax)
-	cx, cy := wmWidth/2, 40+ringR
-	placed := make(map[string]wmPlaced, len(linked))
-	for j, d := range linked {
-		x, y := ringAt(cx, cy, j, max(len(linked), 1), ringR)
-		placed[d.Path] = wmPlaced{doc: d, x: x, y: y, r: 5 + int(d.Importance*9)}
+	// Degree-tiered concentric rings. A node's degree (its edge count in
+	// wm.Edges) sets its tier: the most-connected documents fill the innermost
+	// ring, the long low-degree tail fans out across larger rings. This pulls
+	// the structural hubs to the centre so their many spokes radiate outward
+	// instead of chording across one crowded ring, and keeps each ring sparse
+	// enough to read (capacity grows with circumference). Deterministic — ties
+	// break by importance then path — so the layout stays cacheable.
+	degree := make(map[string]int, len(linked))
+	for _, e := range wm.Edges {
+		degree[e.From.Path]++
+		degree[e.To.Path]++
 	}
-	height := cy + ringR + 36
+	ordered := make([]domain.FloorDoc, len(linked))
+	copy(ordered, linked)
+	sort.SliceStable(ordered, func(i, j int) bool {
+		if di, dj := degree[ordered[i].Path], degree[ordered[j].Path]; di != dj {
+			return di > dj
+		}
+		if ordered[i].Importance != ordered[j].Importance {
+			return ordered[i].Importance > ordered[j].Importance
+		}
+		return ordered[i].Path < ordered[j].Path
+	})
 
-	// Orphan band below, floated apart (no edges) — visually separate.
-	orphanTop := height + 28
-	if len(orphans) > 0 {
-		rows := (len(orphans) + wmOrphanCols - 1) / wmOrphanCols
+	// First pass: bucket nodes into concentric rings, inner (hub) ring first,
+	// each ring holding ⌊circumference / wmTierArc⌋ nodes. Once a ring hits the
+	// radius cap, it absorbs the whole remaining tail (the degenerate
+	// large-catalog case) rather than spawning overlapping max-radius rings.
+	type ringBucket struct {
+		r    int
+		docs []domain.FloorDoc
+	}
+	var rings []ringBucket
+	for idx, k := 0, 0; idx < len(ordered); k++ {
+		ry := min(wmTierBaseR+k*wmTierGap, wmTierMaxR)
+		rx := int(float64(ry) * wmTierRatio)
+		// Capacity ≈ ellipse perimeter / min arc (π(rx+ry) approximates it); the
+		// wide ring holds more, so fewer rings spread across the width.
+		n := max(1, int(math.Pi*float64(rx+ry))/wmTierArc)
+		if ry == wmTierMaxR {
+			n = len(ordered) - idx // capped ring soaks up the rest
+		}
+		n = min(n, len(ordered)-idx)
+		rings = append(rings, ringBucket{r: ry, docs: ordered[idx : idx+n]})
+		idx += n
+	}
+
+	outerRy := wmTierBaseR
+	if len(rings) > 0 {
+		outerRy = rings[len(rings)-1].r
+	}
+	outerRx := int(float64(outerRy) * wmTierRatio)
+	// The viewBox fits the content tightly — wide enough for the widest ring (plus
+	// label margin), and the unlinked band runs the full width — so the SVG fills
+	// the wide overlay rather than centering a square in it.
+	width := 2*outerRx + 2*wmSideMargin
+	bandCols := max(1, width/wmOrphanCellW)
+	cx, cy := width/2, wmTierTop+outerRy
+	placed := make(map[string]wmPlaced, len(ordered))
+	for _, rb := range rings {
+		rx := int(float64(rb.r) * wmTierRatio)
+		for j, d := range rb.docs {
+			x, y := ellipseAt(cx, cy, j, len(rb.docs), rx, rb.r)
+			placed[d.Path] = wmPlaced{doc: d, x: x, y: y, r: 5 + int(d.Importance*9)}
+		}
+	}
+	height := cy + outerRy + 36
+
+	// Unlinked band below, floated apart (no edges) — visually separate.
+	orphanTop := height + 20
+	if len(loose) > 0 {
+		rows := (len(loose) + bandCols - 1) / bandCols
 		height = orphanTop + rows*wmOrphanCellH + 12
 	}
 
 	var b strings.Builder
 	fmt.Fprintf(&b, `<svg class="floor world-map" viewBox="0 0 %d %d" width="%d" height="%d" role="img" aria-label="%s map">`,
-		wmWidth, height, wmWidth, height, html.EscapeString(wm.World.Name))
-	fmt.Fprintf(&b, `<text class="world-map-caption" x="%d" y="22" text-anchor="middle">%d linked · %d orphan</text>`,
-		wmWidth/2, len(linked), len(orphans))
+		width, height, width, height, html.EscapeString(wm.World.Name))
+	fmt.Fprintf(&b, `<text class="world-map-caption" x="%d" y="22" text-anchor="middle">%d connected · %d unlinked</text>`,
+		width/2, len(linked), len(loose))
+	b.WriteString(arrowMarker)
 
-	// Reference edges first (nodes draw on top), only between placed (linked) nodes.
+	// Reference edges first (nodes draw on top), only between placed (linked)
+	// nodes, drawn From→To as arrows trimmed to each node's rim.
 	for _, e := range wm.Edges {
 		from, okF := placed[e.From.Path]
 		to, okT := placed[e.To.Path]
 		if !okF || !okT {
 			continue
 		}
-		fmt.Fprintf(&b, `<line class="graph-edge" x1="%d" y1="%d" x2="%d" y2="%d"/>`, from.x, from.y, to.x, to.y)
+		directedEdge(&b, from.x, from.y, from.r, to.x, to.y, to.r, e.From.Path, e.To.Path)
 	}
 	for _, d := range linked {
 		pn := placed[d.Path]
 		wmDocNode(&b, d, pn.x, pn.y, pn.r, docURL, false)
 	}
 
-	if len(orphans) > 0 {
-		fmt.Fprintf(&b, `<text class="world-map-band" x="20" y="%d">orphans</text>`, orphanTop-10)
-		for j, d := range orphans {
-			x := (j%wmOrphanCols)*wmOrphanCellW + wmOrphanCellW/2
-			y := orphanTop + (j/wmOrphanCols)*wmOrphanCellH + wmOrphanCellH/2
-			wmDocNode(&b, d, x, y, 6, docURL, true)
+	if len(loose) > 0 {
+		fmt.Fprintf(&b, `<text class="world-map-band" x="20" y="%d">unlinked</text>`, orphanTop-10)
+		for j, d := range loose {
+			x := (j%bandCols)*wmOrphanCellW + wmOrphanCellW/2
+			y := orphanTop + (j/bandCols)*wmOrphanCellH + wmOrphanCellH/2
+			wmDocNode(&b, d, x, y, 5, docURL, true)
 		}
 	}
 	b.WriteString(`</svg>`)
@@ -233,21 +322,25 @@ func worldMapSVG(wm domain.WorldMap, docURL func(string) string, newURL string) 
 // floated band reads differently from the connected cluster.
 func wmDocNode(b *strings.Builder, doc domain.FloorDoc, x, y, r int, docURL func(string) string, orphan bool) {
 	cls := "floor-doc status-" + doc.Status
+	trim := wmLabelTrim
 	if orphan {
 		cls += " world-map-orphan"
+		trim = wmBandLabelTrim // band labels are tighter, to stay compact
 	}
-	fmt.Fprintf(b, `<a href="%s"><circle class="%s" cx="%d" cy="%d" r="%d"/>`,
-		html.EscapeString(docURL(doc.Path)), html.EscapeString(cls), x, y, r)
+	fmt.Fprintf(b, `<a href="%s" data-node="%s"><circle class="%s" cx="%d" cy="%d" r="%d"/>`,
+		html.EscapeString(docURL(doc.Path)), html.EscapeString(doc.Path), html.EscapeString(cls), x, y, r)
 	fmt.Fprintf(b, `<text class="floor-doc-label" x="%d" y="%d" text-anchor="middle">%s</text>`,
-		x, y+r+13, html.EscapeString(trimWorldMapLabel(doc.Title)))
+		x, y+r+13, html.EscapeString(trimRunes(doc.Title, trim)))
 	fmt.Fprintf(b, `<title>%s — %s</title></a>`, html.EscapeString(doc.Title), html.EscapeString(doc.Path))
 }
 
-// ringAt places slot j of n on a ring of radius r around (cx, cy), starting at
-// the top and going clockwise — deterministic, so the layout is cacheable.
-func ringAt(cx, cy, j, n, r int) (x, y int) {
+// ellipseAt places slot j of n on an ellipse of radii (rx, ry) around (cx, cy),
+// starting at the top and going clockwise — deterministic, so the layout is
+// cacheable. rx > ry makes the rings wide, spreading nodes across the canvas so
+// the radial layout fills a wide overlay rather than letterboxing a square.
+func ellipseAt(cx, cy, j, n, rx, ry int) (x, y int) {
 	angle := 2*math.Pi*float64(j)/float64(n) - math.Pi/2
-	return cx + int(float64(r)*math.Cos(angle)), cy + int(float64(r)*math.Sin(angle))
+	return cx + int(float64(rx)*math.Cos(angle)), cy + int(float64(ry)*math.Sin(angle))
 }
 
 // floorSpineTitle names a floor-kind tombstone/spine pane: "Universe" for the
@@ -259,10 +352,12 @@ func floorSpineTitle(addr paneAddr) string {
 	return "Map: " + addr.World
 }
 
-func trimWorldMapLabel(s string) string {
+// trimRunes caps a label to n runes, eliding with an ellipsis; the full title
+// always rides in the node's <title>.
+func trimRunes(s string, n int) string {
 	runes := []rune(s)
-	if len(runes) <= wmLabelTrim {
+	if len(runes) <= n {
 		return s
 	}
-	return string(runes[:wmLabelTrim-1]) + "…"
+	return string(runes[:n-1]) + "…"
 }

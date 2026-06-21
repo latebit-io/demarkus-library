@@ -125,7 +125,7 @@ func (s *ReadingService) WorldMap(ctx context.Context, world string) (domain.Wor
 				joinAddr = w.URL
 			}
 			if h := hostOf(joinAddr); h != "" {
-				host2name[h] = w.Name
+				host2name[hostKey(h)] = w.Name
 			}
 		}
 	}
@@ -273,7 +273,7 @@ func (s *ReadingService) host2name(ctx context.Context) (map[string]string, erro
 			addr = w.URL
 		}
 		if h := hostOf(addr); h != "" {
-			m[h] = w.Name
+			m[hostKey(h)] = w.Name
 		}
 	}
 	return m, nil
@@ -283,7 +283,9 @@ func (s *ReadingService) host2name(ctx context.Context) (map[string]string, erro
 // it already is the world name (observed map) or its host joins to it (hub
 // graph, via host2name).
 func worldMember(refWorld, world string, host2name map[string]string) bool {
-	return refWorld == world || host2name[strings.ToLower(refWorld)] == world
+	return refWorld == world ||
+		host2name[hostKey(refWorld)] == world ||
+		hostKey(refWorld) == hostKey(world)
 }
 
 // worldOrphans returns the set of this world's document paths that the durable

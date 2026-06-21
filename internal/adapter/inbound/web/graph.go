@@ -20,13 +20,43 @@ import (
 // a trail). Edges come from the render-time observed-links map, so the pane
 // works in both transports and is simply sparse until the documents are read.
 const (
-	graphW       = 760
-	graphH       = 440
-	graphRingR   = 165 // neighbor ring radius
-	graphLabel   = 22  // neighbor label length cap
-	graphCenterR = 9
-	graphNodeR   = 6
+	graphLabel    = 22 // neighbor label length cap
+	graphCenterR  = 9
+	graphNodeR    = 6
+	graphRatio    = 1.5 // x:y stretch — a wide neighborhood fills a wide overlay
+	graphNodeVGap = 46  // vertical spacing budget per neighbor on an arc
+	graphMinRy    = 120 // min vertical arc radius (small neighborhoods stay legible)
+	graphMaxRy    = 440 // cap so a huge neighborhood doesn't run away
+	graphLabelPad = 150 // horizontal room for the outward (left/right) node labels
+	graphVPad     = 60  // top/bottom room for labels
 )
+
+// arrowMarker is the <defs> block defining the directional edge arrowhead,
+// emitted once at the top of each graph / world-map SVG so a reference edge
+// reads From→To. markerUnits="userSpaceOnUse" keeps the head a fixed size
+// regardless of the (thin) edge stroke width.
+// arrowMarker defines two heads: the resting #arrow and the green #arrow-hot the
+// hover state swaps in (islands.js adds .edge-hot to a hovered node's edges).
+const arrowMarker = `<defs><marker id="arrow" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto" markerUnits="userSpaceOnUse"><path class="edge-arrow" d="M0,0 L9,4.5 L0,9 z"/></marker><marker id="arrow-hot" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto" markerUnits="userSpaceOnUse"><path class="edge-arrow-hot" d="M0,0 L9,4.5 L0,9 z"/></marker></defs>`
+
+// directedEdge draws a reference edge from (x1,y1) to (x2,y2) as an arrow
+// pointing at the target, trimmed back by each endpoint's node radius so the
+// line sits between the rims and the arrowhead lands just outside the target
+// node instead of hiding under it. fromID/toID tag the edge with its endpoint
+// node ids so a node-hover handler can light up every incident edge.
+func directedEdge(b *strings.Builder, x1, y1, r1, x2, y2, r2 int, fromID, toID string) {
+	dx, dy := float64(x2-x1), float64(y2-y1)
+	d := math.Hypot(dx, dy)
+	if d == 0 {
+		return
+	}
+	ux, uy := dx/d, dy/d
+	const gap = 3.0 // breathing room between arrow tip and target rim
+	sx, sy := x1+int(ux*float64(r1)), y1+int(uy*float64(r1))
+	ex, ey := x2-int(ux*(float64(r2)+gap)), y2-int(uy*(float64(r2)+gap))
+	fmt.Fprintf(b, `<line class="graph-edge" x1="%d" y1="%d" x2="%d" y2="%d" data-from="%s" data-to="%s" marker-end="url(#arrow)"/>`,
+		sx, sy, ex, ey, html.EscapeString(fromID), html.EscapeString(toID))
+}
 
 // GraphPage renders the graph neighborhood as a standalone permalink —
 // /w/:world/g/<path> — the chunk-tail source and projection escape (decision
@@ -34,6 +64,9 @@ const (
 func (h *ReadingHandler) GraphPage(c *echo.Context) error {
 	world := c.Param("world")
 	p := "/" + c.Param("*")
+	if u := canvasTrailURL(c, paneAddr{Kind: paneGraph, World: world, Value: p}); u != "" {
+		return c.Redirect(http.StatusSeeOther, u)
+	}
 	n := h.reading.Neighborhood(world, p)
 	// Single-pane permalink: nodes link to /w/ document permalinks.
 	svg := graphSVG(n, func(r domain.Ref) string { return docRoute(r.World, r.Path) }, nil)
@@ -87,22 +120,37 @@ func graphSVG(n domain.Neighborhood, urlFor func(domain.Ref) string, onTrail map
 	if len(n.In) == 0 && len(n.Out) == 0 {
 		return template.HTML(`<p class="graph-empty">No links observed yet — the neighborhood fills in as connected documents are read.</p>`) //nolint:gosec // static markup
 	}
-	cx, cy := graphW/2, graphH/2
+	// A wide elliptical neighborhood sized to its node count, viewBox fit tightly
+	// so it fills the overlay instead of centering a small ring in a fixed box.
+	// ry grows with the busier side (so arcs never crowd vertically); rx is
+	// stretched wider; the canvas adds room for the outward node labels.
+	maxSide := max(len(n.In), len(n.Out))
+	ry := min(max(graphMinRy, maxSide*graphNodeVGap/2), graphMaxRy)
+	rx := int(float64(ry) * graphRatio)
+	width, height := 2*rx+2*graphLabelPad, 2*ry+2*graphVPad
+	cx, cy := width/2, height/2
 
 	var b strings.Builder
 	fmt.Fprintf(&b, `<svg class="graph" viewBox="0 0 %d %d" width="%d" height="%d" role="img" aria-label="document neighborhood">`,
-		graphW, graphH, graphW, graphH)
+		width, height, width, height)
+	b.WriteString(arrowMarker)
 
 	// Place backlinks across the left half (π/2 … 3π/2) and outbound links
 	// across the right half (-π/2 … π/2); a lone node sits at the pole.
-	placed := append(arcNodes(n.In, cx, cy, true), arcNodes(n.Out, cx, cy, false)...)
+	placed := append(arcNodes(n.In, cx, cy, rx, ry, true), arcNodes(n.Out, cx, cy, rx, ry, false)...)
 
-	// Edges first, so nodes draw on top.
+	// Edges first, so nodes draw on top. Direction follows the reference: an
+	// outbound link points center→neighbor, a backlink points neighbor→center.
 	for _, pn := range placed {
-		fmt.Fprintf(&b, `<line class="graph-edge" x1="%d" y1="%d" x2="%d" y2="%d"/>`, cx, cy, pn.x, pn.y)
+		if pn.inbound {
+			directedEdge(&b, pn.x, pn.y, graphNodeR, cx, cy, graphCenterR, pn.ref.Path, n.Center.Path)
+		} else {
+			directedEdge(&b, cx, cy, graphCenterR, pn.x, pn.y, graphNodeR, n.Center.Path, pn.ref.Path)
+		}
 	}
-	// Center node.
-	fmt.Fprintf(&b, `<circle class="graph-center" cx="%d" cy="%d" r="%d"/>`, cx, cy, graphCenterR)
+	// Center node (data-node so hovering it lights up all its edges).
+	fmt.Fprintf(&b, `<circle class="graph-center" data-node="%s" cx="%d" cy="%d" r="%d"/>`,
+		html.EscapeString(n.Center.Path), cx, cy, graphCenterR)
 	fmt.Fprintf(&b, `<text class="graph-center-label" x="%d" y="%d" text-anchor="middle">%s</text>`,
 		cx, cy-graphCenterR-8, html.EscapeString(refTitle(n.Center)))
 	// Neighbor nodes.
@@ -115,8 +163,8 @@ func graphSVG(n domain.Neighborhood, urlFor func(domain.Ref) string, onTrail map
 		if onTrail[pn.ref] {
 			cls += " graph-walked" // a neighbor already on your trail
 		}
-		fmt.Fprintf(&b, `<a href="%s"><circle class="%s" cx="%d" cy="%d" r="%d"/>`,
-			html.EscapeString(urlFor(pn.ref)), html.EscapeString(cls), pn.x, pn.y, graphNodeR)
+		fmt.Fprintf(&b, `<a href="%s" data-node="%s"><circle class="%s" cx="%d" cy="%d" r="%d"/>`,
+			html.EscapeString(urlFor(pn.ref)), html.EscapeString(pn.ref.Path), html.EscapeString(cls), pn.x, pn.y, graphNodeR)
 		anchor := "middle"
 		if pn.x < cx {
 			anchor = "end"
@@ -138,9 +186,10 @@ type placedNode struct {
 	inbound bool
 }
 
-// arcNodes spreads refs over a half-circle: the left arc for backlinks, the
-// right arc for outbound links. A single node sits on the pole of its side.
-func arcNodes(refs []domain.Ref, cx, cy int, inbound bool) []placedNode {
+// arcNodes spreads refs over a half-ellipse: the left arc for backlinks, the
+// right arc for outbound links, radii (rx, ry). A single node sits on the pole
+// of its side.
+func arcNodes(refs []domain.Ref, cx, cy, rx, ry int, inbound bool) []placedNode {
 	out := make([]placedNode, 0, len(refs))
 	for j, r := range refs {
 		var frac float64
@@ -156,8 +205,8 @@ func arcNodes(refs []domain.Ref, cx, cy int, inbound bool) []placedNode {
 		}
 		out = append(out, placedNode{
 			ref:     r,
-			x:       cx + int(graphRingR*math.Cos(angle)),
-			y:       cy + int(graphRingR*math.Sin(angle)),
+			x:       cx + int(float64(rx)*math.Cos(angle)),
+			y:       cy + int(float64(ry)*math.Sin(angle)),
 			inbound: inbound,
 		})
 	}
