@@ -161,6 +161,10 @@ func TestHostJoinIsPortStable(t *testing.T) {
 		"soul.demarkus.io:6309": "soul.demarkus.io:6309",
 		"localhost:6401":        "localhost:6401",
 		"":                      "",
+		// IPv6: a bare literal must be bracketed before the default port; a
+		// bracketed literal that already carries a port is left alone.
+		"2001:db8::1":        "[2001:db8::1]:6309",
+		"[2001:db8::1]:6310": "[2001:db8::1]:6310",
 	} {
 		if got := hostKey(in); got != want {
 			t.Errorf("hostKey(%q) = %q, want %q", in, got, want)

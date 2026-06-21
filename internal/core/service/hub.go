@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"net"
 	"sort"
 	"strings"
 
@@ -158,9 +159,19 @@ const defaultHostPort = "6309"
 // host stay distinct.
 func hostKey(h string) string {
 	h = strings.ToLower(strings.TrimSpace(h))
-	if h == "" || strings.Contains(h, ":") {
+	if h == "" {
 		return h
 	}
+	// Already host:port (incl. bracketed IPv6 with a port) — leave it.
+	if _, _, err := net.SplitHostPort(h); err == nil {
+		return h
+	}
+	// A bare IPv6 literal has ≥2 colons and no brackets — its colons are the
+	// address, not a port, so bracket it before appending the default port.
+	if strings.Count(h, ":") >= 2 && !strings.HasPrefix(h, "[") {
+		return "[" + h + "]:" + defaultHostPort
+	}
+	// DNS/IPv4 host, or a bracketed IPv6 with no port.
 	return h + ":" + defaultHostPort
 }
 
