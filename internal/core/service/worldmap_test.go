@@ -137,6 +137,41 @@ func TestWorldOrphans(t *testing.T) {
 	}
 }
 
+// A document links its own world without the default port (mark://host/...),
+// while the world is named with it (host:6309). The topology join must be
+// port-stable, or hub edges never reach the world map and the floor sprouts a
+// phantom port-less portal beside the real world. Regression for that bug.
+func TestHostJoinIsPortStable(t *testing.T) {
+	// Port-less ref host joins the explicit-default-port world via host2name.
+	if !worldMember("world-a.svc", "world-a", map[string]string{"world-a.svc:6309": "world-a"}) {
+		t.Error("port-less ref host should join its default-port world via host2name")
+	}
+	// Two host-shaped names differing only by the implicit default port match.
+	if !worldMember("soul.demarkus.io", "soul.demarkus.io:6309", map[string]string{}) {
+		t.Error("port-less host should match the same host named with the default port")
+	}
+	// An explicit non-default port stays distinct (a different dev world on one host).
+	if worldMember("localhost:6401", "localhost:6309", map[string]string{}) {
+		t.Error("explicit non-default port must not collapse onto the default-port world")
+	}
+
+	// hostKey appends the default port only when one is absent.
+	for in, want := range map[string]string{
+		"soul.demarkus.io":      "soul.demarkus.io:6309",
+		"soul.demarkus.io:6309": "soul.demarkus.io:6309",
+		"localhost:6401":        "localhost:6401",
+		"":                      "",
+		// IPv6: a bare literal must be bracketed before the default port; a
+		// bracketed literal that already carries a port is left alone.
+		"2001:db8::1":        "[2001:db8::1]:6309",
+		"[2001:db8::1]:6310": "[2001:db8::1]:6310",
+	} {
+		if got := hostKey(in); got != want {
+			t.Errorf("hostKey(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 func TestWorldMapMarksOrphansFromHubGraph(t *testing.T) {
 	gw := fakeGateway{
 		worlds:    []domain.WorldInfo{{Name: "world-a", URL: "mark://world-a.svc:6309"}},

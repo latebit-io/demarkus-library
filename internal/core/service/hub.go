@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"net"
 	"sort"
 	"strings"
 
@@ -127,10 +128,10 @@ func hostName(world string, host2name map[string]string, authorized map[string]b
 	if authorized[world] {
 		return world, false // already an authorized name
 	}
-	if name, ok := host2name[strings.ToLower(world)]; ok {
+	if name, ok := host2name[hostKey(world)]; ok {
 		return name, false
 	}
-	return world, true // unmatched host → portal
+	return world, true // unmatched host → portal (kept verbatim)
 }
 
 // hostOf extracts the host from a world's mark:// URL, "" when absent.
@@ -141,6 +142,37 @@ func hostOf(url string) string {
 	}
 	host, _, _ := strings.Cut(rest, "/")
 	return strings.ToLower(host)
+}
+
+// defaultHostPort is the demarkus protocol's default QUIC port (protocol.DefaultPort).
+// A mark:// URL may omit it, so a document that links mark://soul.demarkus.io and the
+// world named soul.demarkus.io:6309 name the same host.
+const defaultHostPort = "6309"
+
+// hostKey normalizes a host to its explicit-port form so the topology join is
+// port-stable: a port-less host (a document link, or a DEMARKUS_HOST with no
+// port) gets the default port appended, while a host that already carries one
+// is left alone. Without this, mark://soul.demarkus.io/... edges never join the
+// world named soul.demarkus.io:6309 — the world map renders edgeless and the
+// floor sprouts a phantom port-less portal beside the real world. An explicit
+// non-default port (127.0.0.1:6401) is preserved, so distinct dev worlds on one
+// host stay distinct.
+func hostKey(h string) string {
+	h = strings.ToLower(strings.TrimSpace(h))
+	if h == "" {
+		return h
+	}
+	// Already host:port (incl. bracketed IPv6 with a port) — leave it.
+	if _, _, err := net.SplitHostPort(h); err == nil {
+		return h
+	}
+	// A bare IPv6 literal has ≥2 colons and no brackets — its colons are the
+	// address, not a port, so bracket it before appending the default port.
+	if strings.Count(h, ":") >= 2 && !strings.HasPrefix(h, "[") {
+		return "[" + h + "]:" + defaultHostPort
+	}
+	// DNS/IPv4 host, or a bracketed IPv6 with no port.
+	return h + ":" + defaultHostPort
 }
 
 // worldEdges aggregates document-level edges (hub graph ∪ observed map) into

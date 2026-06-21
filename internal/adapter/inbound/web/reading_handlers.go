@@ -110,11 +110,33 @@ func (h *ReadingHandler) Root(c *echo.Context) error {
 	return c.Redirect(http.StatusFound, trailURL(home))
 }
 
+// canvasTrailURL returns the canonical /t/ trail URL for a single pane, or ""
+// when the request is a bare htmx fragment (an overlay load, a preview, an
+// active-search) that must keep rendering the fragment it asked for. A plain
+// browser navigation — or an hx-boosted one — resolves to the trail so
+// interactive browsing always lands on the multi-pane canvas instead of a
+// standalone centered permalink page. The permalink (/w/<world>/d|u|g|tags/...)
+// is otherwise a one-way trap: its own links are permalinks too, so one stray
+// click strands the reader in the centered projection. The permalink URL stays
+// shareable (a recipient simply follows this redirect) and no-JS still works
+// (the canvas is server-rendered). raw/versions keep rendering standalone — they
+// are deliberate escapes to the unrendered projection, not navigation surfaces.
+func canvasTrailURL(c *echo.Context, addr paneAddr) string {
+	hdr := c.Request().Header
+	if hdr.Get("HX-Request") == "true" && hdr.Get("HX-Boosted") != "true" {
+		return ""
+	}
+	return trailURL(trail{Panes: []paneAddr{addr}, Focus: 0})
+}
+
 // Doc renders a document, or a directory listing (the stacks) when the path
 // ends in a slash. /w/<world>/d/<path>.
 func (h *ReadingHandler) Doc(c *echo.Context) error {
 	world := c.Param("world")
 	p := "/" + c.Param("*")
+	if u := canvasTrailURL(c, paneAddr{Kind: paneDoc, World: world, Value: p}); u != "" {
+		return c.Redirect(http.StatusSeeOther, u)
+	}
 	doc, err := h.reading.Open(c.Request().Context(), world, p)
 	return h.present(c, doc, err, viewOpts{world: world, path: p, doc: !domain.IsListingPath(p)})
 }
@@ -140,6 +162,9 @@ func (h *ReadingHandler) TagPage(c *echo.Context) error {
 	tag := c.Param("tag")
 	if dec, err := url.PathUnescape(tag); err == nil {
 		tag = dec
+	}
+	if u := canvasTrailURL(c, paneAddr{Kind: paneTag, World: world, Value: tag}); u != "" {
+		return c.Redirect(http.StatusSeeOther, u)
 	}
 	doc, err := h.reading.Tag(c.Request().Context(), world, tag)
 	return h.present(c, doc, err, viewOpts{world: world, path: "/tags/" + tag, catalog: true})

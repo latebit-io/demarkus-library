@@ -46,13 +46,14 @@ func TestGraphPagePermalink(t *testing.T) {
 		},
 	}}
 	rec := get(readingApp(t, svc), "/w/soul/g/x.md")
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d", rec.Code)
+	// A plain navigation to the graph permalink lands on the canvas (the graph as
+	// a focused pane), not the standalone centered page — which would be a
+	// one-way trap. The /w/ URL stays shareable; recipients follow this redirect.
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want 303", rec.Code)
 	}
-	body := rec.Body.String()
-	// Nodes on the permalink link to /w/ document permalinks.
-	if !strings.Contains(body, `href="/w/soul/d/y.md"`) {
-		t.Errorf("permalink graph node not a /w/ route: %s", body)
+	if loc := rec.Header().Get("Location"); loc != "/t/soul/g/x.md" {
+		t.Errorf("Location = %q, want /t/soul/g/x.md", loc)
 	}
 }
 

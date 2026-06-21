@@ -261,6 +261,38 @@
     m.hidden ? openMap() : closeMap();
   });
 
+  // --- node-hover highlight (map + graph) ------------------------------
+  // ADR 0003 concession (JS island): a hover affordance can't be expressed in
+  // SSR/CSS because an edge's two endpoints aren't DOM-adjacent to either node,
+  // so relating them needs a script. Kept in spirit with ADR 0003 — purely
+  // presentational (toggles CSS classes, no client state, no fetch, no bearing
+  // on the URL-as-state contract) and it degrades to nothing without JS, exactly
+  // like the existing mermaid/KaTeX and overlay-toggle concessions in this file.
+  // Hovering a node lights up its incident edges (.edge-hot) and the nodes they
+  // connect to (.node-hot), green via CSS. Edges carry data-from/data-to and
+  // nodes data-node.
+  document.addEventListener("mouseover", function (e) {
+    var svg = e.target.closest && e.target.closest("svg.graph, svg.world-map");
+    if (!svg) return;
+    var holder = e.target.closest("[data-node]");
+    var p = holder ? holder.getAttribute("data-node") : null;
+    svg.querySelectorAll(".edge-hot").forEach(function (n) { n.classList.remove("edge-hot"); });
+    svg.querySelectorAll(".node-hot").forEach(function (n) { n.classList.remove("node-hot"); });
+    if (!p) return;
+    var connected = new Set([p]);
+    svg.querySelectorAll("line[data-from], line[data-to]").forEach(function (l) {
+      var f = l.getAttribute("data-from"), t = l.getAttribute("data-to");
+      if (f === p || t === p) {
+        l.classList.add("edge-hot");
+        connected.add(f);
+        connected.add(t);
+      }
+    });
+    svg.querySelectorAll("[data-node]").forEach(function (nd) {
+      if (connected.has(nd.getAttribute("data-node"))) nd.classList.add("node-hot");
+    });
+  });
+
   document.addEventListener("DOMContentLoaded", function () {
     scan(document.body);
     showFocusedPane();
