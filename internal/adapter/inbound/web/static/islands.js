@@ -207,17 +207,38 @@
     }
   });
 
+  // --- on-demand overlay focus (graph §4, world map §5, universe §6) ----
+  // Shared focus handling for the pull-up overlays: move focus into the panel
+  // (the role="dialog" element) on open, and restore it on close to whatever
+  // had focus — the trigger link for a click, or the active element for a
+  // hotkey toggle. Keyboard/screen-reader users land in the dialog and return
+  // where they were. The backdrop is the scrim; the panel is the dialog.
+  function showOverlay(el, restore) {
+    if (!el) return;
+    el._restoreFocus = restore || document.activeElement;
+    el.hidden = false;
+    var panel = el.querySelector(".graph-panel") || el;
+    panel.setAttribute("tabindex", "-1");
+    panel.focus();
+  }
+  function hideOverlay(el) {
+    if (!el) return;
+    el.hidden = true;
+    var r = el._restoreFocus;
+    if (r && r.focus) r.focus();
+  }
+
   // --- graph overlay (g) — ADR 0006 §4 ----------------------------------
   // The overlay is server-rendered (templates/graph-overlay); this is the
   // summon/dismiss glue ADR 0003 sanctions. Node clicks are plain trail links,
   // so navigating dismisses it. Degrades: the margin "graph" link is a real /g/
   // permalink; we only intercept it on the canvas (where the overlay exists).
   function graphOverlay() { return document.getElementById("graph-overlay"); }
-  function openGraph() { var g = graphOverlay(); if (g) g.hidden = false; }
-  function closeGraph() { var g = graphOverlay(); if (g) g.hidden = true; }
+  function openGraph(restore) { showOverlay(graphOverlay(), restore); }
+  function closeGraph() { hideOverlay(graphOverlay()); }
   document.addEventListener("click", function (e) {
     var link = e.target.closest && e.target.closest("a.graph-open");
-    if (link && graphOverlay()) { e.preventDefault(); openGraph(); return; }
+    if (link && graphOverlay()) { e.preventDefault(); openGraph(link); return; }
     if (e.target.id === "graph-overlay") closeGraph(); // click outside the panel
   });
   document.addEventListener("keydown", function (e) {
@@ -237,16 +258,16 @@
   // #map-canvas on summon (the map needs a catalog read, so an unopened map
   // costs nothing). Node clicks are trail links → navigating dismisses it.
   function mapOverlay() { return document.getElementById("map-overlay"); }
-  function openMap() {
+  function openMap(restore) {
     var m = mapOverlay();
     if (!m) return;
-    m.hidden = false;
+    showOverlay(m, restore);
     if (window.htmx) window.htmx.ajax("GET", m.dataset.mapUrl, "#map-canvas");
   }
-  function closeMap() { var m = mapOverlay(); if (m) m.hidden = true; }
+  function closeMap() { hideOverlay(mapOverlay()); }
   document.addEventListener("click", function (e) {
     var link = e.target.closest && e.target.closest("a.map-open");
-    if (link && mapOverlay()) { e.preventDefault(); openMap(); return; }
+    if (link && mapOverlay()) { e.preventDefault(); openMap(link); return; }
     if (e.target.id === "map-overlay") closeMap(); // click outside the panel
   });
   document.addEventListener("keydown", function (e) {
@@ -259,6 +280,30 @@
     if ((p && !p.hidden) || !m) return;
     e.preventDefault();
     m.hidden ? openMap() : closeMap();
+  });
+
+  // --- universe overlay (§6) --------------------------------------------
+  // The floor's full-viewport map pull-up. Same lazy chrome as the world map,
+  // summoned by the floor's "view as map" link (a.universe-open) so the universe
+  // topology gets real estate as worlds multiply. No summon hotkey — the trigger
+  // lives only on the floor pane (the landing). Degrades: with JS off the link
+  // is a real ?view=map that renders the map inline on the floor pane.
+  function universeOverlay() { return document.getElementById("universe-overlay"); }
+  function openUniverse(restore) {
+    var u = universeOverlay();
+    if (!u) return;
+    showOverlay(u, restore);
+    if (window.htmx) window.htmx.ajax("GET", u.dataset.universeUrl, "#universe-canvas");
+  }
+  function closeUniverse() { hideOverlay(universeOverlay()); }
+  document.addEventListener("click", function (e) {
+    var link = e.target.closest && e.target.closest("a.universe-open");
+    if (link && universeOverlay()) { e.preventDefault(); openUniverse(link); return; }
+    if (e.target.id === "universe-overlay") closeUniverse(); // click outside the panel
+  });
+  document.addEventListener("keydown", function (e) {
+    var u = universeOverlay();
+    if (e.key === "Escape" && u && !u.hidden) { e.preventDefault(); closeUniverse(); return; }
   });
 
   // --- node-hover highlight (map + graph) ------------------------------

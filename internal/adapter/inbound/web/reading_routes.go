@@ -22,6 +22,7 @@ func noStore(next echo.HandlerFunc) echo.HandlerFunc {
 //   - /                          the default trail (default world's default doc)
 //   - /palette                   command palette results fragment, htmx (ADR 0006 §3)
 //   - /t/<trail>                 the trail canvas (ADR 0005; format in trail.go)
+//   - /u                         the universe map fragment for the floor overlay (ADR 0006 §6)
 //   - /w/:world/d/<path>         a document, or the stacks when path ends in /
 //   - /w/:world/g/<path>         the graph neighborhood (links + backlinks)
 //   - /w/:world/u                the world map (catalog by directory cluster)
@@ -43,6 +44,7 @@ func ReadingRoutes(e *echo.Echo, handler ReadingHandler, middleware ...echo.Midd
 	// turnstile middleware runs after it.
 	mw := append([]echo.MiddlewareFunc{noStore}, middleware...)
 	e.GET("/", handler.Root, mw...)
+	e.GET("/u", handler.FloorPage, mw...)
 	e.GET("/palette", handler.Palette, mw...)
 	e.GET("/t/*", handler.Trail, mw...)
 	e.GET("/w/:world/d/*", handler.Doc, mw...)

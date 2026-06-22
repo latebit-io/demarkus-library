@@ -2,6 +2,7 @@ package web
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -131,6 +132,36 @@ func TestFloorSVGEdgesAndPortals(t *testing.T) {
 	}
 }
 
+func TestFloorGridLayout(t *testing.T) {
+	// ~√N landscape columns; a lone world is one centered column.
+	for _, c := range []struct{ n, cols int }{{0, 1}, {1, 1}, {2, 2}, {3, 3}, {4, 3}, {9, 5}, {16, 6}} {
+		if got := floorGridCols(c.n); got != c.cols {
+			t.Errorf("floorGridCols(%d) = %d, want %d", c.n, got, c.cols)
+		}
+	}
+	// rowItems centers partial last rows; ceilDiv counts rows (0 for empty).
+	if rowItems(9, 5, 0) != 5 || rowItems(9, 5, 1) != 4 {
+		t.Errorf("rowItems(9,5,*) = %d,%d, want 5,4", rowItems(9, 5, 0), rowItems(9, 5, 1))
+	}
+	if ceilDiv(9, 5) != 2 || ceilDiv(0, 5) != 0 {
+		t.Errorf("ceilDiv wrong: %d %d", ceilDiv(9, 5), ceilDiv(0, 5))
+	}
+}
+
+// Many worlds wrap into a centered grid instead of one ever-widening row: 6
+// systems → 4 cols × 2 rows, so the viewBox is two system-rows tall.
+func TestFloorSVGWrapsManyWorlds(t *testing.T) {
+	names := []string{"a", "b", "c", "d", "e", "f"}
+	ws := make([]domain.FloorWorld, 0, len(names))
+	for _, name := range names {
+		ws = append(ws, domain.FloorWorld{World: domain.WorldInfo{Name: name}})
+	}
+	svg := string(floorSVG(domain.Floor{Worlds: ws}, trail{Panes: []paneAddr{{Kind: paneFloor}}, Focus: 0}, 0))
+	if !strings.Contains(svg, `viewBox="0 0 1360 880"`) {
+		t.Errorf("expected wrapped 4×2 grid (viewBox 1360×880), got: %.120s", svg)
+	}
+}
+
 func TestFloorSVGEscapesContent(t *testing.T) {
 	floor := domain.Floor{Worlds: []domain.FloorWorld{
 		{World: domain.WorldInfo{Name: "w"},
@@ -170,6 +201,62 @@ func TestRootRedirectsToFloor(t *testing.T) {
 	rec := get(readingApp(t, &fakeReading{}), "/")
 	if rec.Code != http.StatusFound || rec.Header().Get("Location") != "/t/u" {
 		t.Errorf("root -> %d %q, want 302 /t/u", rec.Code, rec.Header().Get("Location"))
+	}
+}
+
+// The universe overlay shell (ADR 0006 §6) is embedded on the landing floor,
+// and the floor's "view as map" link carries the universe-open class so
+// islands.js summons the overlay (degrading to the inline ?view=map href).
+func TestTrailUniverseOverlayShell(t *testing.T) {
+	body := get(readingApp(t, &fakeReading{floor: testFloor()}), "/t/u").Body.String()
+	if !strings.Contains(body, `id="universe-overlay"`) || !strings.Contains(body, `data-universe-url="/u?overlay=1"`) {
+		t.Errorf("universe overlay shell missing: %s", body)
+	}
+	// Dialog semantics for screen readers (matches the graph overlay).
+	if !strings.Contains(body, `role="dialog"`) || !strings.Contains(body, `aria-labelledby="universe-title"`) {
+		t.Errorf("universe overlay missing ARIA dialog attributes: %s", body)
+	}
+	if !strings.Contains(body, `class="floor-view universe-open"`) {
+		t.Errorf(`"view as map" trigger missing universe-open class: %s`, body)
+	}
+	// hx-boost="false" keeps htmx from boost-navigating the click so islands.js
+	// can summon the overlay (the proven map-open/graph-open pattern).
+	if !strings.Contains(body, `class="floor-view universe-open" href="/t/u?view=map" hx-boost="false"`) {
+		t.Errorf(`"view as map" trigger must opt out of hx-boost: %s`, body)
+	}
+}
+
+// /u?overlay=1 returns the bare floor SVG fragment (not a full page), with nodes
+// extending the reader's current trail (from HX-Current-URL).
+func TestFloorOverlayFragment(t *testing.T) {
+	svc := &fakeReading{floor: testFloor()}
+	req := httptest.NewRequest(http.MethodGet, "/u?overlay=1", http.NoBody)
+	req.Header.Set("HX-Current-URL", "http://x/t/u")
+	rec := httptest.NewRecorder()
+	readingApp(t, svc).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, `class="floor"`) || !strings.Contains(body, "<svg") {
+		t.Errorf("overlay fragment should be the floor SVG: %s", body)
+	}
+	if strings.Contains(body, "<html") {
+		t.Errorf("overlay fragment must be bare SVG, not a full page: %s", body)
+	}
+	// Live read (discovery action), not the cached floor.
+	if got := strings.Join(svc.calls, ","); got != "Floor" {
+		t.Errorf("overlay calls = %q, want live Floor", got)
+	}
+}
+
+// A direct hit on /u without ?overlay=1 lands on the canvas floor — the floor
+// has no standalone permalink.
+func TestFloorPageRedirectsWhenNotOverlay(t *testing.T) {
+	rec := get(readingApp(t, &fakeReading{floor: testFloor()}), "/u")
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/t/u" {
+		t.Errorf("/u -> %d %q, want 303 /t/u", rec.Code, rec.Header().Get("Location"))
 	}
 }
 

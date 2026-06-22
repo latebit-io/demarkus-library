@@ -33,6 +33,11 @@ type canvasVM struct {
 	MapHas       bool
 	MapWorld     string
 	MapWorldPath string
+
+	// The universe overlay shell (ADR 0006 §6): present whenever the universe
+	// floor is on the canvas, where its "view as map" trigger lives. Lazy — the
+	// floorSVG htmx-loads only when the reader pulls it up.
+	FloorHas bool
 }
 
 // graphOverlayVM is the focused doc's graph overlay (ADR 0006 §4): summoned by
@@ -106,6 +111,9 @@ func (h *ReadingHandler) Trail(c *echo.Context) error {
 			var err error
 			scope := "universe"
 			if addr.World == "" {
+				// The universe floor is on the canvas → its "view as map"
+				// trigger exists, so render the overlay shell (ADR 0006 §6).
+				vm.FloorHas = true
 				pane, err = h.floorPaneView(ctx, t, i, c.QueryParam("view") == "map")
 			} else {
 				scope = addr.World

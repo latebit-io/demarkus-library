@@ -110,6 +110,26 @@ func (h *ReadingHandler) Root(c *echo.Context) error {
 	return c.Redirect(http.StatusFound, trailURL(home))
 }
 
+// FloorPage serves the universe floor for the on-demand overlay (ADR 0006 §6):
+// ?overlay=1 returns the bare universe-map SVG fragment, htmx-loaded into
+// #universe-canvas when the reader pulls up the floor's "view as map" link. The
+// floor has no standalone permalink (its home is pane zero, /t/u), so a direct
+// hit without ?overlay=1 is sent to the canvas floor. Nodes extend the reader's
+// current trail (from HX-Current-URL), so a click in the overlay continues the
+// walk and the navigation dismisses the overlay.
+func (h *ReadingHandler) FloorPage(c *echo.Context) error {
+	if c.QueryParam("overlay") != "1" {
+		home := trail{Panes: []paneAddr{{Kind: paneFloor}}, Focus: 0}
+		return c.Redirect(http.StatusSeeOther, trailURL(home))
+	}
+	floor, err := h.reading.Floor(c.Request().Context())
+	if err != nil {
+		return presentError(c, err, "universe", "/")
+	}
+	t := currentTrail(c)
+	return c.HTML(http.StatusOK, string(floorSVG(floor, t, t.Focus)))
+}
+
 // canvasTrailURL returns the canonical /t/ trail URL for a single pane, or ""
 // when the request is a bare htmx fragment (an overlay load, a preview, an
 // active-search) that must keep rendering the fragment it asked for. A plain
