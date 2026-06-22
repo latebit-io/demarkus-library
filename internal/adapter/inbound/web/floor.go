@@ -135,7 +135,10 @@ func floorCards(floor domain.Floor, t trail, idx int) template.HTML {
 
 // floorViewToggle is the "view as map / worlds" switch (ADR 0006 §5): the
 // universe is worlds-by-default, with the federation topology a deliberate
-// secondary view at ?view=map.
+// secondary view. With JS the "view as map" link summons the full-viewport
+// universe overlay (ADR 0006 §6; islands.js intercepts the universe-open
+// class); with JS off the same href renders the map inline on the floor pane
+// via ?view=map, so the topology stays reachable either way.
 func floorViewToggle(t trail, mapView bool) template.HTML {
 	base := trailURL(t)
 	if mapView {
@@ -145,7 +148,7 @@ func floorViewToggle(t trail, mapView bool) template.HTML {
 	if strings.Contains(base, "?") {
 		sep = "&"
 	}
-	return template.HTML(`<a class="floor-view" href="` + html.EscapeString(base+sep+"view=map") + `">view as map →</a>`) //nolint:gosec // escaped
+	return template.HTML(`<a class="floor-view universe-open" href="` + html.EscapeString(base+sep+"view=map") + `">view as map →</a>`) //nolint:gosec // escaped
 }
 
 // floorSystem renders one authorized world: the world node (zooms into the

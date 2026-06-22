@@ -261,6 +261,30 @@
     m.hidden ? openMap() : closeMap();
   });
 
+  // --- universe overlay (§6) --------------------------------------------
+  // The floor's full-viewport map pull-up. Same lazy chrome as the world map,
+  // summoned by the floor's "view as map" link (a.universe-open) so the universe
+  // topology gets real estate as worlds multiply. No summon hotkey — the trigger
+  // lives only on the floor pane (the landing). Degrades: with JS off the link
+  // is a real ?view=map that renders the map inline on the floor pane.
+  function universeOverlay() { return document.getElementById("universe-overlay"); }
+  function openUniverse() {
+    var u = universeOverlay();
+    if (!u) return;
+    u.hidden = false;
+    if (window.htmx) window.htmx.ajax("GET", u.dataset.universeUrl, "#universe-canvas");
+  }
+  function closeUniverse() { var u = universeOverlay(); if (u) u.hidden = true; }
+  document.addEventListener("click", function (e) {
+    var link = e.target.closest && e.target.closest("a.universe-open");
+    if (link && universeOverlay()) { e.preventDefault(); openUniverse(); return; }
+    if (e.target.id === "universe-overlay") closeUniverse(); // click outside the panel
+  });
+  document.addEventListener("keydown", function (e) {
+    var u = universeOverlay();
+    if (e.key === "Escape" && u && !u.hidden) { e.preventDefault(); closeUniverse(); return; }
+  });
+
   // --- node-hover highlight (map + graph) ------------------------------
   // ADR 0003 concession (JS island): a hover affordance can't be expressed in
   // SSR/CSS because an edge's two endpoints aren't DOM-adjacent to either node,

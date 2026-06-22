@@ -39,6 +39,7 @@
   {{template "dock" .Dock}}
   {{template "graph-overlay" .Graph}}
   {{template "map-overlay" .}}
+  {{template "universe-overlay" .}}
   {{template "palette" .}}
 </body>
 </html>{{end}}
@@ -69,6 +70,23 @@
   <div class="graph-panel">
     <div class="graph-head"><span class="graph-title">Map: {{ .MapWorld }}</span><span class="graph-hint">m · esc</span></div>
     <div id="map-canvas" class="graph-canvas"></div>
+  </div>
+</div>
+{{- end}}
+{{end}}
+
+{{/* The universe overlay (ADR 0006 §6): the floor's SSR-SVG topology pulled up
+     full-viewport so the universe map has room as worlds multiply. Same lazy
+     chrome as the world map — htmx-loaded into #universe-canvas on summon (the
+     floor's "view as map" link, islands.js). Nodes extend the trail, so
+     navigating dismisses it. Degrades: with JS off the link is a real ?view=map
+     that renders the map inline on the floor pane. */}}
+{{define "universe-overlay"}}
+{{- if .FloorHas}}
+<div id="universe-overlay" class="graph-backdrop" hidden data-universe-url="/u?overlay=1">
+  <div class="graph-panel">
+    <div class="graph-head"><span class="graph-title">Universe</span><span class="graph-hint">esc</span></div>
+    <div id="universe-canvas" class="graph-canvas"></div>
   </div>
 </div>
 {{- end}}

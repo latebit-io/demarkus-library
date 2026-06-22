@@ -2,6 +2,7 @@ package web
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -170,6 +171,53 @@ func TestRootRedirectsToFloor(t *testing.T) {
 	rec := get(readingApp(t, &fakeReading{}), "/")
 	if rec.Code != http.StatusFound || rec.Header().Get("Location") != "/t/u" {
 		t.Errorf("root -> %d %q, want 302 /t/u", rec.Code, rec.Header().Get("Location"))
+	}
+}
+
+// The universe overlay shell (ADR 0006 §6) is embedded on the landing floor,
+// and the floor's "view as map" link carries the universe-open class so
+// islands.js summons the overlay (degrading to the inline ?view=map href).
+func TestTrailUniverseOverlayShell(t *testing.T) {
+	body := get(readingApp(t, &fakeReading{floor: testFloor()}), "/t/u").Body.String()
+	if !strings.Contains(body, `id="universe-overlay"`) || !strings.Contains(body, `data-universe-url="/u?overlay=1"`) {
+		t.Errorf("universe overlay shell missing: %s", body)
+	}
+	if !strings.Contains(body, `class="floor-view universe-open"`) {
+		t.Errorf(`"view as map" trigger missing universe-open class: %s`, body)
+	}
+}
+
+// /u?overlay=1 returns the bare floor SVG fragment (not a full page), with nodes
+// extending the reader's current trail (from HX-Current-URL).
+func TestFloorOverlayFragment(t *testing.T) {
+	svc := &fakeReading{floor: testFloor()}
+	req := httptest.NewRequest(http.MethodGet, "/u?overlay=1", http.NoBody)
+	req.Header.Set("HX-Current-URL", "http://x/t/u")
+	rec := httptest.NewRecorder()
+	readingApp(t, svc).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, `class="floor"`) || !strings.Contains(body, "<svg") {
+		t.Errorf("overlay fragment should be the floor SVG: %s", body)
+	}
+	if strings.Contains(body, "<html") {
+		t.Errorf("overlay fragment must be bare SVG, not a full page: %s", body)
+	}
+	// Live read (discovery action), not the cached floor.
+	if got := strings.Join(svc.calls, ","); got != "Floor" {
+		t.Errorf("overlay calls = %q, want live Floor", got)
+	}
+}
+
+// A direct hit on /u without ?overlay=1 lands on the canvas floor — the floor
+// has no standalone permalink.
+func TestFloorPageRedirectsWhenNotOverlay(t *testing.T) {
+	rec := get(readingApp(t, &fakeReading{floor: testFloor()}), "/u")
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/t/u" {
+		t.Errorf("/u -> %d %q, want 303 /t/u", rec.Code, rec.Header().Get("Location"))
 	}
 }
 
