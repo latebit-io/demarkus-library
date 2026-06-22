@@ -50,21 +50,44 @@ func floorSVG(floor domain.Floor, t trail, idx int) template.HTML {
 		return template.HTML(`<p class="floor-empty">The universe is empty — no worlds visible to your identity.</p>`) //nolint:gosec // static markup
 	}
 
-	// Lay out: systems across the top row, portals across a band below.
-	// centers anchors the edges (keyed by world name).
+	// Lay out as two centered grids — systems up top, portals in a band below —
+	// rather than two single rows. A single row slid the cluster off to one side
+	// (its width was set by whichever band was wider) and grew without bound as
+	// worlds multiplied; a grid wraps at ~√N columns (landscape-biased), stays
+	// centered, and grows downward into the scrollable overlay. centers anchors
+	// the edges (keyed by world name).
+	sysCols := floorGridCols(len(systems))
+	porCols := floorGridCols(len(portals))
+	sysRows := ceilDiv(len(systems), sysCols)
+	porRows := ceilDiv(len(portals), porCols)
+
+	// The canvas is as wide as the widest band; each band's rows are centered
+	// within it, so a lone system sits in the middle, not the corner.
+	width := max(sysCols*floorSystemW, porCols*floorPortalW)
+	if width == 0 {
+		width = floorSystemW
+	}
+	systemsH := sysRows * floorSystemH
+
 	centers := make(map[string]floorPoint, len(floor.Worlds))
 	for i, fw := range systems {
-		centers[fw.World.Name] = floorPoint{x: i*floorSystemW + floorSystemW/2, y: floorSystemH / 2}
+		row, col := i/sysCols, i%sysCols
+		xOff := (width - rowItems(len(systems), sysCols, row)*floorSystemW) / 2
+		centers[fw.World.Name] = floorPoint{
+			x: xOff + col*floorSystemW + floorSystemW/2,
+			y: row*floorSystemH + floorSystemH/2,
+		}
 	}
 	for i, fw := range portals {
-		centers[fw.World.Name] = floorPoint{x: i*floorPortalW + floorPortalW/2, y: floorSystemH + floorPortalH/2}
+		row, col := i/porCols, i%porCols
+		xOff := (width - rowItems(len(portals), porCols, row)*floorPortalW) / 2
+		centers[fw.World.Name] = floorPoint{
+			x: xOff + col*floorPortalW + floorPortalW/2,
+			y: systemsH + row*floorPortalH + floorPortalH/2,
+		}
 	}
 
-	width := max(len(systems)*floorSystemW, len(portals)*floorPortalW)
-	height := floorSystemH
-	if len(portals) > 0 {
-		height += floorPortalH
-	}
+	height := systemsH + porRows*floorPortalH
 
 	var b strings.Builder
 	fmt.Fprintf(&b, `<svg class="floor" viewBox="0 0 %d %d" width="%d" height="%d" role="img" aria-label="universe map">`,
@@ -148,7 +171,9 @@ func floorViewToggle(t trail, mapView bool) template.HTML {
 	if strings.Contains(base, "?") {
 		sep = "&"
 	}
-	return template.HTML(`<a class="floor-view universe-open" href="` + html.EscapeString(base+sep+"view=map") + `">view as map →</a>`) //nolint:gosec // escaped
+	// hx-boost="false" so htmx doesn't boost-navigate the click — islands.js
+	// intercepts it to summon the overlay; the href is only the JS-off fallback.
+	return template.HTML(`<a class="floor-view universe-open" href="` + html.EscapeString(base+sep+"view=map") + `" hx-boost="false">view as map →</a>`) //nolint:gosec // escaped
 }
 
 // floorSystem renders one authorized world: the world node (zooms into the
@@ -202,6 +227,34 @@ func floorPortal(b *strings.Builder, fw domain.FloorWorld, c floorPoint, t trail
 	fmt.Fprintf(b, `<text class="floor-doc-label" x="%d" y="%d" text-anchor="middle">%s</text>`,
 		c.x, c.y+floorPortalR+14, html.EscapeString(trimLabel(fw.World.Name)))
 	fmt.Fprintf(b, `<title>%s</title></a></g>`, html.EscapeString(fw.World.Name))
+}
+
+// floorGridCols picks the column count for a centered universe grid: ~√N biased
+// landscape (×2) so the layout fills a wide overlay and grows downward instead
+// of forming a single ever-widening row. n ≤ 1 is one column (a lone world
+// centers rather than hugging the corner).
+func floorGridCols(n int) int {
+	if n <= 1 {
+		return 1
+	}
+	return int(math.Ceil(math.Sqrt(float64(2 * n))))
+}
+
+// ceilDiv is ⌈a/b⌉, and 0 when b == 0 (an empty band has no rows).
+func ceilDiv(a, b int) int {
+	if b == 0 {
+		return 0
+	}
+	return (a + b - 1) / b
+}
+
+// rowItems is how many cells row holds in an n-item, cols-wide grid: cols for
+// each full row, the remainder for the last. Used to center every row.
+func rowItems(n, cols, row int) int {
+	if rem := n - row*cols; rem < cols {
+		return rem
+	}
+	return cols
 }
 
 // trimLabel shortens a satellite label; the full title rides in <title>.
