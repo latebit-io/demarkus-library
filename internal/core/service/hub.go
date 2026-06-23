@@ -175,12 +175,66 @@ func hostKey(h string) string {
 	return h + ":" + defaultHostPort
 }
 
+// portalLabel canonicalizes an external (unmatched) host into the label the
+// floor draws for its portal, or reports ok=false for a host that must never
+// surface as one.
+//
+// Canonicalize: hostKey makes the label port-stable, so a document link
+// (mark://soul.demarkus.io) and its explicit-port form (soul.demarkus.io:6309)
+// collapse to ONE portal instead of two; the default port is then elided for a
+// clean label while an explicit non-default port is kept (a real distinct dev
+// world stays distinct).
+//
+// Drop: loopback / unspecified / link-local IPs, "localhost", and unmatched
+// cluster-internal names (*.svc, *.svc.cluster.local, *.cluster.local) are
+// dev- and crawl-time artifacts that accumulate in the hub graph export. They
+// are unreachable from any other context and a minor internal-address leak, so
+// they are never a navigable portal. (Private IPs are NOT dropped — a LAN
+// federation deployment names real worlds by them; and an authorized world on a
+// cluster-internal address never reaches here — hostName matches it first.)
+func portalLabel(host string) (string, bool) {
+	hk := hostKey(host)
+	h, port, err := net.SplitHostPort(hk)
+	if err != nil {
+		h, port = hk, ""
+	}
+	if isLocalHost(h) {
+		return "", false
+	}
+	if port == "" || port == defaultHostPort {
+		return h, true
+	}
+	return net.JoinHostPort(h, port), true
+}
+
+// isLocalHost reports whether a host is loopback, link-local, unspecified,
+// "localhost", or a Kubernetes-internal name — the classes that have no meaning
+// as a universe portal (see portalLabel). Private IPs are deliberately NOT
+// included: a LAN federation deployment addresses real worlds by them.
+func isLocalHost(h string) bool {
+	h = strings.ToLower(strings.Trim(h, "[]"))
+	switch {
+	case h == "" || h == "localhost" || strings.HasSuffix(h, ".localhost"):
+		return true
+	case strings.HasSuffix(h, ".svc"), strings.HasSuffix(h, ".svc.cluster.local"),
+		strings.HasSuffix(h, ".cluster.local"):
+		return true
+	}
+	if ip := net.ParseIP(h); ip != nil {
+		return ip.IsLoopback() || ip.IsUnspecified() || ip.IsLinkLocalUnicast()
+	}
+	return false
+}
+
 // worldEdges aggregates document-level edges (hub graph ∪ observed map) into
 // the world-level connections the floor draws: a deduped set of From-world →
 // To-world pairs, skipping intra-world links (not meaningful at universe
 // scale). It also returns the portal worlds — edge endpoints with no
 // authorized name, i.e. externally-linked hosts (the extensional universe,
-// ADR 0005 §16). Both outputs are sorted for a stable, cacheable render.
+// ADR 0005 §16). External endpoints are canonicalized (port variants collapse)
+// and filtered (loopback/local/cluster-internal hosts dropped, taking their
+// edge with them) via portalLabel, so a hub graph dirtied by dev crawls cannot
+// clutter the floor. Both outputs are sorted for a stable, cacheable render.
 func worldEdges(edges []domain.Edge, host2name map[string]string, authorized map[string]bool) (worldLevel []domain.Edge, portalNames []string) {
 	seen := map[domain.Edge]struct{}{}
 	portals := map[string]bool{}
@@ -188,6 +242,22 @@ func worldEdges(edges []domain.Edge, host2name map[string]string, authorized map
 	for _, e := range edges {
 		from, fp := hostName(e.From.World, host2name, authorized)
 		to, tp := hostName(e.To.World, host2name, authorized)
+		// An external portal endpoint is canonicalized, or drops its edge when
+		// it is a non-navigable host (loopback/local/cluster-internal).
+		if fp {
+			c, ok := portalLabel(from)
+			if !ok {
+				continue
+			}
+			from = c
+		}
+		if tp {
+			c, ok := portalLabel(to)
+			if !ok {
+				continue
+			}
+			to = c
+		}
 		if from == to {
 			continue
 		}
