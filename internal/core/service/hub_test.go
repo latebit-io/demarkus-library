@@ -123,10 +123,14 @@ func TestPortalLabel(t *testing.T) {
 		{"dev.example.org:6401", "dev.example.org:6401", true}, // explicit non-default port kept
 		{"localhost", "", false},                               // dev/crawl artifacts → dropped
 		{"localhost:6309", "", false},
-		{"127.0.0.1:6401", "", false},               // loopback
+		{"127.0.0.1:6401", "", false},               // IPv4 loopback
 		{"0.0.0.0:6309", "", false},                 // unspecified
+		{"[::1]:6309", "", false},                   // bracketed IPv6 loopback + port
+		{"::1", "", false},                          // bare IPv6 loopback
+		{"[::1]", "", false},                        // bracketed IPv6 loopback, no port
 		{"cache.svc.cluster.local:6309", "", false}, // cluster-internal
 		{"10.0.0.5:6309", "10.0.0.5", true},         // private IP KEPT (LAN federation)
+		{"[2001:db8::5]:6309", "2001:db8::5", true}, // routable IPv6 KEPT
 	}
 	for _, c := range cases {
 		got, ok := portalLabel(c.in)
