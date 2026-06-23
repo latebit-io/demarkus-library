@@ -146,6 +146,83 @@ func TestResolveStatusAuthorityOrder(t *testing.T) {
 	}
 }
 
+func TestReadPopulatesTypeAndMeta(t *testing.T) {
+	svc := newTestService(
+		fakeGateway{raw: domain.RawDocument{
+			Source: "world:6309",
+			Path:   "/doc.md",
+			Body:   "# D",
+			Metadata: map[string]string{
+				// surfaced in dedicated slots — must NOT appear in Meta
+				"title":    "D",
+				"tags":     "a, b",
+				"type":     "Reference",
+				"modified": "2026-06-12T10:00:00Z",
+				"version":  "3",
+				"agent":    "claude-code",
+				// everything else — must appear in Meta, sorted, non-empty only
+				"importance":   "0.8",
+				"etag":         "abc123",
+				"content-hash": "sha256-deadbeef",
+				"custom-key":   "val",
+				"blank":        "",
+			},
+		}},
+		fakeRenderer{html: "<h1>D</h1>"},
+	)
+
+	doc, err := svc.Read(t.Context(), "soul", "/doc.md")
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if doc.Type != "Reference" {
+		t.Errorf("type = %q, want Reference", doc.Type)
+	}
+	// sorted by key; surfaced + blank keys excluded.
+	want := []domain.Property{
+		{Key: "content-hash", Value: "sha256-deadbeef"},
+		{Key: "custom-key", Value: "val"},
+		{Key: "etag", Value: "abc123"},
+		{Key: "importance", Value: "0.8"},
+	}
+	if len(doc.Meta) != len(want) {
+		t.Fatalf("Meta = %v, want %v", doc.Meta, want)
+	}
+	for i, p := range want {
+		if doc.Meta[i] != p {
+			t.Errorf("Meta[%d] = %v, want %v", i, doc.Meta[i], p)
+		}
+	}
+}
+
+func TestOtherMetaSkipsSurfacedAndSorts(t *testing.T) {
+	got := otherMeta(map[string]string{
+		"type":       "X",   // surfaced — skipped
+		"tags":       "a",   // surfaced — skipped
+		"title":      "T",   // surfaced — skipped
+		"modified":   "now", // surfaced — skipped
+		"version":    "1",   // surfaced — skipped
+		"agent":      "me",  // surfaced — skipped
+		"zeta":       "z",
+		"alpha":      "a",
+		"importance": "0.5",
+		"blank":      "", // empty — skipped
+	})
+	want := []domain.Property{
+		{Key: "alpha", Value: "a"},
+		{Key: "importance", Value: "0.5"},
+		{Key: "zeta", Value: "z"},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("otherMeta = %v, want %v", got, want)
+	}
+	for i, p := range want {
+		if got[i] != p {
+			t.Errorf("otherMeta[%d] = %v, want %v", i, got[i], p)
+		}
+	}
+}
+
 func TestBrowseHistorySearchRouteAndRender(t *testing.T) {
 	raw := domain.RawDocument{Source: "world:6309", Path: "/plans/", Body: "- a\n- b"}
 

@@ -6,6 +6,7 @@ package service
 import (
 	"context"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
@@ -61,11 +62,13 @@ func (s *ReadingService) Read(ctx context.Context, world, path string) (domain.D
 		Path:       raw.Path,
 		HTML:       rendered.HTML,
 		Status:     resolveStatus(tags, rendered.Properties),
+		Type:       raw.Metadata["type"],
 		Tags:       tags,
 		Properties: rendered.Properties,
 		Modified:   raw.Metadata["modified"],
 		Version:    raw.Metadata["version"],
 		Agent:      raw.Metadata["agent"],
+		Meta:       otherMeta(raw.Metadata),
 	}
 	s.cachePut(docKey(world, path), doc)
 	return doc, nil
@@ -259,6 +262,35 @@ func resolveStatus(tags []string, props []domain.Property) string {
 		}
 	}
 	return "draft"
+}
+
+// metaSurfaced are the out-of-band keys already shown in a dedicated margin
+// slot — the OKF group (type, tags, modified→timestamp), provenance (version,
+// agent), and the H1 (title). otherMeta excludes them so the catch-all metadata
+// block surfaces everything else (importance, etag, content-hash, and any
+// publisher-custom keys) without double-printing what the curated slots hold.
+var metaSurfaced = map[string]bool{
+	"title": true, "tags": true, "type": true,
+	"modified": true, "version": true, "agent": true,
+}
+
+// otherMeta returns every out-of-band metadata entry not already surfaced in a
+// dedicated slot, sorted by key for a stable margin order. (status is split out
+// at the protocol layer and never appears in the map.)
+func otherMeta(m map[string]string) []domain.Property {
+	keys := make([]string, 0, len(m))
+	for k, v := range m {
+		if metaSurfaced[k] || strings.TrimSpace(v) == "" {
+			continue
+		}
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	out := make([]domain.Property, 0, len(keys))
+	for _, k := range keys {
+		out = append(out, domain.Property{Key: k, Value: m[k]})
+	}
+	return out
 }
 
 func normalizeStatus(v string) string {
