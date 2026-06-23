@@ -128,6 +128,14 @@ func hostName(world string, host2name map[string]string, authorized map[string]b
 	if authorized[world] {
 		return world, false // already an authorized name
 	}
+	// A graph edge may address an authorized world by its bare name + port
+	// (mark://root:6309 — from a curated mark://root/... link the crawler
+	// port-normalized), which matches neither the bare name nor the dial
+	// address; strip the port and re-check the name so the hub world joins
+	// instead of doubling as its own portal.
+	if host, _, err := net.SplitHostPort(world); err == nil && authorized[host] {
+		return host, false
+	}
 	if name, ok := host2name[hostKey(world)]; ok {
 		return name, false
 	}
