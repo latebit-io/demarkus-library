@@ -96,6 +96,27 @@ func TestWorldEdgesJoinsHostsAndFindsPortals(t *testing.T) {
 	}
 }
 
+func TestWorldEdgesMatchesAuthorizedWorldByNamePort(t *testing.T) {
+	// The hub is referenced by name+port (mark://root:6309, a port-normalized
+	// mark://root/... link) — it matches neither the authorized name "root" nor
+	// root's dial address, so without the name+port fallback it would double as
+	// a "root" portal beside the real world.
+	host2name := map[string]string{"world-a.svc:6309": "world-a"}
+	authorized := map[string]bool{"root": true, "world-a": true}
+	edges := []domain.Edge{
+		{From: domain.Ref{World: "world-a.svc:6309", Path: "/index.md"}, To: domain.Ref{World: "root:6309", Path: "/index.md"}},
+	}
+	got, portals := worldEdges(edges, host2name, authorized)
+
+	if len(portals) != 0 {
+		t.Errorf("portals = %+v, want none (root:6309 must join the authorized hub)", portals)
+	}
+	want := []domain.Edge{{From: domain.Ref{World: "world-a"}, To: domain.Ref{World: "root"}}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("edges = %+v, want %+v", got, want)
+	}
+}
+
 func TestWorldEdgesObservedIdsPassThrough(t *testing.T) {
 	// Observed-map edges already carry the library's own world ids (names),
 	// so they need no host→name join; an unauthorized one is still a portal.
