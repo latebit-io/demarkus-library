@@ -112,6 +112,59 @@ func TestWorldEdgesObservedIdsPassThrough(t *testing.T) {
 	}
 }
 
+func TestPortalLabel(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+		ok   bool
+	}{
+		{"soul.demarkus.io", "soul.demarkus.io", true},         // port-less → kept
+		{"soul.demarkus.io:6309", "soul.demarkus.io", true},    // default port elided (collapses with the above)
+		{"dev.example.org:6401", "dev.example.org:6401", true}, // explicit non-default port kept
+		{"localhost", "", false},                               // dev/crawl artifacts → dropped
+		{"localhost:6309", "", false},
+		{"127.0.0.1:6401", "", false},               // loopback
+		{"0.0.0.0:6309", "", false},                 // unspecified
+		{"cache.svc.cluster.local:6309", "", false}, // cluster-internal
+		{"10.0.0.5:6309", "10.0.0.5", true},         // private IP KEPT (LAN federation)
+	}
+	for _, c := range cases {
+		got, ok := portalLabel(c.in)
+		if got != c.want || ok != c.ok {
+			t.Errorf("portalLabel(%q) = (%q, %v), want (%q, %v)", c.in, got, ok, c.want, c.ok)
+		}
+	}
+}
+
+func TestWorldEdgesCanonicalizesAndFiltersPortals(t *testing.T) {
+	authorized := map[string]bool{"root": true}
+	edges := []domain.Edge{
+		// the same external host in port-less and explicit-port form → ONE portal.
+		{From: domain.Ref{World: "root", Path: "/a.md"}, To: domain.Ref{World: "soul.demarkus.io", Path: "/x.md"}},
+		{From: domain.Ref{World: "root", Path: "/b.md"}, To: domain.Ref{World: "soul.demarkus.io:6309", Path: "/y.md"}},
+		// loopback / localhost / private / cluster-internal endpoints drop their edge.
+		{From: domain.Ref{World: "root", Path: "/c.md"}, To: domain.Ref{World: "localhost", Path: "/z.md"}},
+		{From: domain.Ref{World: "root", Path: "/d.md"}, To: domain.Ref{World: "localhost:6309", Path: "/z.md"}},
+		{From: domain.Ref{World: "root", Path: "/e.md"}, To: domain.Ref{World: "127.0.0.1:6401", Path: "/z.md"}},
+		{From: domain.Ref{World: "root", Path: "/f.md"}, To: domain.Ref{World: "cache.svc.cluster.local:6309", Path: "/z.md"}},
+		// an explicit non-default port is a distinct, navigable portal → kept.
+		{From: domain.Ref{World: "root", Path: "/g.md"}, To: domain.Ref{World: "dev.example.org:6401", Path: "/z.md"}},
+	}
+	gotEdges, portals := worldEdges(edges, nil, authorized)
+
+	wantPortals := []string{"dev.example.org:6401", "soul.demarkus.io"}
+	if !reflect.DeepEqual(portals, wantPortals) {
+		t.Errorf("portals = %+v, want %+v", portals, wantPortals)
+	}
+	wantEdges := []domain.Edge{
+		{From: domain.Ref{World: "root"}, To: domain.Ref{World: "dev.example.org:6401"}},
+		{From: domain.Ref{World: "root"}, To: domain.Ref{World: "soul.demarkus.io"}},
+	}
+	if !reflect.DeepEqual(gotEdges, wantEdges) {
+		t.Errorf("edges = %+v, want %+v", gotEdges, wantEdges)
+	}
+}
+
 func TestFloorEnrichedWithHubEdgesAndPortals(t *testing.T) {
 	gw := fakeGateway{
 		worlds: []domain.WorldInfo{
