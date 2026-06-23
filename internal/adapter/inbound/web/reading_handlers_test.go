@@ -335,6 +335,45 @@ func TestDocRendersMargin(t *testing.T) {
 	}
 }
 
+func TestDocMarginRendersOKFGroupAndMetadata(t *testing.T) {
+	svc := &fakeReading{doc: domain.Document{
+		Path:     "/x.md",
+		Status:   "accepted",
+		Type:     "Reference",
+		Tags:     []string{"adr"},
+		Modified: "2026-06-12T10:00:00Z",
+		Version:  "7",
+		Agent:    "claude-code",
+		Meta: []domain.Property{
+			{Key: "content-hash", Value: "sha256-deadbeef"},
+			{Key: "importance", Value: "0.8"},
+		},
+	}}
+	body := get(readingApp(t, svc), "/t/soul.demarkus.io/d/x.md").Body.String()
+
+	// OKF group carries the Open Knowledge Format fields: type, tags, timestamp.
+	for _, want := range []string{
+		`class="okf"`,
+		`<dt>type</dt><dd>Reference</dd>`,
+		`<dt>timestamp</dt><dd>2026-06-12T10:00:00Z</dd>`,
+		`href="/w/soul.demarkus.io/tags/adr"`,
+		// the complete metadata block surfaces every other catalog key, sorted.
+		`class="meta-extra"`,
+		`<dt>content-hash</dt><dd>sha256-deadbeef</dd>`,
+		`<dt>importance</dt><dd>0.8</dd>`,
+		// demarkus provenance stays outside the OKF group.
+		`<dt>agent</dt><dd>claude-code</dd>`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("doc margin missing %q", want)
+		}
+	}
+	// The OKF caption must precede the metadata caption (group order).
+	if okf, meta := strings.Index(body, `class="okf"`), strings.Index(body, `class="meta-extra"`); okf < 0 || meta < 0 || okf > meta {
+		t.Errorf("OKF group must render before the metadata block (okf=%d meta=%d)", okf, meta)
+	}
+}
+
 func TestDocMarginOmitsStatusAxisTag(t *testing.T) {
 	svc := &fakeReading{doc: domain.Document{
 		Path: "/x.md", Status: "accepted", Tags: []string{"status:accepted", "adr"},

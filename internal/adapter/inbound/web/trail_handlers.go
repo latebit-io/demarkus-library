@@ -66,11 +66,13 @@ type paneVM struct {
 
 	HasMargin  bool // focused document pane: render the trust signals
 	Status     string
+	Type       string // OKF `type`: the document kind (grouped with Tags/Modified in doc-meta)
 	Tags       []tagLink
 	Properties []domain.Property
 	Modified   string
 	Version    string
 	Agent      string
+	Meta       []domain.Property // every other out-of-band metadata key, sorted
 	MarkURL    string
 	ReaderURL  string       // header/margin affordance: open this pane in the reader overlay (R4)
 	GraphURL   string       // margin affordance: open this doc's graph pane
@@ -327,11 +329,13 @@ func (h *ReadingHandler) paneView(ctx context.Context, t trail, i int, addr pane
 	// is not the focused pane — reading mode is not a dead-end.
 	if (focused || reader) && addr.Kind == paneDoc && !domain.IsListingPath(addr.Value) {
 		vm.HasMargin = true
+		vm.Type = doc.Type
 		vm.Tags = tagLinks(addr.World, doc.Tags)
 		vm.Properties = doc.Properties
 		vm.Modified = doc.Modified
 		vm.Version = doc.Version
 		vm.Agent = doc.Agent
+		vm.Meta = doc.Meta
 		vm.MarkURL = "mark://" + addr.World + doc.Path
 		// Graph/map open non-prose panes, so they exit the overlay (plain
 		// trail URLs) even in reader mode; backlinks point at docs, so they

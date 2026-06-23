@@ -66,21 +66,27 @@ type page struct {
 
 	// The margin (documents only — listings and catalog views render
 	// without one; an empty margin is correct, ADR 0005 decision 8).
-	IsDoc      bool
-	Status     string // trust badge: draft | wip | accepted | archived | open vocabulary
+	IsDoc  bool
+	Status string // trust badge: draft | wip | accepted | archived | open vocabulary
+	// OKF group (the Open Knowledge Format frontmatter): the doc-meta margin
+	// renders Type, Tags, and Modified (OKF `timestamp`) under the OKF caption —
+	// the OKF-native fields. Status/Version/Agent are demarkus catalog/provenance,
+	// not OKF, and render outside that group.
+	Type       string // OKF `type`: the document kind (empty ⇒ untyped)
 	Tags       []tagLink
 	Properties []domain.Property // parsed body frontmatter, rendered friendly
-	Modified   string            // provenance: response metadata, verbatim
-	Version    string
-	Agent      string
-	MarkURL    string       // canonical protocol address — the escape hatch (decision 12)
-	ReaderURL  string       // unused on the single-doc permalink (reader mode is a trail lens); kept so doc-meta renders for both VMs
-	GraphURL   string       // margin affordance: open this doc's graph neighborhood
-	MapURL     string       // margin affordance: open this world's map (zoom level 2)
-	EditURL    string       // margin affordance: edit this doc (Phase 3); only when authed
-	NewURL     string       // margin affordance: create a doc in this folder (Phase 3); only when authed
-	AppendURL  string       // margin affordance: append to this doc (Phase 3); only when authed
-	Backlinks  []backlinkVM // "referenced by" — the observed-links map (R3)
+	Modified   string            // OKF `timestamp`: last meaningful change, verbatim
+	Version    string            // demarkus provenance
+	Agent      string            // demarkus provenance
+	Meta       []domain.Property // every other out-of-band metadata key, sorted (importance, etag, …)
+	MarkURL    string            // canonical protocol address — the escape hatch (decision 12)
+	ReaderURL  string            // unused on the single-doc permalink (reader mode is a trail lens); kept so doc-meta renders for both VMs
+	GraphURL   string            // margin affordance: open this doc's graph neighborhood
+	MapURL     string            // margin affordance: open this world's map (zoom level 2)
+	EditURL    string            // margin affordance: edit this doc (Phase 3); only when authed
+	NewURL     string            // margin affordance: create a doc in this folder (Phase 3); only when authed
+	AppendURL  string            // margin affordance: append to this doc (Phase 3); only when authed
+	Backlinks  []backlinkVM      // "referenced by" — the observed-links map (R3)
 }
 
 // backlinkVM is one entry in the margin's "referenced by" block (R3): a
@@ -266,11 +272,13 @@ func (h *ReadingHandler) present(c *echo.Context, doc domain.Document, err error
 	if opts.doc {
 		vm.IsDoc = true
 		vm.Status = doc.Status
+		vm.Type = doc.Type
 		vm.Tags = tagLinks(opts.world, doc.Tags)
 		vm.Properties = doc.Properties
 		vm.Modified = doc.Modified
 		vm.Version = doc.Version
 		vm.Agent = doc.Agent
+		vm.Meta = doc.Meta
 		vm.MarkURL = "mark://" + opts.world + doc.Path
 		// The single-doc permalink view is not a trail, so its backlinks and
 		// graph affordance point at /w/ permalinks rather than trail URLs.

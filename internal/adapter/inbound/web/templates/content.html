@@ -1,18 +1,43 @@
 {{define "doc-meta"}}<div class="doc-meta">
       <p><span class="status status-{{ .Status }}">{{ .Status }}</span></p>
-      {{- if .Tags }}
-      <ul class="tags">
-        {{- range .Tags }}
-        <li><a href="{{ .URL }}">{{ .Name }}</a></li>
+      {{- /* OKF group: the Open Knowledge Format frontmatter fields only —
+             type, tags, timestamp. Status/version/agent are demarkus
+             catalog/provenance and stay out of this block. */ -}}
+      {{- if or .Type .Tags .Modified }}
+      <section class="okf" aria-label="Open Knowledge Format">
+        <p class="meta-head">OKF</p>
+        {{- if or .Type .Modified }}
+        <dl class="okf-fields">
+          {{- if .Type }}<dt>type</dt><dd>{{ .Type }}</dd>{{ end }}
+          {{- if .Modified }}<dt>timestamp</dt><dd>{{ .Modified }}</dd>{{ end }}
+        </dl>
         {{- end }}
-      </ul>
+        {{- if .Tags }}
+        <ul class="tags">
+          {{- range .Tags }}
+          <li><a href="{{ .URL }}">{{ .Name }}</a></li>
+          {{- end }}
+        </ul>
+        {{- end }}
+      </section>
       {{- end }}
-      {{- if or .Modified .Version .Agent }}
+      {{- if or .Version .Agent }}
       <dl class="provenance">
-        {{- if .Modified }}<dt>modified</dt><dd>{{ .Modified }}</dd>{{ end }}
         {{- if .Version }}<dt>version</dt><dd><a href="/w/{{ .WorldPath }}/versions{{ .Path }}">{{ .Version }}</a></dd>{{ end }}
         {{- if .Agent }}<dt>agent</dt><dd>{{ .Agent }}</dd>{{ end }}
       </dl>
+      {{- end }}
+      {{- /* Every remaining out-of-band metadata key (importance, etag,
+             content-hash, publisher-custom) — nothing cataloged stays hidden. */ -}}
+      {{- if .Meta }}
+      <section class="meta-extra">
+        <p class="meta-head">metadata</p>
+        <dl>
+          {{- range .Meta }}
+          <dt>{{ .Key }}</dt><dd>{{ .Value }}</dd>
+          {{- end }}
+        </dl>
+      </section>
       {{- end }}
       {{- if .Properties }}
       <dl class="properties">
@@ -69,9 +94,10 @@
     {{ .Content }}
   </article>
   <aside class="doc-margin">
-    <!-- The margin holds exactly: status, tags, provenance, properties,
-         the protocol escape, and floated sidenotes (ADR 0005 decision 8).
-         An empty margin is correct. -->
+    <!-- The margin holds exactly: status, the OKF group (type, tags,
+         timestamp), provenance (version, agent), the complete metadata block
+         (every other cataloged key), properties, the protocol escape, and
+         floated sidenotes (ADR 0005 decision 8). An empty margin is correct. -->
     {{template "doc-meta" .}}
   </aside>
 </div>{{else}}<div class="doc-pane">
