@@ -73,6 +73,7 @@ type page struct {
 	WorldPath     string        // current world, path-escaped for URL building
 	Authenticated bool          // behind the turnstile (broker mode) — shows sign-out
 	User          string        // signed-in identity's email for the nav (empty ⇒ not shown)
+	LibrarianURL  string        // nav door to the librarian pane (empty ⇒ not configured)
 
 	// The margin (documents only — listings and catalog views render
 	// without one; an empty margin is correct, ADR 0005 decision 8).
@@ -278,6 +279,13 @@ func (h *ReadingHandler) present(c *echo.Context, doc domain.Document, err error
 		WorldPath:     url.PathEscape(opts.world),
 		Authenticated: c.Get(authedKey) != nil, // set by RequireSession in broker mode
 		User:          userEmail(c),
+	}
+	if h.lib != nil {
+		// The nav's librarian door. Interactive doc navigation always lands
+		// on the canvas (canvasTrailURL), where the door carries the trail;
+		// the standalone page surfaces that render this nav (versions, raw,
+		// fragment escapes) get the bare librarian trail.
+		vm.LibrarianURL = "/a"
 	}
 	if opts.doc {
 		vm.IsDoc = true

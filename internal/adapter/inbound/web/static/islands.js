@@ -142,6 +142,21 @@
     if (pane) pane.scrollIntoView({ inline: "nearest", block: "nearest" });
   }
 
+  // Click engagement: clicking into a pane moves the VISUAL attention cue
+  // only — never the URL focus (re-focusing would collapse the panes to its
+  // right; the dock is the backtrack mechanism). Purely presentational: a
+  // CSS class, no fetch, no URL change, gone on the next server render —
+  // the same spirit as the graph hover-highlight above. Interactive targets
+  // (links, the ask bar) keep their own behavior; the ask bar lights its
+  // pane via :focus-within regardless.
+  document.addEventListener("click", function (e) {
+    var pane = e.target.closest && e.target.closest(".pane.body, .pane.focused");
+    if (!pane) return;
+    if (e.target.closest("a, button, input, textarea, select, label, summary")) return;
+    document.querySelectorAll(".pane.engaged").forEach(function (p) { p.classList.remove("engaged"); });
+    pane.classList.add("engaged");
+  });
+
   // --- reader overlay (R4) -----------------------------------------------
   // The overlay is pure URL state (?reader=i): the ✕, the backdrop scrim,
   // and browser Back all close it server-side. Esc is the expected reader

@@ -85,12 +85,14 @@ func (h *ReadingHandler) librarianPaneView(c *echo.Context, t trail, i int) pane
 				Answer:   h.renderAnswer(ex.Answer, t, i),
 			})
 		}
-		if focused {
-			lp.Ask = &librarianAskVM{
-				TrailRest: strings.TrimPrefix(trailBasePath(t), "/t/"),
-				Idx:       i,
-				Notice:    c.QueryParam("notice"),
-			}
+		// The ask form rides every EXPANDED librarian pane, focused or not:
+		// reading a cited document focuses the doc pane, and that is exactly
+		// when the follow-up question comes — losing the ask bar there would
+		// force a re-focus round trip. Only the collapsed spine drops it.
+		lp.Ask = &librarianAskVM{
+			TrailRest: strings.TrimPrefix(trailBasePath(t), "/t/"),
+			Idx:       i,
+			Notice:    c.QueryParam("notice"),
 		}
 	}
 	vm.Librarian = &lp

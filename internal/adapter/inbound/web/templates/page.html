@@ -145,6 +145,21 @@
     .pane-head { font-family: system-ui, sans-serif; font-size: .72rem;
                  color: var(--muted); margin-bottom: .8rem;
                  border-bottom: 1px solid var(--faint); padding-bottom: .35rem; }
+    /* The attention marker: the active pane gets the room's 2px ink rule
+       (the same register as the margin's top rule) and a full-ink address;
+       context panes keep the faint hairline. Color stays reserved for
+       status. Three sources of attention, one cue at a time: the URL focus
+       (server truth, works without JS), a click-engaged pane, and the pane
+       holding keyboard focus (the ask bar). When a reader engages a pane,
+       the bare URL-focus marker steps back so exactly one pane reads as
+       active. */
+    .pane.focused > .pane-head, .pane:focus-within > .pane-head,
+    .pane.engaged > .pane-head {
+                 border-bottom: 2px solid var(--ink); color: var(--ink); }
+    .canvas:has(.pane.engaged) .pane.focused:not(.engaged):not(:focus-within) > .pane-head,
+    .canvas:has(.pane:focus-within) .pane.focused.engaged:not(:focus-within) > .pane-head,
+    .canvas:has(.pane:focus-within) .pane.focused:not(.engaged):not(:focus-within) > .pane-head {
+                 border-bottom: 1px solid var(--faint); color: var(--muted); }
     .pane-head a { color: inherit; text-decoration: none; }
     .pane.spine { display: flex; flex-direction: column; align-items: center;
                   gap: .7rem; width: 2.4rem; min-height: 22rem;
@@ -201,10 +216,15 @@
 
     /* ── Hover preview cards (R3): pure htmx + CSS. The card is fetched on
           hover into .preview-card and revealed only once it has content, so
-          there is no empty flash and no JS. ─────────────────────────── */
+          there is no empty flash and no JS. The card opens UPWARD: scrollable
+          overflow only grows toward the block/inline END, so a downward card
+          near a bottom edge grew the page/canvas scroll area (and re-anchored
+          the librarian's bottom-pinned transcript) — visible jitter on every
+          hover. Upward/startward overflow is clipped instead of grown: worst
+          case a card near a pane top is cut, never a layout shift. ──── */
     .preview-host { position: relative; }
-    .preview-card { display: none; position: absolute; top: 1.5em; left: 0;
-                    z-index: 10; width: max-content; max-width: 22rem;
+    .preview-card { display: none; position: absolute; bottom: calc(100% + .3em);
+                    left: 0; z-index: 10; width: max-content; max-width: 22rem;
                     background: var(--paper); color: var(--ink);
                     border: 1px solid var(--muted); border-radius: 6px;
                     padding: .6rem .7rem; box-shadow: 0 4px 14px #00000028;
@@ -438,6 +458,11 @@
        Questions read as marginalia headers; the trace is the same muted
        monospace register as the dock; streamed text keeps its paragraph
        breaks until the rendered answer swaps in. */
+    /* Bottom-anchored chat scroll: column-reverse with a single child pins
+       the view to the newest exchange without JS; the bounded height keeps a
+       long conversation from stretching the whole canvas. */
+    #librarian-transcript { display: flex; flex-direction: column-reverse;
+            overflow-y: auto; max-height: 62vh; overflow-anchor: none; }
     .exchange { margin: 1.2rem 0; }
     .ask-q { font-weight: 600; margin: 0 0 .3rem; }
     .ask-q::before { content: "? "; color: var(--muted); }
@@ -460,6 +485,11 @@
     <!-- Search affordance: a real link to the catalog page (works with JS off);
          islands.js intercepts the click to open the ⌃K palette overlay instead. -->
     <a class="nav-search" href="/search" title="Search (⌃K)" hx-boost="false">Search ⌃K</a>
+    {{- if .LibrarianURL }}
+    <!-- The librarian door: joins the CURRENT trail, so the conversation
+         arrives with the reader's context (Phase 4). -->
+    <a class="nav-librarian" href="{{ .LibrarianURL }}">Librarian</a>
+    {{- end }}
     {{- if .Authenticated }}
     {{- if .User }}<span class="user" title="signed in as">{{ .User }}</span>{{ end }}
     <!-- Real form, POST: logout is a state change and works without JS.

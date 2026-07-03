@@ -22,6 +22,7 @@ type canvasVM struct {
 	World         string // focused pane's world (nav context)
 	Authenticated bool
 	User          string // signed-in identity's email for the nav (empty ⇒ not shown)
+	LibrarianURL  string // nav door: append the librarian pane to THIS trail (empty ⇒ not configured)
 	Panes         []paneVM
 	Reader        *paneVM        // the reader overlay (R4); nil when closed
 	CloseURL      string         // ✕ / backdrop / Esc target: the bare trail (no overlay)
@@ -97,6 +98,12 @@ func (h *ReadingHandler) Trail(c *echo.Context) error {
 		Authenticated: authed,
 		User:          userEmail(c),
 		Panes:         make([]paneVM, len(t.Panes)),
+	}
+	if h.lib != nil {
+		// The nav's librarian door appends the pane to the CURRENT trail —
+		// the conversation arrives with the reader's context, and the click
+		// algebra focuses an already-present librarian instead of duplicating.
+		vm.LibrarianURL = trailURL(trailAfterClick(t, t.Focus, paneAddr{Kind: paneLibrarian}))
 	}
 	// The reader overlay (R4) is a lens over whichever pane ?reader= names —
 	// independent of focus. Every pane is read in this loop anyway (focused

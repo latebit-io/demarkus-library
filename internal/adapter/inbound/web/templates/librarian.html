@@ -7,15 +7,22 @@
 {{- if not .Enabled }}
 <p class="ask-notice">The librarian is not on duty — no language-model provider is configured.</p>
 {{- else }}
+{{/* The transcript is a bottom-anchored internal scroller: the outer div is
+     a column-reverse flexbox with ONE child, so the browser pins the scroll
+     to the newest exchange (and keeps it pinned while tokens stream) with no
+     JS — and the conversation stops dragging the rest of the trail along
+     when it grows. */}}
 <div id="librarian-transcript">
+  <div id="librarian-exchanges">
   {{- range .Exchanges }}
   {{template "librarian-exchange" .}}
   {{- end }}
+  </div>
 </div>
 {{- if .Ask }}
 {{- if .Ask.Notice }}<p class="ask-notice">{{ .Ask.Notice }}</p>{{ end }}
 <form class="ask-form" method="post" action="/a/ask"
-      hx-post="/a/ask" hx-target="#librarian-transcript" hx-swap="beforeend"
+      hx-post="/a/ask" hx-target="#librarian-exchanges" hx-swap="beforeend"
       hx-on::after-request="this.reset()">
   <input type="hidden" name="_csrf" value="{{ csrf }}">
   <input type="hidden" name="trail" value="{{ .Ask.TrailRest }}">

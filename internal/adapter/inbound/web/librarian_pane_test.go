@@ -100,17 +100,33 @@ func TestRenderAnswer_CitationsContinueTheTrail(t *testing.T) {
 	}
 }
 
-func TestLibrarianPane_UnfocusedHasNoForm(t *testing.T) {
+func TestLibrarianPane_BodyModeKeepsForm(t *testing.T) {
 	t.Parallel()
 
 	lib := &fakeLibrarian{}
 	e := librarianApp(t, lib)
 	rec := httptest.NewRecorder()
-	// Librarian is pane 0, focus on pane 1 → librarian renders body-only.
+	// Librarian is pane 0, focus on pane 1 (a cited doc) → the librarian
+	// renders body-only AND keeps its ask bar: reading a citation is exactly
+	// when the follow-up question comes.
 	e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/t/a/~/w.io/d/x.md?focus=1", http.NoBody))
 
+	if body := rec.Body.String(); !strings.Contains(body, `action="/a/ask"`) {
+		t.Errorf("body-mode librarian pane lost the ask form:\n%.2000s", body)
+	}
+}
+
+func TestLibrarianPane_SpineHasNoForm(t *testing.T) {
+	t.Parallel()
+
+	lib := &fakeLibrarian{}
+	e := librarianApp(t, lib)
+	rec := httptest.NewRecorder()
+	// Librarian at pane 0, focus two panes away → collapsed spine, no form.
+	e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/t/a/~/w.io/d/x.md/~/w.io/d/y.md?focus=2", http.NoBody))
+
 	if body := rec.Body.String(); strings.Contains(body, `action="/a/ask"`) {
-		t.Errorf("unfocused librarian pane renders the ask form:\n%.2000s", body)
+		t.Errorf("spine librarian pane renders the ask form:\n%.2000s", body)
 	}
 }
 
@@ -244,5 +260,40 @@ func TestLibrarianEntrance_RedirectsToTrail(t *testing.T) {
 	spikeApp(t).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/a", http.NoBody))
 	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/t/a" {
 		t.Errorf("entrance = %d %q; want 303 /t/a", rec.Code, rec.Header().Get("Location"))
+	}
+}
+
+func TestNav_LibrarianDoorAppendsToTrail(t *testing.T) {
+	t.Parallel()
+
+	e := librarianApp(t, &fakeLibrarian{})
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/t/u", http.NoBody))
+
+	// From the floor, the nav door appends the librarian to the current trail.
+	if !strings.Contains(rec.Body.String(), `class="nav-librarian" href="/t/u/~/a"`) {
+		t.Errorf("nav missing the librarian door:\n%.1500s", rec.Body.String())
+	}
+
+	// Feature-dark: no door.
+	rec = httptest.NewRecorder()
+	spikeApp(t).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/t/u", http.NoBody))
+	if strings.Contains(rec.Body.String(), "nav-librarian") {
+		t.Errorf("feature-dark nav shows the librarian door")
+	}
+}
+
+func TestNav_LibrarianDoorOnStandalonePages(t *testing.T) {
+	t.Parallel()
+
+	// Interactive doc navigation redirects to the canvas (whose door carries
+	// the trail); the standalone page surfaces (versions, the escapes) get
+	// the bare librarian entrance.
+	e := librarianApp(t, &fakeLibrarian{})
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/w/w.io/versions/x.md", http.NoBody))
+
+	if !strings.Contains(rec.Body.String(), `class="nav-librarian" href="/a"`) {
+		t.Errorf("standalone page missing the librarian door:\n%.1200s", rec.Body.String())
 	}
 }
