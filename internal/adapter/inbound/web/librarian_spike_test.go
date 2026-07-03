@@ -2,8 +2,11 @@ package web
 
 import (
 	"context"
+	"html"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -57,6 +60,26 @@ func (f *fakeLibrarian) Ask(_ context.Context, _, question string) (<-chan domai
 
 func (f *fakeLibrarian) History(string) []domain.LibrarianExchange { return f.history }
 
+// askToken POSTs a question through /a/ask (htmx) and extracts the one-shot
+// stream URL from the returned exchange fragment — the full token handoff.
+func askToken(t *testing.T, e *echo.Echo, question string) string {
+	t.Helper()
+	form := url.Values{"question": {question}, "trail": {"a"}, "idx": {"0"}}
+	req := httptest.NewRequest(http.MethodPost, "/a/ask", strings.NewReader(form.Encode()))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationForm)
+	req.Header.Set("HX-Request", "true")
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("ask status = %d (body: %s)", rec.Code, rec.Body.String())
+	}
+	m := regexp.MustCompile(`sse-connect="([^"]+)"`).FindStringSubmatch(rec.Body.String())
+	if m == nil {
+		t.Fatalf("no sse-connect in fragment:\n%s", rec.Body.String())
+	}
+	return html.UnescapeString(m[1])
+}
+
 func TestSpikeStream_LibrarianPathMapsEvents(t *testing.T) {
 	t.Parallel()
 
@@ -69,7 +92,11 @@ func TestSpikeStream_LibrarianPathMapsEvents(t *testing.T) {
 	}}
 	e := librarianApp(t, lib)
 
-	req := httptest.NewRequest(http.MethodGet, "/a/stream?q=where+is+it", http.NoBody)
+	streamURL := askToken(t, e, "where is it")
+	if strings.Contains(streamURL, "where") {
+		t.Fatalf("question leaked into the stream URL: %s", streamURL)
+	}
+	req := httptest.NewRequest(http.MethodGet, streamURL, http.NoBody)
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 
@@ -96,6 +123,66 @@ func TestSpikeStream_LibrarianPathMapsEvents(t *testing.T) {
 	if strings.Contains(body, "whispers back") {
 		t.Errorf("echo fallback ran despite a wired librarian:\n%s", body)
 	}
+
+	// Tokens are one-shot: replaying the stream URL must not re-run the ask.
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, streamURL, http.NoBody))
+	if len(lib.asked) != 1 {
+		t.Errorf("replayed token re-ran the ask: %v", lib.asked)
+	}
+	if replay := rec.Body.String(); !strings.Contains(replay, "expired") || !strings.Contains(replay, "event: done") {
+		t.Errorf("replayed token did not close gracefully:\n%s", replay)
+	}
+}
+
+func TestSpikeStream_BareQIsNeverARealAsk(t *testing.T) {
+	t.Parallel()
+
+	// With a librarian wired, a raw ?q= GET stays the transport echo — the
+	// question-in-URL path must not reach the model (history/log hygiene).
+	lib := &fakeLibrarian{}
+	e := librarianApp(t, lib)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/a/stream?q=hi", http.NoBody))
+
+	if len(lib.asked) != 0 {
+		t.Errorf("bare ?q= reached the librarian: %v", lib.asked)
+	}
+	// The echo streams word-by-word, so assert one whole token frame.
+	if !strings.Contains(rec.Body.String(), "event: token\ndata: whispers ") {
+		t.Errorf("bare ?q= did not fall through to the echo:\n%s", rec.Body.String())
+	}
+}
+
+func TestAskLibrarian_JunkIdxClamps(t *testing.T) {
+	t.Parallel()
+
+	// Regression: an out-of-range idx must clamp to a real pane (parseTrail
+	// owns the rule) — the ask still hands off and streams.
+	lib := &fakeLibrarian{events: []domain.LibrarianEvent{{Kind: domain.LibrarianDone}}}
+	e := librarianApp(t, lib)
+
+	form := url.Values{"question": {"clamped?"}, "trail": {"a"}, "idx": {"999"}}
+	req := httptest.NewRequest(http.MethodPost, "/a/ask", strings.NewReader(form.Encode()))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationForm)
+	req.Header.Set("HX-Request", "true")
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("junk idx ask status = %d", rec.Code)
+	}
+	m := regexp.MustCompile(`sse-connect="([^"]+)"`).FindStringSubmatch(rec.Body.String())
+	if m == nil {
+		t.Fatal("no stream URL in fragment")
+	}
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, html.UnescapeString(m[1]), http.NoBody))
+	if !strings.Contains(rec.Body.String(), "event: done") {
+		t.Errorf("clamped ask did not stream:\n%s", rec.Body.String())
+	}
+	if len(lib.asked) != 1 {
+		t.Errorf("clamped ask did not run: %v", lib.asked)
+	}
 }
 
 func TestSpikeStream_ErrorPathIsGenericAndCloses(t *testing.T) {
@@ -109,7 +196,7 @@ func TestSpikeStream_ErrorPathIsGenericAndCloses(t *testing.T) {
 	}}
 	e := librarianApp(t, lib)
 
-	req := httptest.NewRequest(http.MethodGet, "/a/stream?q=boom", http.NoBody)
+	req := httptest.NewRequest(http.MethodGet, askToken(t, e, "boom"), http.NoBody)
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
 
@@ -130,7 +217,7 @@ func TestSpikeStream_RejectsCrossSite(t *testing.T) {
 
 	lib := &fakeLibrarian{}
 	e := librarianApp(t, lib)
-	req := httptest.NewRequest(http.MethodGet, "/a/stream?q=steal+tokens", http.NoBody)
+	req := httptest.NewRequest(http.MethodGet, askToken(t, e, "steal tokens"), http.NoBody)
 	req.Header.Set("Sec-Fetch-Site", "cross-site")
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)

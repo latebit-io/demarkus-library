@@ -19,6 +19,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
@@ -129,23 +130,35 @@ func (h *ReadingHandler) AskLibrarian(c *echo.Context) error {
 	if question == "" || len(question) > maxQuestionBytes {
 		return echo.NewHTTPError(http.StatusBadRequest, "ask a question (under 4KB)")
 	}
-	trailRest := c.FormValue("trail")
 	idx, _ := strconv.Atoi(c.FormValue("idx"))
 
-	// The trail rides along for URL-building only; a junk value degrades to
-	// the bare librarian trail rather than failing the ask.
-	t, err := parseTrail(trailRest, strconv.Itoa(idx), "")
+	// The trail rides along for URL-building only (parseTrail clamps a junk
+	// idx to a real pane); a junk trail degrades to the bare librarian trail
+	// rather than failing the ask.
+	t, err := parseTrail(c.FormValue("trail"), strconv.Itoa(idx), "")
 	if err != nil || t.Panes[t.Focus].Kind != paneLibrarian {
 		t = trail{Panes: []paneAddr{{Kind: paneLibrarian}}, Focus: 0, Reader: -1}
-		trailRest, idx = paneLibrarian, 0
 	}
 
 	if c.Request().Header.Get("HX-Request") != "" {
-		// htmx: hand back the live exchange; the SSE GET starts the run.
-		q := url.Values{"q": {question}, "t": {trailRest}, "i": {strconv.Itoa(idx)}}
+		// htmx: park the ask under a one-shot token and hand back the live
+		// exchange; the SSE GET presents the token and starts the run. The
+		// question and trail stay out of the URL (history/log/Referer
+		// hygiene + URL length limits); the token binds to this session.
+		// t carries the CLAMPED focus, so a junk idx can't leak through.
+		token, err := h.asks.put(pendingAsk{
+			question: question,
+			convKey:  conversationKey(c),
+			t:        t,
+			expires:  time.Now().Add(askTokenTTL),
+		})
+		if err != nil {
+			c.Logger().Error("librarian ask handoff failed", "err", err)
+			return echo.NewHTTPError(http.StatusServiceUnavailable, "the librarian is overwhelmed — try again shortly")
+		}
 		return c.Render(http.StatusOK, "librarian-exchange", librarianExchangeVM{
 			Question:  question,
-			StreamURL: LibrarianStreamPath + "?" + q.Encode(),
+			StreamURL: LibrarianStreamPath + "?ask=" + token,
 		})
 	}
 

@@ -37,6 +37,7 @@ import (
 type ReadingHandler struct {
 	reading      port.ReadingService
 	lib          port.Librarian // nil = librarian not configured (feature-dark)
+	asks         *pendingAsks   // POST /a/ask → SSE handoff tokens (librarian_asks.go)
 	defaultWorld string
 	defaultDoc   string
 }
@@ -44,7 +45,7 @@ type ReadingHandler struct {
 // NewReadingHandler binds the reading service, the world served at /, and the
 // document shown there.
 func NewReadingHandler(reading port.ReadingService, defaultWorld, defaultDoc string) ReadingHandler {
-	return ReadingHandler{reading: reading, defaultWorld: defaultWorld, defaultDoc: defaultDoc}
+	return ReadingHandler{reading: reading, asks: newPendingAsks(), defaultWorld: defaultWorld, defaultDoc: defaultDoc}
 }
 
 // WithLibrarian wires the Phase 4 librarian into the reading room (the

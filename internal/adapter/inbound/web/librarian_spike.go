@@ -94,12 +94,12 @@ func (h *ReadingHandler) SpikePage(c *echo.Context) error {
 	return c.HTML(http.StatusOK, page)
 }
 
-// LibrarianStream is the SSE endpoint. With a librarian wired, ?q= is a real
-// ask — tokens, trace, the reconciling answer/rendered events, done; ?t=/&i=
-// carry the pane's trail so rendered citations continue it. Without a
-// librarian (or with ?slow=) it is the transport spike: trace events, the
-// question echoed word by word, done. ?slow=N ticks once a second for N
-// seconds — the soak that proves streams outlive handlerTimeout and survive
+// LibrarianStream is the SSE endpoint. A real ask arrives only as a
+// pending-ask token from POST /a/ask (?ask=<token>) — the question never
+// rides a GET URL — and streams trace, tokens, the reconciling
+// answer/rendered events, done. Everything else (?q=, ?slow=) is the
+// transport spike: the question echoed word by word, or the once-a-second
+// soak that proves streams outlive handlerTimeout and survive
 // proxies/ingress between client and pod.
 func (h *ReadingHandler) LibrarianStream(c *echo.Context) error {
 	// An ask costs model tokens and appends to the reader's conversation;
@@ -112,10 +112,10 @@ func (h *ReadingHandler) LibrarianStream(c *echo.Context) error {
 	if q == "" {
 		q = "hello"
 	}
+	// Clamp both ends: a negative ?slow= must not skid past the branch
+	// points below into a silent no-op echo.
 	slow, _ := strconv.Atoi(c.QueryParam("slow"))
-	if slow > spikeSlowCap {
-		slow = spikeSlowCap
-	}
+	slow = max(0, min(slow, spikeSlowCap))
 
 	w := c.Response()
 	flusher, ok := w.(http.Flusher)
@@ -161,11 +161,30 @@ func (h *ReadingHandler) LibrarianStream(c *echo.Context) error {
 		return true
 	}
 
-	if slow == 0 && h.lib != nil {
-		return h.streamAsk(ctx, c, q, send, sendHTML)
+	// A real ask arrives ONLY as a pending-ask token (POST /a/ask parked it
+	// — the question never rides a GET URL). An expired/foreign/replayed
+	// token still answers in SSE shape: the EventSource gets its close
+	// signal instead of an opaque HTTP error.
+	if token := c.QueryParam("ask"); token != "" {
+		if h.lib == nil {
+			return echo.NewHTTPError(http.StatusNotFound, "the librarian is not on duty")
+		}
+		pa, ok := h.asks.take(token)
+		if !ok || pa.convKey != conversationKey(c) {
+			send("trace", "this ask expired — try again")
+			send("done", "∎")
+			return nil
+		}
+		return h.streamAsk(ctx, c, pa, send, sendHTML)
 	}
-	// sleep waits d or reports the client is gone; every event is paced so
-	// a disconnect is noticed between frames rather than pinning the loop.
+	streamSpike(ctx, q, slow, send)
+	return nil
+}
+
+// streamSpike is the transport spike: the ?slow= soak or the word-by-word
+// echo. Every event is paced through a ctx-aware sleep so a disconnect is
+// noticed between frames rather than pinning the loop.
+func streamSpike(ctx context.Context, q string, slow int, send func(event, data string) bool) {
 	sleep := func(d time.Duration) bool {
 		select {
 		case <-ctx.Done():
@@ -180,14 +199,14 @@ func (h *ReadingHandler) LibrarianStream(c *echo.Context) error {
 		start := time.Now()
 		for i := 1; i <= slow; i++ {
 			if !sleep(time.Second) {
-				return nil
+				return
 			}
 			if !send("token", fmt.Sprintf("tick %d/%d (%.0fs elapsed) ", i, slow, time.Since(start).Seconds())) {
-				return nil
+				return
 			}
 		}
 		send("done", fmt.Sprintf("soak survived %ds — stream outlived the handler timeout", slow))
-		return nil
+		return
 	}
 
 	for _, line := range []string{
@@ -195,30 +214,25 @@ func (h *ReadingHandler) LibrarianStream(c *echo.Context) error {
 		"open (spike: no world read — echo only)",
 	} {
 		if !send("trace", line) || !sleep(spikeTraceDelay) {
-			return nil
+			return
 		}
 	}
 	for word := range strings.FieldsSeq("The library whispers back: " + q) {
 		if !send("token", word+" ") || !sleep(spikeTokenDelay) {
-			return nil
+			return
 		}
 	}
 	send("done", "∎")
-	return nil
 }
 
 // streamAsk runs one real librarian ask and maps the domain events onto the
-// SSE vocabulary. ?t= (trail rest) and ?i= (pane index) carry the pane's
-// trail context so the rendered answer's citations continue the trail; junk
-// degrades to the bare librarian trail.
-func (h *ReadingHandler) streamAsk(ctx context.Context, c *echo.Context, q string, send, sendHTML func(event, data string) bool) error {
-	idx, _ := strconv.Atoi(c.QueryParam("i"))
-	t, err := parseTrail(c.QueryParam("t"), strconv.Itoa(idx), "")
-	if err != nil {
-		t = trail{Panes: []paneAddr{{Kind: paneLibrarian}}, Focus: 0, Reader: -1}
-	}
+// SSE vocabulary. The pending ask carries the question and the pane's trail
+// context (server-side, via the token) so the rendered answer's citations
+// continue the trail.
+func (h *ReadingHandler) streamAsk(ctx context.Context, c *echo.Context, pa pendingAsk, send, sendHTML func(event, data string) bool) error {
+	t := pa.t
 
-	events, err := h.lib.Ask(ctx, conversationKey(c), q)
+	events, err := h.lib.Ask(ctx, pa.convKey, pa.question)
 	if err != nil {
 		if errors.Is(err, domain.ErrLibrarianBusy) {
 			send("trace", "the librarian is still answering your previous question")

@@ -149,14 +149,16 @@ func TestAskLibrarian_HtmxReturnsLiveExchange(t *testing.T) {
 	body := rec.Body.String()
 	for _, want := range []string{
 		"what is the floor?",
-		// html/template's URL escaper renders + as &#43; in attributes.
-		`sse-connect="/a/stream?i=0&amp;q=what&#43;is&#43;the&#43;floor%3F&amp;t=a"`,
+		`sse-connect="/a/stream?ask=`, // opaque token, never the question
 		`sse-close="done"`,
 		`sse-swap="rendered"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("fragment missing %q\nbody:\n%s", want, body)
 		}
+	}
+	if strings.Contains(body, "floor%3F") || strings.Contains(body, "t=a") {
+		t.Errorf("question or trail leaked into the stream URL:\n%s", body)
 	}
 	// The htmx path must NOT run the ask — the SSE GET starts the run.
 	if len(lib.asked) != 0 {
