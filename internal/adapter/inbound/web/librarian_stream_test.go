@@ -39,14 +39,16 @@ func librarianApp(t *testing.T, lib *fakeLibrarian) *echo.Echo {
 // fakeLibrarian scripts one Ask stream, records the questions asked, and
 // serves a canned history.
 type fakeLibrarian struct {
-	events  []domain.LibrarianEvent
-	history []domain.LibrarianExchange
-	askErr  error
-	asked   []string
+	events   []domain.LibrarianEvent
+	history  []domain.LibrarianExchange
+	askErr   error
+	asked    []string
+	contexts []string
 }
 
-func (f *fakeLibrarian) Ask(_ context.Context, _, question string) (<-chan domain.LibrarianEvent, error) {
+func (f *fakeLibrarian) Ask(_ context.Context, _, question, trailContext string) (<-chan domain.LibrarianEvent, error) {
 	f.asked = append(f.asked, question)
+	f.contexts = append(f.contexts, trailContext)
 	if f.askErr != nil {
 		return nil, f.askErr
 	}

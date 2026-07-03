@@ -57,7 +57,13 @@ Ground every claim in something you opened. Cite documents inline as markdown
 links — [title](mark://<world>/<path>) — so the reader can click through and
 follow you; a bare address is not a citation. When the catalog does not
 answer the question, say so plainly — never invent holdings. Be concise:
-answer first, brief support after.`
+answer first, brief support after.
+
+A question may arrive preceded by a <reader-context> block: the panes the
+reader currently has open (their trail) and the text of the document they are
+focused on. That is what the reader is LOOKING AT right now — use it to
+resolve "this"/"here" and to skip redundant lookups — but it is a view, not
+the catalog: verify anything load-bearing with your tools.`
 
 // Config assembles a Librarian. Provider, Reader, Graph, and Map are
 // required; zero-value caps take the package defaults.
@@ -98,6 +104,11 @@ type conversation struct {
 	history  []llm.Message
 	inFlight bool
 	lastUsed time.Time
+
+	// trailContext is the reader's view for the CURRENT run, injected into
+	// the model's copy of the transcript by the agent's TransformContext
+	// hook and cleared at run end — it never enters the saved history.
+	trailContext string
 }
 
 // New validates cfg and builds the Librarian. The tool set is fixed at
@@ -128,7 +139,7 @@ func New(cfg Config) (*Librarian, error) {
 }
 
 // Ask implements port.Librarian: one question, one run, one event stream.
-func (l *Librarian) Ask(ctx context.Context, conversation, question string) (<-chan domain.LibrarianEvent, error) {
+func (l *Librarian) Ask(ctx context.Context, conversation, question, trailContext string) (<-chan domain.LibrarianEvent, error) {
 	question = strings.TrimSpace(question)
 	if question == "" {
 		return nil, errors.New("librarian: empty question")
@@ -138,6 +149,9 @@ func (l *Librarian) Ask(ctx context.Context, conversation, question string) (<-c
 	if err != nil {
 		return nil, err
 	}
+	l.mu.Lock()
+	conv.trailContext = strings.TrimSpace(trailContext)
+	l.mu.Unlock()
 
 	// Transcript: saved history (which already leads with the system
 	// message) plus the new user turn; a fresh conversation starts one.
@@ -173,16 +187,26 @@ func (l *Librarian) acquire(key string) (*conversation, error) {
 	if !ok {
 		l.evictLocked()
 		events := make(chan nibevent.Event, eventBufferSize)
+		conv = &conversation{events: events}
 		agent, err := nibagent.New(nibagent.Options{
 			Provider: l.cfg.Provider,
 			Events:   events,
 			Tools:    l.tools,
 			MaxTurns: l.cfg.MaxTurns,
+			Hooks: nibagent.Hooks{
+				// Inject the reader's trail context into the MODEL'S copy of
+				// the transcript, every turn of the run. TransformContext
+				// works on a snapshot, so the saved history (and therefore
+				// History/the pane transcript) stays clean questions.
+				TransformContext: func(_ context.Context, msgs []llm.Message) ([]llm.Message, error) {
+					return l.injectContext(conv, msgs), nil
+				},
+			},
 		})
 		if err != nil {
 			return nil, fmt.Errorf("librarian: %w", err)
 		}
-		conv = &conversation{agent: agent, events: events}
+		conv.agent = agent
 		l.convs[key] = conv
 	}
 	if conv.inFlight {
@@ -268,6 +292,7 @@ func (l *Librarian) translate(ctx context.Context, conv *conversation, out chan<
 		case nibevent.AgentEnd:
 			l.mu.Lock()
 			conv.history = e.Messages
+			conv.trailContext = ""
 			l.mu.Unlock()
 			emit(domain.LibrarianEvent{Kind: domain.LibrarianDone})
 			return
@@ -300,6 +325,30 @@ func (l *Librarian) History(conversation string) []domain.LibrarianExchange {
 		}
 	}
 	return out
+}
+
+// injectContext prepends the conversation's current trail context to the
+// LAST user message of the model-bound transcript snapshot — the question
+// this run answers. Later turns of the same run see the same injection
+// (the hook re-runs on a fresh snapshot each turn); the persisted transcript
+// is never touched.
+func (l *Librarian) injectContext(conv *conversation, msgs []llm.Message) []llm.Message {
+	l.mu.Lock()
+	tc := conv.trailContext
+	l.mu.Unlock()
+	if tc == "" {
+		return msgs
+	}
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role != "user" {
+			continue
+		}
+		out := make([]llm.Message, len(msgs))
+		copy(out, msgs)
+		out[i].Content = tc + "\n\n" + out[i].Content
+		return out
+	}
+	return msgs
 }
 
 // traceLine renders one tool call as a single legible trace line:

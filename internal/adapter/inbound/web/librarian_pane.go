@@ -13,16 +13,22 @@ package web
 // where the pane re-renders the finished exchange from History.
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"html/template"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/labstack/echo/v5"
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
+	"golang.org/x/net/html"
+	"golang.org/x/net/html/atom"
 )
 
 // maxQuestionBytes bounds one question (plan D7) — well under the global
@@ -35,6 +41,7 @@ const maxQuestionBytes = 4 * 1024
 type librarianAskVM struct {
 	TrailRest string // the /t/* remainder for the current trail
 	Idx       int    // this pane's index on the trail
+	Focus     int    // the reader's URL focus — the pane their attention is on
 	Notice    string // busy/error line rendered above the form (no-JS PRG)
 }
 
@@ -92,6 +99,7 @@ func (h *ReadingHandler) librarianPaneView(c *echo.Context, t trail, i int) pane
 		lp.Ask = &librarianAskVM{
 			TrailRest: strings.TrimPrefix(trailBasePath(t), "/t/"),
 			Idx:       i,
+			Focus:     t.Focus,
 			Notice:    c.QueryParam("notice"),
 		}
 	}
@@ -141,6 +149,12 @@ func (h *ReadingHandler) AskLibrarian(c *echo.Context) error {
 	if err != nil || t.Panes[t.Focus].Kind != paneLibrarian {
 		t = trail{Panes: []paneAddr{{Kind: paneLibrarian}}, Focus: 0, Reader: -1}
 	}
+	// The reader's URL focus (which pane their attention was on when they
+	// asked) rides separately from idx — idx addresses the librarian pane
+	// for link algebra; focus decides whose text goes into the context.
+	focus, _ := strconv.Atoi(c.FormValue("focus"))
+	focus = max(0, min(focus, len(t.Panes)-1))
+	trailContext := h.trailContext(c.Request().Context(), t, focus)
 
 	if c.Request().Header.Get("HX-Request") != "" {
 		// htmx: park the ask under a one-shot token and hand back the live
@@ -150,6 +164,7 @@ func (h *ReadingHandler) AskLibrarian(c *echo.Context) error {
 		// t carries the CLAMPED focus, so a junk idx can't leak through.
 		token, err := h.asks.put(pendingAsk{
 			question: question,
+			context:  trailContext,
 			convKey:  conversationKey(c),
 			t:        t,
 			expires:  time.Now().Add(askTokenTTL),
@@ -167,7 +182,7 @@ func (h *ReadingHandler) AskLibrarian(c *echo.Context) error {
 	// No JS: run the ask synchronously (events drained, tokens unused) and
 	// PRG back to the trail — the pane re-renders the answer from History.
 	notice := ""
-	events, err := h.lib.Ask(c.Request().Context(), conversationKey(c), question)
+	events, err := h.lib.Ask(c.Request().Context(), conversationKey(c), question, trailContext)
 	switch {
 	case errors.Is(err, domain.ErrLibrarianBusy):
 		notice = "the librarian is still answering your previous question"
@@ -210,4 +225,125 @@ func conversationKey(c *echo.Context) string {
 		return cookie.Value
 	}
 	return "local"
+}
+
+// trailContextBudget caps the focused document's text fed with each ask —
+// token economy over completeness; the librarian can open the full document
+// itself, visibly in the trace.
+const trailContextBudget = 8 * 1024
+
+// trailContext renders the reader's current view for the librarian (plan D5:
+// trail = context): every pane's label, plus the focused document's text
+// extracted from its CACHED render — zero extra world reads. Best-effort
+// throughout: a cold cache just means less context, never a failed ask.
+func (h *ReadingHandler) trailContext(ctx context.Context, t trail, focus int) string {
+	var b strings.Builder
+	b.WriteString("<reader-context>\nThe reader's open panes (their trail), oldest first:\n")
+	for i, p := range t.Panes {
+		b.WriteString("- ")
+		b.WriteString(h.paneContextLabel(ctx, p))
+		if i == focus {
+			b.WriteString("   <- the reader's focus")
+		}
+		b.WriteByte('\n')
+	}
+	if fa := t.Panes[focus]; fa.Kind == paneDoc && !domain.IsListingPath(fa.Value) {
+		if doc, err := h.reading.OpenCached(ctx, fa.World, fa.Value); err == nil {
+			text := truncateRunes(neutralizeContextTags(htmlText(doc.HTML)), trailContextBudget)
+			fmt.Fprintf(&b, "\nThe focused document (mark://%s%s — %q) as the reader sees it:\n\"\"\"\n%s\n\"\"\"\n", fa.World, fa.Value, neutralizeContextTags(doc.Title), text)
+		}
+	}
+	b.WriteString("</reader-context>")
+	return b.String()
+}
+
+// paneContextLabel names one pane for the context block.
+func (h *ReadingHandler) paneContextLabel(ctx context.Context, p paneAddr) string {
+	switch p.Kind {
+	case paneLibrarian:
+		return "this librarian conversation"
+	case paneFloor:
+		if p.World == "" {
+			return "the universe floor"
+		}
+		return "map of world " + p.World
+	case paneGraph:
+		return "graph of mark://" + p.World + p.Value
+	case paneTag:
+		return "tag page #" + p.Value + " in world " + p.World
+	default:
+		label := "mark://" + p.World + p.Value
+		if doc, err := h.reading.OpenCached(ctx, p.World, p.Value); err == nil && doc.Title != "" {
+			label += " — " + strconv.Quote(neutralizeContextTags(doc.Title))
+		}
+		return label
+	}
+}
+
+// contextTagPattern matches any spelling of the reader-context wrapper tag
+// inside DOCUMENT-derived text. Document content is untrusted for prompt
+// structure: a doc containing a literal </reader-context> could close the
+// wrapper early and speak with the reader's voice.
+var contextTagPattern = regexp.MustCompile(`(?i)</?\s*reader-context\s*>?`)
+
+// neutralizeContextTags defangs wrapper-tag lookalikes in text headed into
+// the <reader-context> block, keeping the structural markers unambiguous.
+func neutralizeContextTags(s string) string {
+	return contextTagPattern.ReplaceAllString(s, "[reader-context tag removed]")
+}
+
+// htmlText flattens rendered HTML to readable plain text for the model:
+// text nodes joined, block elements separated by newlines, whitespace
+// collapsed. Fed only sanitized library-rendered HTML.
+func htmlText(fragment string) string {
+	nodes, err := html.ParseFragment(strings.NewReader(fragment),
+		&html.Node{Type: html.ElementNode, Data: "body", DataAtom: atom.Body})
+	if err != nil {
+		return ""
+	}
+	var b strings.Builder
+	var walk func(*html.Node)
+	walk = func(n *html.Node) {
+		if n.Type == html.TextNode {
+			b.WriteString(n.Data)
+			return
+		}
+		if n.Type == html.ElementNode {
+			switch n.Data {
+			case "script", "style":
+				return
+			case "p", "li", "h1", "h2", "h3", "h4", "h5", "h6", "tr", "pre", "blockquote", "br", "div":
+				b.WriteByte('\n')
+			}
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			walk(c)
+		}
+	}
+	for _, n := range nodes {
+		walk(n)
+	}
+	// Collapse runs of blank lines and intra-line whitespace.
+	lines := strings.Split(b.String(), "\n")
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		line = strings.Join(strings.Fields(line), " ")
+		if line != "" {
+			out = append(out, line)
+		}
+	}
+	return strings.Join(out, "\n")
+}
+
+// truncateRunes cuts s at limit bytes without splitting a UTF-8 rune,
+// appending a truncation note when anything was cut.
+func truncateRunes(s string, limit int) string {
+	if len(s) <= limit {
+		return s
+	}
+	cut := limit
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "\n[… truncated — the librarian can open the document for the rest]"
 }
