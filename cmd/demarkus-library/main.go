@@ -97,8 +97,16 @@ func main() {
 	// flag. Forms emit the token via {{ csrf }} (view.go).
 	app.Use(web.CSRFMiddleware(config.CookieSecure))
 	// Bound handler latency: a wedged outbound read returns 503 instead of
-	// pinning the goroutine. Covers the turnstile's token refresh too.
-	app.Use(middleware.ContextTimeout(handlerTimeout))
+	// pinning the goroutine. Covers the turnstile's token refresh too. The
+	// librarian's SSE stream is exempt — a stream legitimately outlives the
+	// 30s bound; its lifetime is the client connection (plan D4/D7 cap the
+	// work inside it).
+	app.Use(middleware.ContextTimeoutWithConfig(middleware.ContextTimeoutConfig{
+		Timeout: handlerTimeout,
+		Skipper: func(c *echo.Context) bool {
+			return c.Request().URL.Path == web.LibrarianStreamPath
+		},
+	}))
 
 	view, err := web.NewView()
 	if err != nil {
@@ -176,6 +184,9 @@ func main() {
 	// budget (ADR 0005 decision 9).
 	reading := service.NewReadingService(gateway, renderer, cache.NewMemory(0)).WithHub(config.Hub)
 	web.ReadingRoutes(app, web.NewReadingHandler(reading, defaultWorld, config.DefaultDoc), turnstile...)
+	// Phase 4 SSE spike (plans/phase-4-ai-librarian.md step 1): the echo
+	// stream that proves the librarian's transport before the agent exists.
+	web.LibrarianSpikeRoutes(app, turnstile...)
 
 	logger.Info("demarkus Library reading room starting",
 		"port", config.Port, "transport", config.Transport,
