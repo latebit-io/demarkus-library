@@ -16,7 +16,7 @@ import (
 )
 
 // spikeApp wires the reading routes with no librarian — the /a/ surface in
-// its feature-dark posture, where the stream is the transport-spike echo.
+// its feature-dark posture (pane says not-on-duty; only the soak streams).
 func spikeApp(t *testing.T) *echo.Echo {
 	t.Helper()
 	return readingApp(t, &fakeReading{doc: domain.Document{Title: "X", Path: "/x.md", HTML: "<p>x</p>"}})
@@ -80,7 +80,7 @@ func askToken(t *testing.T, e *echo.Echo, question string) string {
 	return html.UnescapeString(m[1])
 }
 
-func TestSpikeStream_LibrarianPathMapsEvents(t *testing.T) {
+func TestLibrarianStream_LibrarianPathMapsEvents(t *testing.T) {
 	t.Parallel()
 
 	lib := &fakeLibrarian{events: []domain.LibrarianEvent{
@@ -135,11 +135,12 @@ func TestSpikeStream_LibrarianPathMapsEvents(t *testing.T) {
 	}
 }
 
-func TestSpikeStream_BareQIsNeverARealAsk(t *testing.T) {
+func TestLibrarianStream_BareQIsNeverARealAsk(t *testing.T) {
 	t.Parallel()
 
-	// With a librarian wired, a raw ?q= GET stays the transport echo — the
-	// question-in-URL path must not reach the model (history/log hygiene).
+	// A raw ?q= GET must never reach the model — the question-in-URL path
+	// is gone (history/log hygiene); without a token or soak there is
+	// nothing to stream.
 	lib := &fakeLibrarian{}
 	e := librarianApp(t, lib)
 	rec := httptest.NewRecorder()
@@ -148,9 +149,8 @@ func TestSpikeStream_BareQIsNeverARealAsk(t *testing.T) {
 	if len(lib.asked) != 0 {
 		t.Errorf("bare ?q= reached the librarian: %v", lib.asked)
 	}
-	// The echo streams word-by-word, so assert one whole token frame.
-	if !strings.Contains(rec.Body.String(), "event: token\ndata: whispers ") {
-		t.Errorf("bare ?q= did not fall through to the echo:\n%s", rec.Body.String())
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("bare ?q= status = %d; want 400", rec.Code)
 	}
 }
 
@@ -185,7 +185,7 @@ func TestAskLibrarian_JunkIdxClamps(t *testing.T) {
 	}
 }
 
-func TestSpikeStream_ErrorPathIsGenericAndCloses(t *testing.T) {
+func TestLibrarianStream_ErrorPathIsGenericAndCloses(t *testing.T) {
 	t.Parallel()
 
 	// A stream that ends on Error with no Done — the port contract's other
@@ -212,7 +212,7 @@ func TestSpikeStream_ErrorPathIsGenericAndCloses(t *testing.T) {
 	}
 }
 
-func TestSpikeStream_RejectsCrossSite(t *testing.T) {
+func TestLibrarianStream_RejectsCrossSite(t *testing.T) {
 	t.Parallel()
 
 	lib := &fakeLibrarian{}
@@ -230,7 +230,7 @@ func TestSpikeStream_RejectsCrossSite(t *testing.T) {
 	}
 }
 
-func TestSpikeStream_SoakBypassesLibrarian(t *testing.T) {
+func TestLibrarianStream_SoakBypassesLibrarian(t *testing.T) {
 	t.Parallel()
 
 	lib := &fakeLibrarian{}
@@ -243,65 +243,18 @@ func TestSpikeStream_SoakBypassesLibrarian(t *testing.T) {
 	if len(lib.asked) != 0 {
 		t.Errorf("soak reached the librarian: %v", lib.asked)
 	}
-	if !strings.Contains(rec.Body.String(), "soak survived 1s") {
-		t.Errorf("soak did not run:\n%s", rec.Body.String())
-	}
-}
-
-func TestSpikeStream_EmitsTraceTokensDone(t *testing.T) {
-	t.Parallel()
-
-	e := spikeApp(t)
-	req := httptest.NewRequest(http.MethodGet, "/a/stream?q=hi", http.NoBody)
-	rec := httptest.NewRecorder()
-	e.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d; want 200", rec.Code)
-	}
 	if ct := rec.Header().Get(echo.HeaderContentType); ct != "text/event-stream" {
 		t.Errorf("Content-Type = %q; want text/event-stream", ct)
 	}
 	if cc := rec.Header().Get("Cache-Control"); !strings.Contains(cc, "no-store") {
 		t.Errorf("Cache-Control = %q; want no-store", cc)
 	}
-
-	body := rec.Body.String()
-	for _, want := range []string{
-		"event: trace\ndata: lookup &#34;hi&#34;",
-		"event: token\ndata: whispers ",
-		"event: token\ndata: hi ",
-		"event: done\n",
-	} {
-		if !strings.Contains(body, want) {
-			t.Errorf("body missing %q\nbody:\n%s", want, body)
-		}
-	}
-	// The done frame must be last — the client closes the EventSource on it.
-	if !strings.Contains(body[strings.LastIndex(body, "event:"):], "event: done") {
-		t.Errorf("done is not the final event\nbody:\n%s", body)
+	if !strings.Contains(rec.Body.String(), "soak survived 1s") {
+		t.Errorf("soak did not run:\n%s", rec.Body.String())
 	}
 }
 
-func TestSpikeStream_EscapesUserText(t *testing.T) {
-	t.Parallel()
-
-	e := spikeApp(t)
-	req := httptest.NewRequest(http.MethodGet, "/a/stream?q="+
-		"%3Cscript%3Ealert(1)%3C%2Fscript%3E", http.NoBody)
-	rec := httptest.NewRecorder()
-	e.ServeHTTP(rec, req)
-
-	body := rec.Body.String()
-	if strings.Contains(body, "<script>") {
-		t.Errorf("unescaped script tag reached the SSE data:\n%s", body)
-	}
-	if !strings.Contains(body, "&lt;script&gt;") {
-		t.Errorf("expected HTML-escaped question in stream data:\n%s", body)
-	}
-}
-
-func TestSpikeStream_StopsOnClientDisconnect(t *testing.T) {
+func TestLibrarianStream_StopsOnClientDisconnect(t *testing.T) {
 	t.Parallel()
 
 	e := spikeApp(t)
@@ -326,44 +279,5 @@ func TestSpikeStream_StopsOnClientDisconnect(t *testing.T) {
 	}
 	if body := rec.Body.String(); strings.Contains(body, "event: done") {
 		t.Errorf("disconnected stream still ran to completion:\n%s", body)
-	}
-}
-
-func TestSpikePage_WiresSSEExtension(t *testing.T) {
-	t.Parallel()
-
-	e := spikeApp(t)
-	req := httptest.NewRequest(http.MethodGet, "/a/spike?q=where+is+the+runbook%3F", http.NoBody)
-	rec := httptest.NewRecorder()
-	e.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d; want 200", rec.Code)
-	}
-	body := rec.Body.String()
-	for _, want := range []string{
-		`src="/static/sse.min.js"`,
-		`hx-ext="sse"`,
-		`sse-connect="/a/stream?q=where+is+the+runbook%3F"`,
-		`sse-close="done"`,
-		`sse-swap="token"`,
-		`value="where is the runbook?"`,
-	} {
-		if !strings.Contains(body, want) {
-			t.Errorf("page missing %q\nbody:\n%s", want, body)
-		}
-	}
-}
-
-func TestSpikePage_EscapesQuestionInAttributes(t *testing.T) {
-	t.Parallel()
-
-	e := spikeApp(t)
-	req := httptest.NewRequest(http.MethodGet, "/a/spike?q=%22%3E%3Cscript%3Ealert(1)%3C%2Fscript%3E", http.NoBody)
-	rec := httptest.NewRecorder()
-	e.ServeHTTP(rec, req)
-
-	if body := rec.Body.String(); strings.Contains(body, "<script>alert") {
-		t.Errorf("unescaped question broke out of the attribute:\n%s", body)
 	}
 }

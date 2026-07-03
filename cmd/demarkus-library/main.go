@@ -190,7 +190,7 @@ func main() {
 	// over the core's read-only ports, joining the canvas as pane kind `a`.
 	// Feature-dark unless nib's llmconfig resolves an LLM provider (global
 	// llm.json or LLM_API_KEY/LLM_BASE_URL/LLM_MODEL) — without one the pane
-	// reads "not on duty" and /a/stream stays the transport-spike echo.
+	// reads "not on duty" and /a/stream serves only the ?slow= soak.
 	lib := buildLibrarian(logger, reading, defaultWorld)
 	handler := web.NewReadingHandler(reading, defaultWorld, config.DefaultDoc)
 	if lib != nil {

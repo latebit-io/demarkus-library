@@ -1,12 +1,12 @@
 package web
 
-// The librarian's SSE surface (Phase 4, plan D4) plus the transport spike
-// that proved it (build order step 1). GET /a/stream speaks the stream
-// vocabulary — trace lines, token deltas, the reconciling `answer` text and
-// `rendered` HTML, done — into the pane's htmx SSE block. Without a wired
-// librarian (feature-dark, D6) or with ?slow= it stays the transport spike:
-// an echo and a soak that prove streaming through every timeout and proxy.
-// The /a/spike page is throwaway scaffolding; the stream endpoint is not.
+// The librarian's SSE surface (Phase 4, plan D4). GET /a/stream speaks the
+// stream vocabulary — trace lines, token deltas, the reconciling `answer`
+// text and `rendered` HTML, done — into the pane's htmx SSE block. A real
+// ask arrives only as a one-shot token from POST /a/ask. ?slow= is the one
+// survivor of the transport spike that proved this path (build order step
+// 1): a once-a-second soak, kept as the operational diagnostic for the
+// timeout/proxy/ingress questions every new environment re-asks.
 
 import (
 	"context"
@@ -14,7 +14,6 @@ import (
 	"fmt"
 	"html"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -36,71 +35,18 @@ const (
 	LibrarianAskPath    = "/a/ask"
 )
 
-// spikeSlowCap bounds the ?slow= soak so a crafted URL cannot pin a
-// goroutine for hours; 120s is comfortably past every timeout under test.
-const spikeSlowCap = 120
-
-// spikeTokenDelay paces token events so streaming is visible to a human
-// watching the spike page; spikeTraceDelay spaces the fake trace lines.
-const (
-	spikeTokenDelay = 150 * time.Millisecond
-	spikeTraceDelay = 300 * time.Millisecond
-)
-
-// SpikePage renders a minimal self-contained page that connects the htmx SSE
-// extension to the stream. Deliberately not a reading-room template: the page
-// is scaffolding for transport verification (the real surface is the
-// librarian pane), and inlining it keeps the throwaway part in one file.
-func (h *ReadingHandler) SpikePage(c *echo.Context) error {
-	q := c.QueryParam("q")
-	if q == "" {
-		q = "hello from the reading room"
-	}
-	values := url.Values{"q": {q}}
-	if slow := c.QueryParam("slow"); slow != "" {
-		values.Set("slow", slow)
-	}
-	streamURL := html.EscapeString(LibrarianStreamPath + "?" + values.Encode())
-
-	page := fmt.Sprintf(`<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<title>librarian SSE spike</title>
-<script src="/static/htmx.min.js"></script>
-<script src="/static/sse.min.js"></script>
-<style>
- body { font: 16px/1.5 Charter, Georgia, serif; max-width: 60ch; margin: 3rem auto; }
- #trace { color: #777; font-size: 0.85em; font-family: monospace; }
- #answer span { margin-right: 0.25em; }
-</style>
-</head>
-<body>
-<h1>librarian SSE spike</h1>
-<form method="get" action="/a/spike">
- <input name="q" value="%s" size="40" autofocus>
- <button>ask</button>
- <a href="/a/spike?q=%s&amp;slow=45">45s soak</a>
-</form>
-<div hx-ext="sse" sse-connect="%s" sse-close="done">
- <div id="trace" sse-swap="trace" hx-swap="beforeend"></div>
- <p id="answer" style="white-space: pre-wrap" sse-swap="token" hx-swap="beforeend"></p>
- <p id="final" style="white-space: pre-wrap" sse-swap="answer" hx-swap="innerHTML" hidden></p>
- <p id="done" sse-swap="done"></p>
-</div>
-</body>
-</html>`, html.EscapeString(q), url.QueryEscape(q), streamURL)
-
-	return c.HTML(http.StatusOK, page)
-}
+// soakCap bounds the ?slow= soak so a crafted URL cannot pin a goroutine
+// for hours; 120s is comfortably past every timeout under test.
+const soakCap = 120
 
 // LibrarianStream is the SSE endpoint. A real ask arrives only as a
 // pending-ask token from POST /a/ask (?ask=<token>) — the question never
 // rides a GET URL — and streams trace, tokens, the reconciling
-// answer/rendered events, done. Everything else (?q=, ?slow=) is the
-// transport spike: the question echoed word by word, or the once-a-second
-// soak that proves streams outlive handlerTimeout and survive
-// proxies/ingress between client and pod.
+// answer/rendered events, done. ?slow=N is the transport soak (one tick per
+// second for N seconds): the diagnostic that proves streams outlive
+// handlerTimeout and survive proxies/ingress between client and pod —
+// re-run it whenever the deployment topology changes. Anything else has
+// nothing to stream and says so.
 func (h *ReadingHandler) LibrarianStream(c *echo.Context) error {
 	// An ask costs model tokens and appends to the reader's conversation;
 	// EventSource can't carry a CSRF token, so reject cross-site fetches at
@@ -108,14 +54,20 @@ func (h *ReadingHandler) LibrarianStream(c *echo.Context) error {
 	if site := c.Request().Header.Get("Sec-Fetch-Site"); site != "" && site != "same-origin" && site != "none" {
 		return echo.NewHTTPError(http.StatusForbidden, "cross-site stream rejected")
 	}
-	q := c.QueryParam("q")
-	if q == "" {
-		q = "hello"
-	}
 	// Clamp both ends: a negative ?slow= must not skid past the branch
-	// points below into a silent no-op echo.
+	// points below into a silent no-op.
 	slow, _ := strconv.Atoi(c.QueryParam("slow"))
-	slow = max(0, min(slow, spikeSlowCap))
+	slow = max(0, min(slow, soakCap))
+	token := c.QueryParam("ask")
+
+	// Decide whether there is anything to stream BEFORE committing the SSE
+	// response — after WriteHeader a plain HTTP error can't be sent.
+	if token == "" && slow == 0 {
+		return echo.NewHTTPError(http.StatusBadRequest, "nothing to stream — ask through the librarian pane")
+	}
+	if token != "" && h.lib == nil {
+		return echo.NewHTTPError(http.StatusNotFound, "the librarian is not on duty")
+	}
 
 	w := c.Response()
 	flusher, ok := w.(http.Flusher)
@@ -165,10 +117,7 @@ func (h *ReadingHandler) LibrarianStream(c *echo.Context) error {
 	// — the question never rides a GET URL). An expired/foreign/replayed
 	// token still answers in SSE shape: the EventSource gets its close
 	// signal instead of an opaque HTTP error.
-	if token := c.QueryParam("ask"); token != "" {
-		if h.lib == nil {
-			return echo.NewHTTPError(http.StatusNotFound, "the librarian is not on duty")
-		}
+	if token != "" {
 		pa, ok := h.asks.take(token)
 		if !ok || pa.convKey != conversationKey(c) {
 			send("trace", "this ask expired — try again")
@@ -177,14 +126,14 @@ func (h *ReadingHandler) LibrarianStream(c *echo.Context) error {
 		}
 		return h.streamAsk(ctx, c, pa, send, sendHTML)
 	}
-	streamSpike(ctx, q, slow, send)
+	streamSoak(ctx, slow, send)
 	return nil
 }
 
-// streamSpike is the transport spike: the ?slow= soak or the word-by-word
-// echo. Every event is paced through a ctx-aware sleep so a disconnect is
+// streamSoak is the transport diagnostic: one tick per second for slow
+// seconds. Every event is paced through a ctx-aware sleep so a disconnect is
 // noticed between frames rather than pinning the loop.
-func streamSpike(ctx context.Context, q string, slow int, send func(event, data string) bool) {
+func streamSoak(ctx context.Context, slow int, send func(event, data string) bool) {
 	sleep := func(d time.Duration) bool {
 		select {
 		case <-ctx.Done():
@@ -194,35 +143,17 @@ func streamSpike(ctx context.Context, q string, slow int, send func(event, data 
 		}
 	}
 
-	if slow > 0 {
-		send("trace", fmt.Sprintf("soak: one tick per second for %ds", slow))
-		start := time.Now()
-		for i := 1; i <= slow; i++ {
-			if !sleep(time.Second) {
-				return
-			}
-			if !send("token", fmt.Sprintf("tick %d/%d (%.0fs elapsed) ", i, slow, time.Since(start).Seconds())) {
-				return
-			}
+	send("trace", fmt.Sprintf("soak: one tick per second for %ds", slow))
+	start := time.Now()
+	for i := 1; i <= slow; i++ {
+		if !sleep(time.Second) {
+			return
 		}
-		send("done", fmt.Sprintf("soak survived %ds — stream outlived the handler timeout", slow))
-		return
-	}
-
-	for _, line := range []string{
-		fmt.Sprintf("lookup %q", q),
-		"open (spike: no world read — echo only)",
-	} {
-		if !send("trace", line) || !sleep(spikeTraceDelay) {
+		if !send("token", fmt.Sprintf("tick %d/%d (%.0fs elapsed) ", i, slow, time.Since(start).Seconds())) {
 			return
 		}
 	}
-	for word := range strings.FieldsSeq("The library whispers back: " + q) {
-		if !send("token", word+" ") || !sleep(spikeTokenDelay) {
-			return
-		}
-	}
-	send("done", "∎")
+	send("done", fmt.Sprintf("soak survived %ds — stream outlived the handler timeout", slow))
 }
 
 // streamAsk runs one real librarian ask and maps the domain events onto the
