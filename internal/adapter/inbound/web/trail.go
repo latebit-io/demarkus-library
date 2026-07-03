@@ -46,6 +46,13 @@ const (
 	// continues the trail. Same value rule as paneDoc — the chunk tail is
 	// <world>/g/<path>.
 	paneGraph = "g"
+	// paneLibrarian is the AI librarian pane (Phase 4): the reader's
+	// conversation with the librarian, joining the canvas so the trail is its
+	// context. Like the bare floor it is a single-segment chunk with no world
+	// or value — the URL names the pane, never the conversation (server-side,
+	// session-keyed state), so shared trails stay shareable without leaking
+	// chat: the recipient sees their own librarian.
+	paneLibrarian = "a"
 )
 
 // paneAddr addresses one pane: a document (or listing) in a world, or a
@@ -115,6 +122,9 @@ func parseTrail(rest, focusParam, readerParam string) (trail, error) {
 func parsePaneChunk(chunk string) (paneAddr, error) {
 	if chunk == paneFloor {
 		return paneAddr{Kind: paneFloor}, nil
+	}
+	if chunk == paneLibrarian {
+		return paneAddr{Kind: paneLibrarian}, nil
 	}
 	world, rest, ok := strings.Cut(chunk, "/")
 	if !ok || world == "" || world == trailSep {
@@ -224,6 +234,8 @@ func trailReaderURL(t trail, reader int) string {
 // paneChunk encodes one pane address as its chunk (no leading slash).
 func paneChunk(p paneAddr) string {
 	switch p.Kind {
+	case paneLibrarian:
+		return paneLibrarian
 	case paneFloor:
 		if p.World == "" {
 			return paneFloor

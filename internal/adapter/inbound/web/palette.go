@@ -196,6 +196,8 @@ func matchRank(q, hay string) (int, bool) {
 // paneLabel gives a recent row its title + location from a pane address.
 func paneLabel(p paneAddr) (title, loc string) {
 	switch p.Kind {
+	case paneLibrarian:
+		return "librarian", ""
 	case paneFloor:
 		if p.World == "" {
 			return "universe", ""

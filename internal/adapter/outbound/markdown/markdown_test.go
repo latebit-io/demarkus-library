@@ -327,3 +327,19 @@ func TestRenderDollarAmountsUntouched(t *testing.T) {
 		t.Errorf("dollar amounts must not be eaten as math: %q", html)
 	}
 }
+
+func TestRender_MarkSchemeSurvivesSanitization(t *testing.T) {
+	t.Parallel()
+
+	r := NewRenderer()
+	out, err := r.Render("[roadmap](mark://w.io/roadmap.md) [evil](javascript:alert(1))")
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out.HTML, `href="mark://w.io/roadmap.md"`) {
+		t.Errorf("mark:// href stripped — cross-world citations lose their link:\n%s", out.HTML)
+	}
+	if strings.Contains(out.HTML, "javascript:") {
+		t.Errorf("javascript: scheme survived sanitization:\n%s", out.HTML)
+	}
+}

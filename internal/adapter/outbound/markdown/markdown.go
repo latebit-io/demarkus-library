@@ -114,6 +114,12 @@ var alertIcons = map[string]string{
 // emits them on.
 func NewRenderer() *Renderer {
 	policy := bluemonday.UGCPolicy()
+	// mark:// is the protocol's own scheme — a cross-world citation like
+	// [x](mark://world/path.md) must keep its href through sanitization or
+	// the web layer's rewriteLinks (which resolves mark:// hrefs to in-app
+	// routes) never sees one. UGC's standard set (mailto/http/https) stays;
+	// dangerous schemes (javascript: etc.) stay stripped.
+	policy.AllowURLSchemes("mark")
 	policy.AllowAttrs("class").Matching(chromaClasses).OnElements("pre", "code", "span")
 	// chroma marks highlighted <pre> blocks tabindex="0" so keyboard
 	// users can focus + scroll an overflowing block. Pin to exactly 0 —

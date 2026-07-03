@@ -38,6 +38,7 @@ type editVM struct {
 	Statuses      []string
 	Authenticated bool
 	User          string // signed-in identity's email for the nav (empty ⇒ not shown)
+	LibrarianURL  string // nav door to the librarian (empty ⇒ not configured); the desk keeps the bare entrance
 	Create        bool   // create mode: editable path field, POSTs to /new, version 0
 	Append        bool   // append mode: body-only, POSTs to /append, no metadata
 	Error         string // write-error banner; empty ⇒ none
@@ -67,7 +68,7 @@ func (h *ReadingHandler) EditForm(c *echo.Context) error {
 		Statuses:      editStatuses,
 		Authenticated: c.Get(authedKey) != nil, User: userEmail(c),
 	}
-	return c.Render(http.StatusOK, "edit", vm)
+	return h.renderEdit(c, http.StatusOK, &vm)
 }
 
 // NewForm serves the create-a-document form — the edit template in create mode:
@@ -85,7 +86,7 @@ func (h *ReadingHandler) NewForm(c *echo.Context) error {
 		Authenticated: c.Get(authedKey) != nil, User: userEmail(c),
 		Create: true,
 	}
-	return c.Render(http.StatusOK, "edit", vm)
+	return h.renderEdit(c, http.StatusOK, &vm)
 }
 
 // CreateDoc publishes a brand-new document at the reader-chosen path with
@@ -118,7 +119,7 @@ func (h *ReadingHandler) CreateDoc(c *echo.Context) error {
 	}
 	if !ok {
 		vm.Error = "Enter a document path like /notes/idea.md — not a directory."
-		return c.Render(http.StatusBadRequest, "edit", vm)
+		return h.renderEdit(c, http.StatusBadRequest, &vm)
 	}
 
 	// Create publishes at version 0 → on_conflict "fail" (a path-taken conflict
@@ -127,7 +128,7 @@ func (h *ReadingHandler) CreateDoc(c *echo.Context) error {
 	if _, _, err := h.reading.Publish(c.Request().Context(), world, path, body, meta, 0); err != nil {
 		vm.Path = path
 		vm.Error = createErrorMessage(err)
-		return c.Render(editErrorStatus(err), "edit", vm)
+		return h.renderEdit(c, editErrorStatus(err), &vm)
 	}
 	return c.Redirect(http.StatusSeeOther, docRoute(world, path))
 }
@@ -199,7 +200,7 @@ func (h *ReadingHandler) AppendForm(c *echo.Context) error {
 		Authenticated: c.Get(authedKey) != nil, User: userEmail(c),
 		Append: true,
 	}
-	return c.Render(http.StatusOK, "edit", vm)
+	return h.renderEdit(c, http.StatusOK, &vm)
 }
 
 // AppendDoc appends the submitted body to the document, then redirects to it.
@@ -216,7 +217,7 @@ func (h *ReadingHandler) AppendDoc(c *echo.Context) error {
 			Path: p, Authenticated: c.Get(authedKey) != nil, User: userEmail(c), Append: true,
 			Error: "Nothing to append — write some content first.",
 		}
-		return c.Render(http.StatusBadRequest, "edit", vm)
+		return h.renderEdit(c, http.StatusBadRequest, &vm)
 	}
 
 	if _, err := h.reading.Append(c.Request().Context(), world, p, body); err != nil {
@@ -225,7 +226,7 @@ func (h *ReadingHandler) AppendDoc(c *echo.Context) error {
 			Path: p, Body: body, Authenticated: c.Get(authedKey) != nil, User: userEmail(c), Append: true,
 			Error: editErrorMessage(err),
 		}
-		return c.Render(editErrorStatus(err), "edit", vm)
+		return h.renderEdit(c, editErrorStatus(err), &vm)
 	}
 	return c.Redirect(http.StatusSeeOther, docRoute(world, p))
 }
@@ -292,10 +293,10 @@ func (h *ReadingHandler) SaveEdit(c *echo.Context) error {
 		vm.Body = merge.Body
 		vm.Version = merge.PublishAtVersion
 		vm.Notice = mergeNotice(merge.HasMarkers)
-		return c.Render(http.StatusConflict, "edit", vm)
+		return h.renderEdit(c, http.StatusConflict, &vm)
 	}
 	vm.Error = editErrorMessage(err)
-	return c.Render(editErrorStatus(err), "edit", vm)
+	return h.renderEdit(c, editErrorStatus(err), &vm)
 }
 
 // assembleTags merges the comma-separated tags input with the status picker into
@@ -357,4 +358,14 @@ func editErrorStatus(err error) int {
 		// re-rendering the form so the reader's text is preserved.
 		return http.StatusBadGateway
 	}
+}
+
+// renderEdit is the single seam every edit-form render goes through: it stamps
+// the shared nav fields (the librarian door) so the nine construction sites
+// don't each repeat them.
+func (h *ReadingHandler) renderEdit(c *echo.Context, status int, vm *editVM) error {
+	if h.lib != nil {
+		vm.LibrarianURL = "/a"
+	}
+	return c.Render(status, "edit", vm)
 }

@@ -9,7 +9,11 @@
   <div class="pane-cols">
     <article class="doc-body">
       <h1>{{ .Title }}</h1>
+      {{- if .Librarian }}
+      {{template "librarian-body" .Librarian}}
+      {{- else }}
       {{ .Content }}
+      {{- end }}
     </article>
     {{- if .HasMargin }}
     <aside class="doc-margin">

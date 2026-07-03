@@ -36,6 +36,8 @@ import (
 // and edition histories. It depends on the inbound port, not the concrete service.
 type ReadingHandler struct {
 	reading      port.ReadingService
+	lib          port.Librarian // nil = librarian not configured (feature-dark)
+	asks         *pendingAsks   // POST /a/ask → SSE handoff tokens (librarian_asks.go)
 	defaultWorld string
 	defaultDoc   string
 }
@@ -43,7 +45,15 @@ type ReadingHandler struct {
 // NewReadingHandler binds the reading service, the world served at /, and the
 // document shown there.
 func NewReadingHandler(reading port.ReadingService, defaultWorld, defaultDoc string) ReadingHandler {
-	return ReadingHandler{reading: reading, defaultWorld: defaultWorld, defaultDoc: defaultDoc}
+	return ReadingHandler{reading: reading, asks: newPendingAsks(), defaultWorld: defaultWorld, defaultDoc: defaultDoc}
+}
+
+// WithLibrarian wires the Phase 4 librarian into the reading room (the
+// composition root calls it when an LLM provider resolved). Without it the
+// librarian pane renders its not-on-duty state and asks are rejected.
+func (h ReadingHandler) WithLibrarian(lib port.Librarian) ReadingHandler {
+	h.lib = lib
+	return h
 }
 
 // tagLink is one clickable tag in the margin — the lateral-nav exit to a
@@ -63,6 +73,7 @@ type page struct {
 	WorldPath     string        // current world, path-escaped for URL building
 	Authenticated bool          // behind the turnstile (broker mode) — shows sign-out
 	User          string        // signed-in identity's email for the nav (empty ⇒ not shown)
+	LibrarianURL  string        // nav door to the librarian pane (empty ⇒ not configured)
 
 	// The margin (documents only — listings and catalog views render
 	// without one; an empty margin is correct, ADR 0005 decision 8).
@@ -268,6 +279,13 @@ func (h *ReadingHandler) present(c *echo.Context, doc domain.Document, err error
 		WorldPath:     url.PathEscape(opts.world),
 		Authenticated: c.Get(authedKey) != nil, // set by RequireSession in broker mode
 		User:          userEmail(c),
+	}
+	if h.lib != nil {
+		// The nav's librarian door. Interactive doc navigation always lands
+		// on the canvas (canvasTrailURL), where the door carries the trail;
+		// the standalone page surfaces that render this nav (versions, raw,
+		// fragment escapes) get the bare librarian trail.
+		vm.LibrarianURL = "/a"
 	}
 	if opts.doc {
 		vm.IsDoc = true

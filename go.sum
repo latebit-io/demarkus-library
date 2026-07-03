@@ -48,6 +48,10 @@ github.com/latebit-io/demarkus/client v0.12.40 h1:Uz0lSgDIK8BjrIQt8srlv7iRQ59WsO
 github.com/latebit-io/demarkus/client v0.12.40/go.mod h1:sGupP52edaQ8tz3YT5GYAREr1xUULTkqEbQhwfFZYfQ=
 github.com/latebit-io/demarkus/protocol v0.7.13 h1:dDAtGaCECiq+v6n+fzIciSEozf2bv4dacBu/6Hg2a0A=
 github.com/latebit-io/demarkus/protocol v0.7.13/go.mod h1:xo6YbrzYwNXOh1sljgi1nwMV80+M3Mw9qDCI9tlZJJI=
+github.com/latebit-io/nib/agent v0.0.0-20260703002345-4c5495a6525c h1:xDFbFs9YASP135isZYxktyw6gqVbo/s05MRIbbjBriA=
+github.com/latebit-io/nib/agent v0.0.0-20260703002345-4c5495a6525c/go.mod h1:3do0hebelca62TWvQBMH1GJMsMqanTKtWzVaW18cMeM=
+github.com/latebit-io/nib/ai v0.0.0-20260703002345-4c5495a6525c h1:11qUEVQ81bMo4TUBXaYbbofKSXyQ0U15vSNm9NTqO+M=
+github.com/latebit-io/nib/ai v0.0.0-20260703002345-4c5495a6525c/go.mod h1:2mdO4AZBdzxW33MLWn+B+x5IMvRdUnN9xO4ltsNAi5k=
 github.com/mailru/easyjson v0.7.7 h1:UGYAvKxe3sBsEDzO8ZeWOSlIQfWFlxbzLZe7hwFURr0=
 github.com/mailru/easyjson v0.7.7/go.mod h1:xzfreul335JAWq5oZzymOObrkdz5UnU4kGfJJLY9Nlc=
 github.com/mark3labs/mcp-go v0.44.0 h1:OlYfcVviAnwNN40QZUrrzU0QZjq3En7rCU5X09a/B7I=

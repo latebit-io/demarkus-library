@@ -35,6 +35,7 @@ import (
 	"github.com/labstack/echo/v5/middleware"
 	"github.com/latebit-io/demarkus-library/internal/adapter/inbound/web"
 	"github.com/latebit-io/demarkus-library/internal/adapter/inbound/web/session"
+	"github.com/latebit-io/demarkus-library/internal/adapter/librarian"
 	"github.com/latebit-io/demarkus-library/internal/adapter/outbound/broker"
 	"github.com/latebit-io/demarkus-library/internal/adapter/outbound/cache"
 	"github.com/latebit-io/demarkus-library/internal/adapter/outbound/federated"
@@ -44,6 +45,7 @@ import (
 	"github.com/latebit-io/demarkus-library/internal/core/port"
 	"github.com/latebit-io/demarkus-library/internal/core/service"
 	"github.com/latebit-io/demarkus/client/fetch"
+	"github.com/latebit-io/nib/ai/llmconfig"
 )
 
 // sweepInterval is how often expired sessions and abandoned logins are
@@ -97,8 +99,17 @@ func main() {
 	// flag. Forms emit the token via {{ csrf }} (view.go).
 	app.Use(web.CSRFMiddleware(config.CookieSecure))
 	// Bound handler latency: a wedged outbound read returns 503 instead of
-	// pinning the goroutine. Covers the turnstile's token refresh too.
-	app.Use(middleware.ContextTimeout(handlerTimeout))
+	// pinning the goroutine. Covers the turnstile's token refresh too. The
+	// librarian's SSE stream and no-JS ask are exempt — an agent run
+	// legitimately outlives the 30s bound; their lifetimes are the client
+	// connection plus the run's own caps (plan D4/D7).
+	app.Use(middleware.ContextTimeoutWithConfig(middleware.ContextTimeoutConfig{
+		Timeout: handlerTimeout,
+		Skipper: func(c *echo.Context) bool {
+			p := c.Request().URL.Path
+			return p == web.LibrarianStreamPath || p == web.LibrarianAskPath
+		},
+	}))
 
 	view, err := web.NewView()
 	if err != nil {
@@ -175,7 +186,17 @@ func main() {
 	// The rendered-document cache backs the trail engine's 1-read-per-click
 	// budget (ADR 0005 decision 9).
 	reading := service.NewReadingService(gateway, renderer, cache.NewMemory(0)).WithHub(config.Hub)
-	web.ReadingRoutes(app, web.NewReadingHandler(reading, defaultWorld, config.DefaultDoc), turnstile...)
+	// Phase 4 AI librarian (plans/phase-4-ai-librarian.md): nib-backed agent
+	// over the core's read-only ports, joining the canvas as pane kind `a`.
+	// Feature-dark unless nib's llmconfig resolves an LLM provider (global
+	// llm.json or LLM_API_KEY/LLM_BASE_URL/LLM_MODEL) — without one the pane
+	// reads "not on duty" and /a/stream serves only the ?slow= soak.
+	lib := buildLibrarian(logger, reading, defaultWorld)
+	handler := web.NewReadingHandler(reading, defaultWorld, config.DefaultDoc)
+	if lib != nil {
+		handler = handler.WithLibrarian(lib)
+	}
+	web.ReadingRoutes(app, handler, turnstile...)
 
 	logger.Info("demarkus Library reading room starting",
 		"port", config.Port, "transport", config.Transport,
@@ -222,6 +243,41 @@ func serve(app *echo.Echo, config *AppConfig) error {
 		return fmt.Errorf("read DEMARKUS_TLS_KEY: %w", err)
 	}
 	return sc.StartTLS(ctx, app, cert, key)
+}
+
+// buildLibrarian resolves an LLM provider through nib's llmconfig and, when
+// one is configured, assembles the librarian over the reading service's
+// read-only port slices. Returns nil — the feature-dark posture (plan D6) —
+// when no provider is configured; OAuth-profile auth is a nib-code concern
+// and intentionally unsupported here (servers use API keys).
+func buildLibrarian(logger *slog.Logger, reading *service.ReadingService, defaultWorld string) port.Librarian {
+	_, resolved := llmconfig.Resolve("")
+	if resolved.OAuthProvider != "" {
+		logger.Info("librarian disabled: OAuth LLM profiles are not supported server-side; configure an API-key profile")
+		return nil
+	}
+	if !resolved.HasProvider() {
+		logger.Info("librarian disabled: no LLM provider configured")
+		return nil
+	}
+	provider := resolved.NewProvider()
+	if provider == nil {
+		logger.Warn("librarian disabled: provider construction failed", "profile", resolved.Profile)
+		return nil
+	}
+	lib, err := librarian.New(librarian.Config{
+		Provider:     provider,
+		Reader:       reading,
+		Graph:        reading,
+		Map:          reading,
+		DefaultWorld: defaultWorld,
+	})
+	if err != nil {
+		logger.Warn("librarian disabled", "err", err)
+		return nil
+	}
+	logger.Info("librarian enabled", "profile", resolved.Profile, "model", resolved.DisplayModel())
+	return lib
 }
 
 // startSweeper collects expired sessions and abandoned pending logins on a
