@@ -49,6 +49,20 @@ library:
   # world (e.g. "root"); in quic mode it defaults to the home world.
   hub: ""
 
+  # The AI librarian (Phase 4): feature-dark unless an LLM provider key is
+  # wired. keyEnv names the provider-selecting env var — nib's llmconfig
+  # picks the builtin profile whose key is set (ANTHROPIC_API_KEY,
+  # MINIMAX_API_KEY, GEMINI_API_KEY, …) — and existingSecretRef points at
+  # the operator-managed Secret holding it (ESO/OpenBao in this cluster;
+  # no cleartext path by design). model optionally overrides the profile's
+  # default via LLM_MODEL.
+  librarian:
+    keyEnv: ""
+    existingSecretRef:
+      name: ""
+      key: ""
+    model: ""
+
   # Skip TLS verification on direct QUIC dials (DEMARKUS_INSECURE) —
   # quic-mode home world and federation targets alike. Defaults true to
   # match the binary: demarkus worlds commonly run self-signed certs
