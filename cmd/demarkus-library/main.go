@@ -35,6 +35,7 @@ import (
 	"github.com/labstack/echo/v5/middleware"
 	"github.com/latebit-io/demarkus-library/internal/adapter/inbound/web"
 	"github.com/latebit-io/demarkus-library/internal/adapter/inbound/web/session"
+	"github.com/latebit-io/demarkus-library/internal/adapter/librarian"
 	"github.com/latebit-io/demarkus-library/internal/adapter/outbound/broker"
 	"github.com/latebit-io/demarkus-library/internal/adapter/outbound/cache"
 	"github.com/latebit-io/demarkus-library/internal/adapter/outbound/federated"
@@ -44,6 +45,7 @@ import (
 	"github.com/latebit-io/demarkus-library/internal/core/port"
 	"github.com/latebit-io/demarkus-library/internal/core/service"
 	"github.com/latebit-io/demarkus/client/fetch"
+	"github.com/latebit-io/nib/ai/llmconfig"
 )
 
 // sweepInterval is how often expired sessions and abandoned logins are
@@ -184,9 +186,12 @@ func main() {
 	// budget (ADR 0005 decision 9).
 	reading := service.NewReadingService(gateway, renderer, cache.NewMemory(0)).WithHub(config.Hub)
 	web.ReadingRoutes(app, web.NewReadingHandler(reading, defaultWorld, config.DefaultDoc), turnstile...)
-	// Phase 4 SSE spike (plans/phase-4-ai-librarian.md step 1): the echo
-	// stream that proves the librarian's transport before the agent exists.
-	web.LibrarianSpikeRoutes(app, turnstile...)
+	// Phase 4 AI librarian (plans/phase-4-ai-librarian.md): nib-backed agent
+	// over the core's read-only ports. Feature-dark unless nib's llmconfig
+	// resolves an LLM provider (global llm.json or LLM_API_KEY/LLM_BASE_URL/
+	// LLM_MODEL) — without one the /a/ routes stay the transport-spike echo.
+	lib := buildLibrarian(logger, reading, defaultWorld)
+	web.LibrarianSpikeRoutes(app, lib, turnstile...)
 
 	logger.Info("demarkus Library reading room starting",
 		"port", config.Port, "transport", config.Transport,
@@ -233,6 +238,41 @@ func serve(app *echo.Echo, config *AppConfig) error {
 		return fmt.Errorf("read DEMARKUS_TLS_KEY: %w", err)
 	}
 	return sc.StartTLS(ctx, app, cert, key)
+}
+
+// buildLibrarian resolves an LLM provider through nib's llmconfig and, when
+// one is configured, assembles the librarian over the reading service's
+// read-only port slices. Returns nil — the feature-dark posture (plan D6) —
+// when no provider is configured; OAuth-profile auth is a nib-code concern
+// and intentionally unsupported here (servers use API keys).
+func buildLibrarian(logger *slog.Logger, reading *service.ReadingService, defaultWorld string) port.Librarian {
+	_, resolved := llmconfig.Resolve("")
+	if resolved.OAuthProvider != "" {
+		logger.Info("librarian disabled: OAuth LLM profiles are not supported server-side; configure an API-key profile")
+		return nil
+	}
+	if !resolved.HasProvider() {
+		logger.Info("librarian disabled: no LLM provider configured")
+		return nil
+	}
+	provider := resolved.NewProvider()
+	if provider == nil {
+		logger.Warn("librarian disabled: provider construction failed", "profile", resolved.Profile)
+		return nil
+	}
+	lib, err := librarian.New(librarian.Config{
+		Provider:     provider,
+		Reader:       reading,
+		Graph:        reading,
+		Map:          reading,
+		DefaultWorld: defaultWorld,
+	})
+	if err != nil {
+		logger.Warn("librarian disabled", "err", err)
+		return nil
+	}
+	logger.Info("librarian enabled", "profile", resolved.Profile, "model", resolved.DisplayModel())
+	return lib
 }
 
 // startSweeper collects expired sessions and abandoned pending logins on a

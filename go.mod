@@ -18,6 +18,8 @@ require (
 require (
 	github.com/dlclark/regexp2 v1.11.0 // indirect
 	github.com/jeandeaual/go-locale v0.0.0-20250612000132-0ef82f21eade // indirect
+	github.com/latebit-io/nib/agent v0.0.0-20260703002345-4c5495a6525c // indirect
+	github.com/latebit-io/nib/ai v0.0.0 // indirect
 	golang.org/x/text v0.38.0 // indirect
 )
 
@@ -39,5 +41,7 @@ require (
 	golang.org/x/crypto v0.53.0 // indirect
 	golang.org/x/sys v0.46.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
+	gopkg.in/yaml.v3 v3.0.1
 )
+
+replace github.com/latebit-io/nib/ai => github.com/latebit-io/nib/ai v0.0.0-20260703002345-4c5495a6525c

@@ -10,6 +10,8 @@ package web
 // echo body are throwaway; the route shape, headers, and event names are not.
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"html"
 	"net/http"
@@ -19,6 +21,8 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v5"
+	"github.com/latebit-io/demarkus-library/internal/core/domain"
+	"github.com/latebit-io/demarkus-library/internal/core/port"
 )
 
 // LibrarianStreamPath is the SSE endpoint. The composition root exempts it
@@ -40,18 +44,24 @@ const (
 
 // LibrarianSpikeRoutes registers the spike page and stream behind the same
 // turnstile middleware as the reading room (auth in broker mode, open in
-// quic mode).
-func LibrarianSpikeRoutes(e *echo.Echo, middleware ...echo.MiddlewareFunc) {
+// quic mode). With a Librarian wired (the composition root resolved an LLM
+// provider) the stream runs real asks; with nil it stays the transport-proof
+// echo — the feature-dark posture of plan D6.
+func LibrarianSpikeRoutes(e *echo.Echo, lib port.Librarian, middleware ...echo.MiddlewareFunc) {
 	mw := append([]echo.MiddlewareFunc{noStore}, middleware...)
-	e.GET("/a/spike", spikePage, mw...)
-	e.GET(LibrarianStreamPath, spikeStream, mw...)
+	h := &librarianSpikeHandler{lib: lib}
+	e.GET("/a/spike", h.page, mw...)
+	e.GET(LibrarianStreamPath, h.stream, mw...)
 }
 
-// spikePage renders a minimal self-contained page that connects the htmx SSE
+// librarianSpikeHandler carries the optional librarian into the spike routes.
+type librarianSpikeHandler struct{ lib port.Librarian }
+
+// page renders a minimal self-contained page that connects the htmx SSE
 // extension to the stream. Deliberately not a reading-room template: the page
 // is scaffolding for the spike, and inlining it keeps the throwaway surface
 // in one file.
-func spikePage(c *echo.Context) error {
+func (h *librarianSpikeHandler) page(c *echo.Context) error {
 	q := c.QueryParam("q")
 	if q == "" {
 		q = "hello from the reading room"
@@ -84,7 +94,8 @@ func spikePage(c *echo.Context) error {
 </form>
 <div hx-ext="sse" sse-connect="%s" sse-close="done">
  <div id="trace" sse-swap="trace" hx-swap="beforeend"></div>
- <p id="answer" sse-swap="token" hx-swap="beforeend"></p>
+ <p id="answer" style="white-space: pre-wrap" sse-swap="token" hx-swap="beforeend"></p>
+ <p id="final" style="white-space: pre-wrap" sse-swap="answer" hx-swap="innerHTML" hidden></p>
  <p id="done" sse-swap="done"></p>
 </div>
 </body>
@@ -93,11 +104,13 @@ func spikePage(c *echo.Context) error {
 	return c.HTML(http.StatusOK, page)
 }
 
-// spikeStream is the SSE endpoint: trace events, then the question echoed
-// word by word as token events, then done. With ?slow=N it instead ticks
-// once a second for N seconds — the soak that proves streams outlive
-// handlerTimeout and survive proxies/ingress between client and pod.
-func spikeStream(c *echo.Context) error {
+// stream is the SSE endpoint. With a librarian wired, ?q= is a real ask —
+// tokens, trace, the reconciling answer event, done. Without one (or with
+// ?slow= / the echo fallback) it is the transport spike: trace events, the
+// question echoed word by word, done. ?slow=N ticks once a second for N
+// seconds — the soak that proves streams outlive handlerTimeout and survive
+// proxies/ingress between client and pod.
+func (h *librarianSpikeHandler) stream(c *echo.Context) error {
 	q := c.QueryParam("q")
 	if q == "" {
 		q = "hello"
@@ -114,11 +127,11 @@ func spikeStream(c *echo.Context) error {
 		// would silently buffer the whole stream, so fail loudly instead.
 		return echo.NewHTTPError(http.StatusInternalServerError, "response writer does not support streaming")
 	}
-	h := w.Header()
-	h.Set(echo.HeaderContentType, "text/event-stream")
-	h.Set("Cache-Control", "private, no-store")
+	hdr := w.Header()
+	hdr.Set(echo.HeaderContentType, "text/event-stream")
+	hdr.Set("Cache-Control", "private, no-store")
 	// Ask buffering reverse proxies (nginx-style) to pass frames through.
-	h.Set("X-Accel-Buffering", "no")
+	hdr.Set("X-Accel-Buffering", "no")
 	w.WriteHeader(http.StatusOK)
 	flusher.Flush()
 
@@ -128,13 +141,19 @@ func spikeStream(c *echo.Context) error {
 			return false
 		}
 		// Data is model/user-derived text headed into an hx-swap target:
-		// HTML-escape at the boundary, exactly as the librarian will after
-		// its renderer. SSE data frames are single-line here by construction.
-		if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, html.EscapeString(data)); err != nil {
+		// HTML-escape at the boundary, exactly as the real pane will after
+		// its renderer. Multi-line data (answer markdown, token deltas with
+		// paragraph breaks) becomes one data: line per SSE spec line — the
+		// extension reassembles them with newlines.
+		if _, err := fmt.Fprintf(w, "event: %s\n%s\n\n", event, sseData(html.EscapeString(data))); err != nil {
 			return false
 		}
 		flusher.Flush()
 		return true
+	}
+
+	if slow == 0 && h.lib != nil {
+		return h.ask(ctx, c, q, send)
 	}
 	// sleep waits d or reports the client is gone; every event is paced so
 	// a disconnect is noticed between frames rather than pinning the loop.
@@ -177,4 +196,55 @@ func spikeStream(c *echo.Context) error {
 	}
 	send("done", "∎")
 	return nil
+}
+
+// ask runs one real librarian ask and maps the domain events onto the SSE
+// vocabulary. The conversation key is the reader's session cookie (broker
+// mode) so a conversation follows its login; quic mode shares one local key.
+func (h *librarianSpikeHandler) ask(ctx context.Context, c *echo.Context, q string, send func(event, data string) bool) error {
+	key := "local"
+	if cookie, err := c.Cookie(sessionCookie); err == nil && cookie.Value != "" {
+		key = cookie.Value
+	}
+
+	events, err := h.lib.Ask(ctx, key, q)
+	if err != nil {
+		if errors.Is(err, domain.ErrLibrarianBusy) {
+			send("trace", "the librarian is still answering your previous question")
+			send("done", "busy")
+			return nil
+		}
+		send("trace", "⚠ "+err.Error())
+		send("done", "error")
+		return nil
+	}
+	for ev := range events {
+		switch ev.Kind {
+		case domain.LibrarianToken:
+			send("token", ev.Text)
+		case domain.LibrarianTrace:
+			send("trace", ev.Text)
+		case domain.LibrarianAnswer:
+			send("answer", ev.Text)
+		case domain.LibrarianError:
+			send("trace", "⚠ "+ev.Text)
+		case domain.LibrarianDone:
+			send("done", "∎")
+		}
+	}
+	return nil
+}
+
+// sseData renders one event payload as SSE data lines: each newline in the
+// payload becomes its own `data:` line, which EventSource clients rejoin
+// with newlines — multi-line frames stay one event.
+func sseData(payload string) string {
+	lines := strings.Split(payload, "\n")
+	var b strings.Builder
+	for _, line := range lines {
+		b.WriteString("data: ")
+		b.WriteString(line)
+		b.WriteByte('\n')
+	}
+	return strings.TrimSuffix(b.String(), "\n")
 }
