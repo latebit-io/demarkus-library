@@ -19,6 +19,7 @@ import (
 	"html/template"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -248,8 +249,8 @@ func (h *ReadingHandler) trailContext(ctx context.Context, t trail, focus int) s
 	}
 	if fa := t.Panes[focus]; fa.Kind == paneDoc && !domain.IsListingPath(fa.Value) {
 		if doc, err := h.reading.OpenCached(ctx, fa.World, fa.Value); err == nil {
-			text := truncateRunes(htmlText(doc.HTML), trailContextBudget)
-			fmt.Fprintf(&b, "\nThe focused document (mark://%s%s — %q) as the reader sees it:\n\"\"\"\n%s\n\"\"\"\n", fa.World, fa.Value, doc.Title, text)
+			text := truncateRunes(neutralizeContextTags(htmlText(doc.HTML)), trailContextBudget)
+			fmt.Fprintf(&b, "\nThe focused document (mark://%s%s — %q) as the reader sees it:\n\"\"\"\n%s\n\"\"\"\n", fa.World, fa.Value, neutralizeContextTags(doc.Title), text)
 		}
 	}
 	b.WriteString("</reader-context>")
@@ -273,10 +274,22 @@ func (h *ReadingHandler) paneContextLabel(ctx context.Context, p paneAddr) strin
 	default:
 		label := "mark://" + p.World + p.Value
 		if doc, err := h.reading.OpenCached(ctx, p.World, p.Value); err == nil && doc.Title != "" {
-			label += " — " + strconv.Quote(doc.Title)
+			label += " — " + strconv.Quote(neutralizeContextTags(doc.Title))
 		}
 		return label
 	}
+}
+
+// contextTagPattern matches any spelling of the reader-context wrapper tag
+// inside DOCUMENT-derived text. Document content is untrusted for prompt
+// structure: a doc containing a literal </reader-context> could close the
+// wrapper early and speak with the reader's voice.
+var contextTagPattern = regexp.MustCompile(`(?i)</?\s*reader-context\s*>?`)
+
+// neutralizeContextTags defangs wrapper-tag lookalikes in text headed into
+// the <reader-context> block, keeping the structural markers unambiguous.
+func neutralizeContextTags(s string) string {
+	return contextTagPattern.ReplaceAllString(s, "[reader-context tag removed]")
 }
 
 // htmlText flattens rendered HTML to readable plain text for the model:
