@@ -74,13 +74,14 @@ type paneVM struct {
 	Agent      string
 	Meta       []domain.Property // every other out-of-band metadata key, sorted
 	MarkURL    string
-	ReaderURL  string       // header/margin affordance: open this pane in the reader overlay (R4)
-	GraphURL   string       // margin affordance: open this doc's graph pane
-	MapURL     string       // margin affordance: open this world's map (zoom level 2)
-	EditURL    string       // margin affordance: edit this doc (Phase 3); only when authed
-	NewURL     string       // margin affordance: create a doc in this folder (Phase 3); only when authed
-	AppendURL  string       // margin affordance: append to this doc (Phase 3); only when authed
-	Backlinks  []backlinkVM // "referenced by" — the observed-links map
+	Librarian  *librarianPaneVM // the librarian pane's transcript + ask form (kind "a" only)
+	ReaderURL  string           // header/margin affordance: open this pane in the reader overlay (R4)
+	GraphURL   string           // margin affordance: open this doc's graph pane
+	MapURL     string           // margin affordance: open this world's map (zoom level 2)
+	EditURL    string           // margin affordance: edit this doc (Phase 3); only when authed
+	NewURL     string           // margin affordance: create a doc in this folder (Phase 3); only when authed
+	AppendURL  string           // margin affordance: append to this doc (Phase 3); only when authed
+	Backlinks  []backlinkVM     // "referenced by" — the observed-links map
 }
 
 // Trail renders the canvas for the trail encoded at /t/*.
@@ -136,6 +137,13 @@ func (h *ReadingHandler) Trail(c *echo.Context) error {
 			// The graph pane is store-only (no world read), so it never errors
 			// and needs no live/cached split — it renders the same in both.
 			vm.Panes[i] = h.graphPaneView(t, i, addr)
+			continue
+		}
+		if addr.Kind == paneLibrarian {
+			// The librarian pane renders from server-side conversation state —
+			// no world read, never a tombstone (a librarian problem is a
+			// notice inside the pane, not a Gone spine).
+			vm.Panes[i] = h.librarianPaneView(c, t, i)
 			continue
 		}
 		doc, err := h.readPane(ctx, addr, focused)

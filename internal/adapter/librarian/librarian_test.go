@@ -305,3 +305,26 @@ func (p *blockingProvider) Stream(ctx context.Context, _ []llm.Message, _ []llm.
 	}()
 	return ch, nil
 }
+
+func TestHistory_ReturnsCompletedExchanges(t *testing.T) {
+	t.Parallel()
+
+	provider := &scriptedProvider{turns: [][]llm.StreamEvent{
+		toolTurn("c1", "worlds", "{}"),
+		textTurn("The floor is the universe view."),
+	}}
+	l := newTestLibrarian(t, provider, newFakePorts())
+
+	if got := l.History("conv-1"); len(got) != 0 {
+		t.Errorf("fresh conversation History = %v; want empty", got)
+	}
+	collect(t, mustAsk(t, l, "conv-1", "what is the floor?"))
+
+	got := l.History("conv-1")
+	if len(got) != 1 {
+		t.Fatalf("History length = %d; want 1: %+v", len(got), got)
+	}
+	if got[0].Question != "what is the floor?" || got[0].Answer != "The floor is the universe view." {
+		t.Errorf("exchange = %+v; want the completed Q/A", got[0])
+	}
+}

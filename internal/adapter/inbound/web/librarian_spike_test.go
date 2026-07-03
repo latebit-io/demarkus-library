@@ -12,23 +12,41 @@ import (
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
 )
 
-// spikeApp wires the spike routes into a bare Echo instance, mirroring the
-// composition root's registration (no turnstile — quic-mode shape; nil
-// librarian = the echo fallback).
-func spikeApp() *echo.Echo {
-	e := echo.New()
-	LibrarianSpikeRoutes(e, nil)
-	return e
+// spikeApp wires the reading routes with no librarian — the /a/ surface in
+// its feature-dark posture, where the stream is the transport-spike echo.
+func spikeApp(t *testing.T) *echo.Echo {
+	t.Helper()
+	return readingApp(t, &fakeReading{doc: domain.Document{Title: "X", Path: "/x.md", HTML: "<p>x</p>"}})
 }
 
-// fakeLibrarian scripts one Ask stream and records the questions asked.
+// librarianApp wires the reading routes with a scripted librarian.
+func librarianApp(t *testing.T, lib *fakeLibrarian) *echo.Echo {
+	t.Helper()
+	app := echo.New()
+	view, err := NewView()
+	if err != nil {
+		t.Fatalf("NewView: %v", err)
+	}
+	app.Renderer = view
+	svc := &fakeReading{doc: domain.Document{Title: "X", Path: "/x.md", HTML: "<p>x</p>"}}
+	ReadingRoutes(app, NewReadingHandler(svc, "soul.demarkus.io", "/index.md").WithLibrarian(lib))
+	return app
+}
+
+// fakeLibrarian scripts one Ask stream, records the questions asked, and
+// serves a canned history.
 type fakeLibrarian struct {
-	events []domain.LibrarianEvent
-	asked  []string
+	events  []domain.LibrarianEvent
+	history []domain.LibrarianExchange
+	askErr  error
+	asked   []string
 }
 
 func (f *fakeLibrarian) Ask(_ context.Context, _, question string) (<-chan domain.LibrarianEvent, error) {
 	f.asked = append(f.asked, question)
+	if f.askErr != nil {
+		return nil, f.askErr
+	}
 	ch := make(chan domain.LibrarianEvent, len(f.events))
 	for _, ev := range f.events {
 		ch <- ev
@@ -36,6 +54,8 @@ func (f *fakeLibrarian) Ask(_ context.Context, _, question string) (<-chan domai
 	close(ch)
 	return ch, nil
 }
+
+func (f *fakeLibrarian) History(string) []domain.LibrarianExchange { return f.history }
 
 func TestSpikeStream_LibrarianPathMapsEvents(t *testing.T) {
 	t.Parallel()
@@ -47,8 +67,7 @@ func TestSpikeStream_LibrarianPathMapsEvents(t *testing.T) {
 		{Kind: domain.LibrarianAnswer, Text: "It lives in ops.\nSee the runbook."},
 		{Kind: domain.LibrarianDone},
 	}}
-	e := echo.New()
-	LibrarianSpikeRoutes(e, lib)
+	e := librarianApp(t, lib)
 
 	req := httptest.NewRequest(http.MethodGet, "/a/stream?q=where+is+it", http.NoBody)
 	rec := httptest.NewRecorder()
@@ -61,6 +80,9 @@ func TestSpikeStream_LibrarianPathMapsEvents(t *testing.T) {
 		// A newline inside one event becomes two data: lines of one frame.
 		"event: token\ndata: in ops.\ndata: See the runbook.",
 		"event: answer\ndata: It lives in ops.\ndata: See the runbook.",
+		// The rendered event carries the answer through the document
+		// pipeline (the fake wraps in <p>) — unescaped HTML by design.
+		"event: rendered\ndata: <p>It lives in ops.",
 		"event: done",
 	} {
 		if !strings.Contains(body, want) {
@@ -85,8 +107,7 @@ func TestSpikeStream_ErrorPathIsGenericAndCloses(t *testing.T) {
 	lib := &fakeLibrarian{events: []domain.LibrarianEvent{
 		{Kind: domain.LibrarianError, Text: "provider.Stream: api error: status 400: secret-internal-detail"},
 	}}
-	e := echo.New()
-	LibrarianSpikeRoutes(e, lib)
+	e := librarianApp(t, lib)
 
 	req := httptest.NewRequest(http.MethodGet, "/a/stream?q=boom", http.NoBody)
 	rec := httptest.NewRecorder()
@@ -104,12 +125,29 @@ func TestSpikeStream_ErrorPathIsGenericAndCloses(t *testing.T) {
 	}
 }
 
+func TestSpikeStream_RejectsCrossSite(t *testing.T) {
+	t.Parallel()
+
+	lib := &fakeLibrarian{}
+	e := librarianApp(t, lib)
+	req := httptest.NewRequest(http.MethodGet, "/a/stream?q=steal+tokens", http.NoBody)
+	req.Header.Set("Sec-Fetch-Site", "cross-site")
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("cross-site stream status = %d; want 403", rec.Code)
+	}
+	if len(lib.asked) != 0 {
+		t.Errorf("cross-site request reached the librarian: %v", lib.asked)
+	}
+}
+
 func TestSpikeStream_SoakBypassesLibrarian(t *testing.T) {
 	t.Parallel()
 
 	lib := &fakeLibrarian{}
-	e := echo.New()
-	LibrarianSpikeRoutes(e, lib)
+	e := librarianApp(t, lib)
 
 	req := httptest.NewRequest(http.MethodGet, "/a/stream?slow=1", http.NoBody)
 	rec := httptest.NewRecorder()
@@ -126,7 +164,7 @@ func TestSpikeStream_SoakBypassesLibrarian(t *testing.T) {
 func TestSpikeStream_EmitsTraceTokensDone(t *testing.T) {
 	t.Parallel()
 
-	e := spikeApp()
+	e := spikeApp(t)
 	req := httptest.NewRequest(http.MethodGet, "/a/stream?q=hi", http.NoBody)
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
@@ -161,7 +199,7 @@ func TestSpikeStream_EmitsTraceTokensDone(t *testing.T) {
 func TestSpikeStream_EscapesUserText(t *testing.T) {
 	t.Parallel()
 
-	e := spikeApp()
+	e := spikeApp(t)
 	req := httptest.NewRequest(http.MethodGet, "/a/stream?q="+
 		"%3Cscript%3Ealert(1)%3C%2Fscript%3E", http.NoBody)
 	rec := httptest.NewRecorder()
@@ -179,7 +217,7 @@ func TestSpikeStream_EscapesUserText(t *testing.T) {
 func TestSpikeStream_StopsOnClientDisconnect(t *testing.T) {
 	t.Parallel()
 
-	e := spikeApp()
+	e := spikeApp(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	req := httptest.NewRequest(http.MethodGet, "/a/stream?slow=60", http.NoBody).WithContext(ctx)
 	rec := httptest.NewRecorder()
@@ -207,7 +245,7 @@ func TestSpikeStream_StopsOnClientDisconnect(t *testing.T) {
 func TestSpikePage_WiresSSEExtension(t *testing.T) {
 	t.Parallel()
 
-	e := spikeApp()
+	e := spikeApp(t)
 	req := httptest.NewRequest(http.MethodGet, "/a/spike?q=where+is+the+runbook%3F", http.NoBody)
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)
@@ -233,7 +271,7 @@ func TestSpikePage_WiresSSEExtension(t *testing.T) {
 func TestSpikePage_EscapesQuestionInAttributes(t *testing.T) {
 	t.Parallel()
 
-	e := spikeApp()
+	e := spikeApp(t)
 	req := httptest.NewRequest(http.MethodGet, "/a/spike?q=%22%3E%3Cscript%3Ealert(1)%3C%2Fscript%3E", http.NoBody)
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)

@@ -24,4 +24,9 @@ type Librarian interface {
 	// One ask at a time per conversation: a second Ask while one is in
 	// flight returns domain.ErrLibrarianBusy.
 	Ask(ctx context.Context, conversation, question string) (<-chan domain.LibrarianEvent, error)
+
+	// History returns the conversation's completed exchanges in order — the
+	// transcript the librarian pane renders. Memory-only (no world read, no
+	// error); an unknown conversation is simply empty.
+	History(conversation string) []domain.LibrarianExchange
 }

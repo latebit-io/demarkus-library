@@ -37,3 +37,11 @@ type LibrarianEvent struct {
 	Kind LibrarianEventKind
 	Text string
 }
+
+// LibrarianExchange is one completed question/answer pair of a conversation —
+// what the librarian pane renders as transcript. Answer is markdown (the
+// model's text); the presentation layer renders it like any document body.
+type LibrarianExchange struct {
+	Question string
+	Answer   string
+}

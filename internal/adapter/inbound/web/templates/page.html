@@ -3,6 +3,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ .Title }} — demarkus Library</title>
   <script src="/static/htmx.min.js"></script>
+  <!-- The SSE extension (ADR 0003's earmarked streaming-librarian island):
+       declarative sse-connect/sse-swap attributes for the librarian pane's
+       live answers. Vendored + pinned like htmx itself. -->
+  <script src="/static/sse.min.js"></script>
   <!-- Islands loader — every scripted concession in one file: mermaid +
        KaTeX (ADR 0003) and the trail canvas's scroll-focused-pane-into-view
        snippet (pre-agreed in ADR 0005's consequences as the trail engine's
@@ -429,6 +433,24 @@
     .dock-chip { color: var(--muted); text-decoration: none; font-size: .75rem;
             border: 1px solid var(--faint); border-radius: 999px; padding: .1rem .55rem; }
     .dock-chip:hover { color: var(--ink); border-color: var(--muted); }
+
+    /* The librarian pane (Phase 4): transcript exchanges + the ask form.
+       Questions read as marginalia headers; the trace is the same muted
+       monospace register as the dock; streamed text keeps its paragraph
+       breaks until the rendered answer swaps in. */
+    .exchange { margin: 1.2rem 0; }
+    .ask-q { font-weight: 600; margin: 0 0 .3rem; }
+    .ask-q::before { content: "? "; color: var(--muted); }
+    .ask-trace { color: var(--muted); font-size: .78rem; font-family: ui-monospace, monospace;
+            white-space: pre-wrap; }
+    .ask-stream { white-space: pre-wrap; }
+    .ask-notice { color: var(--muted); font-style: italic; }
+    .ask-form { display: flex; gap: .5rem; margin-top: 1.2rem; }
+    .ask-input { flex: 1; font: inherit; color: inherit; background: transparent;
+            border: 1px solid var(--faint); border-radius: 4px; padding: .35rem .6rem; }
+    .ask-form button { font: inherit; color: inherit; background: transparent;
+            border: 1px solid var(--muted); border-radius: 4px; padding: .35rem .8rem;
+            cursor: pointer; }
   </style>
 </head>{{end}}
 

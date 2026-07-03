@@ -66,4 +66,12 @@ func ReadingRoutes(e *echo.Echo, handler ReadingHandler, middleware ...echo.Midd
 	e.GET("/d/*", handler.LegacyDoc, mw...)
 	e.GET("/search", handler.LegacySearch, mw...)
 	e.GET("/versions/*", handler.LegacyHistory, mw...)
+
+	// The AI librarian (Phase 4): the entrance, the pane's ask form, the SSE
+	// stream (ContextTimeout-exempt — see the composition root), and the
+	// transport spike page. All degrade when no librarian is wired.
+	e.GET("/a", handler.LibrarianEntrance, mw...)
+	e.POST(LibrarianAskPath, handler.AskLibrarian, mw...)
+	e.GET(LibrarianStreamPath, handler.LibrarianStream, mw...)
+	e.GET("/a/spike", handler.SpikePage, mw...)
 }

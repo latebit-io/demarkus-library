@@ -36,6 +36,7 @@ import (
 // and edition histories. It depends on the inbound port, not the concrete service.
 type ReadingHandler struct {
 	reading      port.ReadingService
+	lib          port.Librarian // nil = librarian not configured (feature-dark)
 	defaultWorld string
 	defaultDoc   string
 }
@@ -44,6 +45,14 @@ type ReadingHandler struct {
 // document shown there.
 func NewReadingHandler(reading port.ReadingService, defaultWorld, defaultDoc string) ReadingHandler {
 	return ReadingHandler{reading: reading, defaultWorld: defaultWorld, defaultDoc: defaultDoc}
+}
+
+// WithLibrarian wires the Phase 4 librarian into the reading room (the
+// composition root calls it when an LLM provider resolved). Without it the
+// librarian pane renders its not-on-duty state and asks are rejected.
+func (h ReadingHandler) WithLibrarian(lib port.Librarian) ReadingHandler {
+	h.lib = lib
+	return h
 }
 
 // tagLink is one clickable tag in the margin — the lateral-nav exit to a

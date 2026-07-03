@@ -1,0 +1,46 @@
+{{/* The librarian pane (Phase 4): the reader's conversation as pane kind `a`.
+     Transcript exchanges render server-side from History; the focused pane
+     carries the ask form — a real CSRF'd POST that works without JS (the
+     handler runs the ask and redirects back), enhanced by htmx into a live
+     SSE exchange appended to the transcript. */}}
+{{define "librarian-body"}}
+{{- if not .Enabled }}
+<p class="ask-notice">The librarian is not on duty — no language-model provider is configured.</p>
+{{- else }}
+<div id="librarian-transcript">
+  {{- range .Exchanges }}
+  {{template "librarian-exchange" .}}
+  {{- end }}
+</div>
+{{- if .Ask }}
+{{- if .Ask.Notice }}<p class="ask-notice">{{ .Ask.Notice }}</p>{{ end }}
+<form class="ask-form" method="post" action="/a/ask"
+      hx-post="/a/ask" hx-target="#librarian-transcript" hx-swap="beforeend"
+      hx-on::after-request="this.reset()">
+  <input type="hidden" name="_csrf" value="{{ csrf }}">
+  <input type="hidden" name="trail" value="{{ .Ask.TrailRest }}">
+  <input type="hidden" name="idx" value="{{ .Ask.Idx }}">
+  <input class="ask-input" name="question" placeholder="ask the librarian…"
+         autocomplete="off" maxlength="4096" required>
+  <button type="submit">ask</button>
+</form>
+{{- end }}
+{{- end }}
+{{end}}
+
+{{/* One exchange. A finished exchange (transcript) carries rendered Answer
+     HTML; a live one (the htmx ask response) carries StreamURL — the SSE
+     block streams trace + tokens, then the `rendered` event swaps in the
+     final answer with trail-continuing citations and `done` closes the
+     EventSource. */}}
+{{define "librarian-exchange"}}<div class="exchange">
+  <p class="ask-q">{{ .Question }}</p>
+  {{- if .StreamURL }}
+  <div hx-ext="sse" sse-connect="{{ .StreamURL }}" sse-close="done">
+    <div class="ask-trace" sse-swap="trace" hx-swap="beforeend"></div>
+    <div class="ask-answer" sse-swap="rendered" hx-swap="innerHTML"><p class="ask-stream" sse-swap="token" hx-swap="beforeend"></p></div>
+  </div>
+  {{- else }}
+  <div class="ask-answer">{{ .Answer }}</div>
+  {{- end }}
+</div>{{end}}

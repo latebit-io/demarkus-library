@@ -100,13 +100,14 @@ func main() {
 	app.Use(web.CSRFMiddleware(config.CookieSecure))
 	// Bound handler latency: a wedged outbound read returns 503 instead of
 	// pinning the goroutine. Covers the turnstile's token refresh too. The
-	// librarian's SSE stream is exempt — a stream legitimately outlives the
-	// 30s bound; its lifetime is the client connection (plan D4/D7 cap the
-	// work inside it).
+	// librarian's SSE stream and no-JS ask are exempt — an agent run
+	// legitimately outlives the 30s bound; their lifetimes are the client
+	// connection plus the run's own caps (plan D4/D7).
 	app.Use(middleware.ContextTimeoutWithConfig(middleware.ContextTimeoutConfig{
 		Timeout: handlerTimeout,
 		Skipper: func(c *echo.Context) bool {
-			return c.Request().URL.Path == web.LibrarianStreamPath
+			p := c.Request().URL.Path
+			return p == web.LibrarianStreamPath || p == web.LibrarianAskPath
 		},
 	}))
 
@@ -185,13 +186,17 @@ func main() {
 	// The rendered-document cache backs the trail engine's 1-read-per-click
 	// budget (ADR 0005 decision 9).
 	reading := service.NewReadingService(gateway, renderer, cache.NewMemory(0)).WithHub(config.Hub)
-	web.ReadingRoutes(app, web.NewReadingHandler(reading, defaultWorld, config.DefaultDoc), turnstile...)
 	// Phase 4 AI librarian (plans/phase-4-ai-librarian.md): nib-backed agent
-	// over the core's read-only ports. Feature-dark unless nib's llmconfig
-	// resolves an LLM provider (global llm.json or LLM_API_KEY/LLM_BASE_URL/
-	// LLM_MODEL) — without one the /a/ routes stay the transport-spike echo.
+	// over the core's read-only ports, joining the canvas as pane kind `a`.
+	// Feature-dark unless nib's llmconfig resolves an LLM provider (global
+	// llm.json or LLM_API_KEY/LLM_BASE_URL/LLM_MODEL) — without one the pane
+	// reads "not on duty" and /a/stream stays the transport-spike echo.
 	lib := buildLibrarian(logger, reading, defaultWorld)
-	web.LibrarianSpikeRoutes(app, lib, turnstile...)
+	handler := web.NewReadingHandler(reading, defaultWorld, config.DefaultDoc)
+	if lib != nil {
+		handler = handler.WithLibrarian(lib)
+	}
+	web.ReadingRoutes(app, handler, turnstile...)
 
 	logger.Info("demarkus Library reading room starting",
 		"port", config.Port, "transport", config.Transport,

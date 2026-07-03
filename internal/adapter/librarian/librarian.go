@@ -53,8 +53,9 @@ never from assumption:
 - open: read a document's source and catalog metadata.
 - links: trace a document's outbound links and observed backlinks.
 
-Ground every claim in something you opened. Cite documents inline as
-mark://<world>/<path> so the reader can follow you. When the catalog does not
+Ground every claim in something you opened. Cite documents inline as markdown
+links — [title](mark://<world>/<path>) — so the reader can click through and
+follow you; a bare address is not a citation. When the catalog does not
 answer the question, say so plainly — never invent holdings. Be concise:
 answer first, brief support after.`
 
@@ -272,6 +273,33 @@ func (l *Librarian) translate(ctx context.Context, conv *conversation, out chan<
 			return
 		}
 	}
+}
+
+// History implements port.Librarian: the conversation's completed exchanges,
+// derived from the saved transcript. Each user turn opens an exchange; the
+// last non-empty assistant content before the next user turn is its answer
+// (intermediate assistant turns narrate tool use and are superseded).
+func (l *Librarian) History(conversation string) []domain.LibrarianExchange {
+	l.mu.Lock()
+	conv, ok := l.convs[conversation]
+	var history []llm.Message
+	if ok {
+		history = conv.history
+	}
+	l.mu.Unlock()
+
+	var out []domain.LibrarianExchange
+	for _, m := range history {
+		switch m.Role {
+		case "user":
+			out = append(out, domain.LibrarianExchange{Question: m.Content})
+		case "assistant":
+			if m.Content != "" && len(out) > 0 {
+				out[len(out)-1].Answer = m.Content
+			}
+		}
+	}
+	return out
 }
 
 // traceLine renders one tool call as a single legible trace line:

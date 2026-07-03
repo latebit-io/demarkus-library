@@ -1,13 +1,12 @@
 package web
 
-// The Phase 4 SSE spike (plans/phase-4-ai-librarian.md, build order step 1):
-// prove the streaming path — Echo streaming response, the vendored htmx SSE
-// extension, the ContextTimeout exemption, and (in the cluster) ingress
-// buffering — before the librarian's agent loop exists. The stream is an
-// echo: it emits a couple of fake trace events, streams the question back
-// word by word as token events, and closes with a done event — the exact
-// event vocabulary the librarian will use (plan D4). The spike page and the
-// echo body are throwaway; the route shape, headers, and event names are not.
+// The librarian's SSE surface (Phase 4, plan D4) plus the transport spike
+// that proved it (build order step 1). GET /a/stream speaks the stream
+// vocabulary — trace lines, token deltas, the reconciling `answer` text and
+// `rendered` HTML, done — into the pane's htmx SSE block. Without a wired
+// librarian (feature-dark, D6) or with ?slow= it stays the transport spike:
+// an echo and a soak that prove streaming through every timeout and proxy.
+// The /a/spike page is throwaway scaffolding; the stream endpoint is not.
 
 import (
 	"context"
@@ -22,14 +21,20 @@ import (
 
 	"github.com/labstack/echo/v5"
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
-	"github.com/latebit-io/demarkus-library/internal/core/port"
 )
 
-// LibrarianStreamPath is the SSE endpoint. The composition root exempts it
-// from the ContextTimeout middleware — a stream is expected to outlive the
-// 30s handler bound; its lifetime is governed by the client connection and
-// the stream's own end.
-const LibrarianStreamPath = "/a/stream"
+// LibrarianStreamPath is the SSE endpoint and LibrarianAskPath the pane's
+// form target. The composition root exempts both from the ContextTimeout
+// middleware: a stream is expected to outlive the 30s handler bound, and the
+// no-JS ask runs the same agent loop synchronously — at 30s the middleware
+// would cancel the run mid-answer (silently: a ctx cancel is not an error
+// event, so the transcript just ends without an answer). Their lifetimes are
+// governed by the client connection and the run's own caps (MaxTurns,
+// provider timeouts).
+const (
+	LibrarianStreamPath = "/a/stream"
+	LibrarianAskPath    = "/a/ask"
+)
 
 // spikeSlowCap bounds the ?slow= soak so a crafted URL cannot pin a
 // goroutine for hours; 120s is comfortably past every timeout under test.
@@ -42,26 +47,11 @@ const (
 	spikeTraceDelay = 300 * time.Millisecond
 )
 
-// LibrarianSpikeRoutes registers the spike page and stream behind the same
-// turnstile middleware as the reading room (auth in broker mode, open in
-// quic mode). With a Librarian wired (the composition root resolved an LLM
-// provider) the stream runs real asks; with nil it stays the transport-proof
-// echo — the feature-dark posture of plan D6.
-func LibrarianSpikeRoutes(e *echo.Echo, lib port.Librarian, middleware ...echo.MiddlewareFunc) {
-	mw := append([]echo.MiddlewareFunc{noStore}, middleware...)
-	h := &librarianSpikeHandler{lib: lib}
-	e.GET("/a/spike", h.page, mw...)
-	e.GET(LibrarianStreamPath, h.stream, mw...)
-}
-
-// librarianSpikeHandler carries the optional librarian into the spike routes.
-type librarianSpikeHandler struct{ lib port.Librarian }
-
-// page renders a minimal self-contained page that connects the htmx SSE
+// SpikePage renders a minimal self-contained page that connects the htmx SSE
 // extension to the stream. Deliberately not a reading-room template: the page
-// is scaffolding for the spike, and inlining it keeps the throwaway surface
-// in one file.
-func (h *librarianSpikeHandler) page(c *echo.Context) error {
+// is scaffolding for transport verification (the real surface is the
+// librarian pane), and inlining it keeps the throwaway part in one file.
+func (h *ReadingHandler) SpikePage(c *echo.Context) error {
 	q := c.QueryParam("q")
 	if q == "" {
 		q = "hello from the reading room"
@@ -104,13 +94,20 @@ func (h *librarianSpikeHandler) page(c *echo.Context) error {
 	return c.HTML(http.StatusOK, page)
 }
 
-// stream is the SSE endpoint. With a librarian wired, ?q= is a real ask —
-// tokens, trace, the reconciling answer event, done. Without one (or with
-// ?slow= / the echo fallback) it is the transport spike: trace events, the
+// LibrarianStream is the SSE endpoint. With a librarian wired, ?q= is a real
+// ask — tokens, trace, the reconciling answer/rendered events, done; ?t=/&i=
+// carry the pane's trail so rendered citations continue it. Without a
+// librarian (or with ?slow=) it is the transport spike: trace events, the
 // question echoed word by word, done. ?slow=N ticks once a second for N
 // seconds — the soak that proves streams outlive handlerTimeout and survive
 // proxies/ingress between client and pod.
-func (h *librarianSpikeHandler) stream(c *echo.Context) error {
+func (h *ReadingHandler) LibrarianStream(c *echo.Context) error {
+	// An ask costs model tokens and appends to the reader's conversation;
+	// EventSource can't carry a CSRF token, so reject cross-site fetches at
+	// the metadata level (absent header = older client or direct curl: allow).
+	if site := c.Request().Header.Get("Sec-Fetch-Site"); site != "" && site != "same-origin" && site != "none" {
+		return echo.NewHTTPError(http.StatusForbidden, "cross-site stream rejected")
+	}
 	q := c.QueryParam("q")
 	if q == "" {
 		q = "hello"
@@ -141,11 +138,23 @@ func (h *librarianSpikeHandler) stream(c *echo.Context) error {
 			return false
 		}
 		// Data is model/user-derived text headed into an hx-swap target:
-		// HTML-escape at the boundary, exactly as the real pane will after
-		// its renderer. Multi-line data (answer markdown, token deltas with
-		// paragraph breaks) becomes one data: line per SSE spec line — the
-		// extension reassembles them with newlines.
+		// HTML-escape at the boundary. Multi-line payloads (answer markdown,
+		// token deltas with paragraph breaks) become one data: line per SSE
+		// spec line — the extension reassembles them with newlines.
 		if _, err := fmt.Fprintf(w, "event: %s\n%s\n\n", event, sseData(html.EscapeString(data))); err != nil {
+			return false
+		}
+		flusher.Flush()
+		return true
+	}
+	// sendHTML frames already-safe HTML (the rendered answer) — the payload
+	// went through the sanitizing render pipeline; escaping it again would
+	// show markup as text.
+	sendHTML := func(event, markup string) bool {
+		if ctx.Err() != nil {
+			return false
+		}
+		if _, err := fmt.Fprintf(w, "event: %s\n%s\n\n", event, sseData(markup)); err != nil {
 			return false
 		}
 		flusher.Flush()
@@ -153,7 +162,7 @@ func (h *librarianSpikeHandler) stream(c *echo.Context) error {
 	}
 
 	if slow == 0 && h.lib != nil {
-		return h.ask(ctx, c, q, send)
+		return h.streamAsk(ctx, c, q, send, sendHTML)
 	}
 	// sleep waits d or reports the client is gone; every event is paced so
 	// a disconnect is noticed between frames rather than pinning the loop.
@@ -198,16 +207,18 @@ func (h *librarianSpikeHandler) stream(c *echo.Context) error {
 	return nil
 }
 
-// ask runs one real librarian ask and maps the domain events onto the SSE
-// vocabulary. The conversation key is the reader's session cookie (broker
-// mode) so a conversation follows its login; quic mode shares one local key.
-func (h *librarianSpikeHandler) ask(ctx context.Context, c *echo.Context, q string, send func(event, data string) bool) error {
-	key := "local"
-	if cookie, err := c.Cookie(sessionCookie); err == nil && cookie.Value != "" {
-		key = cookie.Value
+// streamAsk runs one real librarian ask and maps the domain events onto the
+// SSE vocabulary. ?t= (trail rest) and ?i= (pane index) carry the pane's
+// trail context so the rendered answer's citations continue the trail; junk
+// degrades to the bare librarian trail.
+func (h *ReadingHandler) streamAsk(ctx context.Context, c *echo.Context, q string, send, sendHTML func(event, data string) bool) error {
+	idx, _ := strconv.Atoi(c.QueryParam("i"))
+	t, err := parseTrail(c.QueryParam("t"), strconv.Itoa(idx), "")
+	if err != nil {
+		t = trail{Panes: []paneAddr{{Kind: paneLibrarian}}, Focus: 0, Reader: -1}
 	}
 
-	events, err := h.lib.Ask(ctx, key, q)
+	events, err := h.lib.Ask(ctx, conversationKey(c), q)
 	if err != nil {
 		if errors.Is(err, domain.ErrLibrarianBusy) {
 			send("trace", "the librarian is still answering your previous question")
@@ -230,6 +241,9 @@ func (h *librarianSpikeHandler) ask(ctx context.Context, c *echo.Context, q stri
 			send("trace", ev.Text)
 		case domain.LibrarianAnswer:
 			send("answer", ev.Text)
+			// The pane swaps this in whole: the answer through the document
+			// pipeline, citations as trail-continuing links.
+			sendHTML("rendered", string(h.renderAnswer(ev.Text, t, t.Focus)))
 		case domain.LibrarianError:
 			c.Logger().Error("librarian run failed", "err", ev.Text)
 			send("trace", "⚠ the librarian hit an error mid-answer")
