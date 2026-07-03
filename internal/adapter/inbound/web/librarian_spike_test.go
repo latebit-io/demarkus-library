@@ -76,6 +76,34 @@ func TestSpikeStream_LibrarianPathMapsEvents(t *testing.T) {
 	}
 }
 
+func TestSpikeStream_ErrorPathIsGenericAndCloses(t *testing.T) {
+	t.Parallel()
+
+	// A stream that ends on Error with no Done — the port contract's other
+	// terminal shape. The wire must carry a generic line (no internal error
+	// text) and still close with a done frame.
+	lib := &fakeLibrarian{events: []domain.LibrarianEvent{
+		{Kind: domain.LibrarianError, Text: "provider.Stream: api error: status 400: secret-internal-detail"},
+	}}
+	e := echo.New()
+	LibrarianSpikeRoutes(e, lib)
+
+	req := httptest.NewRequest(http.MethodGet, "/a/stream?q=boom", http.NoBody)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	body := rec.Body.String()
+	if strings.Contains(body, "secret-internal-detail") {
+		t.Errorf("internal error text reached the wire:\n%s", body)
+	}
+	if !strings.Contains(body, "event: trace\ndata: ⚠") {
+		t.Errorf("missing generic error trace:\n%s", body)
+	}
+	if !strings.Contains(body, "event: done") {
+		t.Errorf("error path did not close the stream with done:\n%s", body)
+	}
+}
+
 func TestSpikeStream_SoakBypassesLibrarian(t *testing.T) {
 	t.Parallel()
 

@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/latebit-io/demarkus-library/internal/core/port"
 	nibagent "github.com/latebit-io/nib/agent"
@@ -188,7 +189,13 @@ func (t *openTool) Execute(ctx context.Context, call llm.ToolCall) nibagent.Tool
 	b.WriteString("\n")
 	body := raw.Body
 	if len(body) > maxOpenBytes {
-		body = body[:maxOpenBytes] + fmt.Sprintf("\n\n[truncated — %d more bytes]", len(raw.Body)-maxOpenBytes)
+		// Back off to a rune boundary so the cut never splits a UTF-8
+		// sequence — an invalid tail would corrupt the model's context.
+		cut := maxOpenBytes
+		for cut > 0 && !utf8.RuneStart(body[cut]) {
+			cut--
+		}
+		body = body[:cut] + fmt.Sprintf("\n\n[truncated — %d more bytes]", len(raw.Body)-cut)
 	}
 	b.WriteString(body)
 	return nibagent.ToolResult{Content: b.String()}

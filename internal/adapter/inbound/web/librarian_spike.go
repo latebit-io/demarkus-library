@@ -211,13 +211,17 @@ func (h *librarianSpikeHandler) ask(ctx context.Context, c *echo.Context, q stri
 	if err != nil {
 		if errors.Is(err, domain.ErrLibrarianBusy) {
 			send("trace", "the librarian is still answering your previous question")
-			send("done", "busy")
-			return nil
+		} else {
+			// Internal detail (provider errors can carry endpoint/request
+			// specifics) stays in the server log; the pane gets a generic
+			// line.
+			c.Logger().Error("librarian ask failed", "err", err)
+			send("trace", "⚠ the librarian could not take that question — try again")
 		}
-		send("trace", "⚠ "+err.Error())
-		send("done", "error")
+		send("done", "∎")
 		return nil
 	}
+	done := false
 	for ev := range events {
 		switch ev.Kind {
 		case domain.LibrarianToken:
@@ -227,10 +231,18 @@ func (h *librarianSpikeHandler) ask(ctx context.Context, c *echo.Context, q stri
 		case domain.LibrarianAnswer:
 			send("answer", ev.Text)
 		case domain.LibrarianError:
-			send("trace", "⚠ "+ev.Text)
+			c.Logger().Error("librarian run failed", "err", ev.Text)
+			send("trace", "⚠ the librarian hit an error mid-answer")
 		case domain.LibrarianDone:
+			done = true
 			send("done", "∎")
 		}
+	}
+	if !done {
+		// The port may end a stream on Error alone; the EventSource still
+		// needs its close signal (sse-close="done") or the connection —
+		// exempt from the handler timeout — would dangle.
+		send("done", "∎")
 	}
 	return nil
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	nibagent "github.com/latebit-io/nib/agent"
 	"github.com/latebit-io/nib/ai/llm"
@@ -66,6 +67,26 @@ func TestOpenTool_DefaultWorldMetadataAndTruncation(t *testing.T) {
 	}
 	if got := ports.rawCalls(); len(got) != 1 || got[0] != "root:/ops/deploy.md" {
 		t.Errorf("Raw calls = %v; want default world applied", got)
+	}
+}
+
+func TestOpenTool_TruncationIsRuneSafe(t *testing.T) {
+	t.Parallel()
+
+	ports := newFakePorts()
+	// Fill so a multi-byte rune straddles the cut boundary.
+	ports.raw.Body = strings.Repeat("x", maxOpenBytes-1) + "→ tail"
+	tool := &openTool{reader: ports, defaultWorld: "root"}
+
+	res := tool.Execute(context.Background(), call("open", `{"path":"/ops/deploy.md"}`))
+	if res.IsError {
+		t.Fatalf("unexpected error: %s", res.Content)
+	}
+	if !utf8.ValidString(res.Content) {
+		t.Error("truncated body is not valid UTF-8")
+	}
+	if strings.Contains(res.Content, "�") {
+		t.Error("truncation produced a replacement character")
 	}
 }
 
