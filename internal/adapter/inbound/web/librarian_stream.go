@@ -163,7 +163,7 @@ func streamSoak(ctx context.Context, slow int, send func(event, data string) boo
 func (h *ReadingHandler) streamAsk(ctx context.Context, c *echo.Context, pa pendingAsk, send, sendHTML func(event, data string) bool) error {
 	t := pa.t
 
-	events, err := h.lib.Ask(ctx, pa.convKey, pa.question)
+	events, err := h.lib.Ask(ctx, pa.convKey, pa.question, pa.context)
 	if err != nil {
 		if errors.Is(err, domain.ErrLibrarianBusy) {
 			send("trace", "the librarian is still answering your previous question")

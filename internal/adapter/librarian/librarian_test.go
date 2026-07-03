@@ -116,7 +116,7 @@ func TestAsk_StreamsTraceTokensAnswerDone(t *testing.T) {
 	ports := newFakePorts()
 	l := newTestLibrarian(t, provider, ports)
 
-	ch, err := l.Ask(context.Background(), "conv-1", "where is the deploy runbook?")
+	ch, err := l.Ask(context.Background(), "conv-1", "where is the deploy runbook?", "")
 	if err != nil {
 		t.Fatalf("Ask: %v", err)
 	}
@@ -191,7 +191,7 @@ func TestAsk_BusyWhileRunInFlight(t *testing.T) {
 	l := newTestLibrarian(t, provider, newFakePorts())
 
 	ch := mustAsk(t, l, "conv-1", "slow question")
-	if _, err := l.Ask(context.Background(), "conv-1", "impatient question"); !errors.Is(err, domain.ErrLibrarianBusy) {
+	if _, err := l.Ask(context.Background(), "conv-1", "impatient question", ""); !errors.Is(err, domain.ErrLibrarianBusy) {
 		t.Errorf("second Ask error = %v; want ErrLibrarianBusy", err)
 	}
 	// A different conversation is not blocked by conv-1's run.
@@ -246,7 +246,7 @@ func TestAsk_EmptyQuestionRejected(t *testing.T) {
 	t.Parallel()
 
 	l := newTestLibrarian(t, &scriptedProvider{}, newFakePorts())
-	if _, err := l.Ask(context.Background(), "conv-1", "   "); err == nil {
+	if _, err := l.Ask(context.Background(), "conv-1", "   ", ""); err == nil {
 		t.Error("Ask with blank question succeeded; want error")
 	}
 }
@@ -260,7 +260,7 @@ func TestAsk_ClientCancelEndsStream(t *testing.T) {
 	l := newTestLibrarian(t, provider, newFakePorts())
 
 	ctx, cancel := context.WithCancel(context.Background())
-	ch, err := l.Ask(ctx, "conv-1", "question the reader abandons")
+	ch, err := l.Ask(ctx, "conv-1", "question the reader abandons", "")
 	if err != nil {
 		t.Fatalf("Ask: %v", err)
 	}
@@ -281,7 +281,7 @@ func TestAsk_ClientCancelEndsStream(t *testing.T) {
 
 func mustAsk(t *testing.T, l *Librarian, conv, q string) <-chan domain.LibrarianEvent {
 	t.Helper()
-	ch, err := l.Ask(context.Background(), conv, q)
+	ch, err := l.Ask(context.Background(), conv, q, "")
 	if err != nil {
 		t.Fatalf("Ask(%s): %v", conv, err)
 	}
@@ -326,5 +326,49 @@ func TestHistory_ReturnsCompletedExchanges(t *testing.T) {
 	}
 	if got[0].Question != "what is the floor?" || got[0].Answer != "The floor is the universe view." {
 		t.Errorf("exchange = %+v; want the completed Q/A", got[0])
+	}
+}
+
+func TestAsk_TrailContextReachesModelNotHistory(t *testing.T) {
+	t.Parallel()
+
+	provider := &scriptedProvider{turns: [][]llm.StreamEvent{
+		textTurn("Answer one."),
+		textTurn("Answer two."),
+	}}
+	l := newTestLibrarian(t, provider, newFakePorts())
+
+	ch, err := l.Ask(context.Background(), "conv-1", "what is this?", "<reader-context>focused: /x.md</reader-context>")
+	if err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+	collect(t, ch)
+
+	provider.mu.Lock()
+	first := provider.calls[0]
+	provider.mu.Unlock()
+	last := first[len(first)-1]
+	if last.Role != "user" || !strings.HasPrefix(last.Content, "<reader-context>") ||
+		!strings.Contains(last.Content, "what is this?") {
+		t.Errorf("model did not receive context-prefixed question: %+v", last)
+	}
+
+	// The saved transcript stays clean — History shows the bare question.
+	hist := l.History("conv-1")
+	if len(hist) != 1 || hist[0].Question != "what is this?" {
+		t.Errorf("History polluted by context: %+v", hist)
+	}
+
+	// A follow-up WITHOUT context must not inherit the stale injection.
+	collect(t, mustAsk(t, l, "conv-1", "and now?"))
+	provider.mu.Lock()
+	second := provider.calls[1]
+	provider.mu.Unlock()
+	for _, m := range second {
+		// The system prompt legitimately names the tag; only user turns
+		// would carry a stale injection.
+		if m.Role == "user" && strings.Contains(m.Content, "<reader-context>") {
+			t.Errorf("stale context leaked into the next run: %+v", m)
+		}
 	}
 }

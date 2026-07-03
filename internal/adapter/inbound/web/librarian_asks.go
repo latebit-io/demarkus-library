@@ -31,6 +31,7 @@ const (
 // present the same session), and the trail context for citation rewriting.
 type pendingAsk struct {
 	question string
+	context  string // the reader's trail context, built at POST time
 	convKey  string
 	t        trail
 	expires  time.Time

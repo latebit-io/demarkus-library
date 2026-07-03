@@ -21,9 +21,14 @@ type Librarian interface {
 	// LibrarianDone or LibrarianError event. ctx bounds the run: cancelling
 	// it (the client left) stops the agent and ends the stream.
 	//
+	// trailContext is the reader's current view — the trail's panes and the
+	// focused document's text (plan D5: trail = the librarian's context).
+	// It is injected for THIS run only and never becomes part of the saved
+	// transcript: History shows clean questions. Empty means no context.
+	//
 	// One ask at a time per conversation: a second Ask while one is in
 	// flight returns domain.ErrLibrarianBusy.
-	Ask(ctx context.Context, conversation, question string) (<-chan domain.LibrarianEvent, error)
+	Ask(ctx context.Context, conversation, question, trailContext string) (<-chan domain.LibrarianEvent, error)
 
 	// History returns the conversation's completed exchanges in order — the
 	// transcript the librarian pane renders. Memory-only (no world read, no

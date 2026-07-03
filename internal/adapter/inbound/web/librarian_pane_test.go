@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/labstack/echo/v5"
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
@@ -295,5 +296,66 @@ func TestNav_LibrarianDoorOnStandalonePages(t *testing.T) {
 
 	if !strings.Contains(rec.Body.String(), `class="nav-librarian" href="/a"`) {
 		t.Errorf("standalone page missing the librarian door:\n%.1200s", rec.Body.String())
+	}
+}
+
+func TestAskLibrarian_BuildsTrailContext(t *testing.T) {
+	t.Parallel()
+
+	lib := &fakeLibrarian{events: []domain.LibrarianEvent{{Kind: domain.LibrarianDone}}}
+	e := librarianApp(t, lib) // fakeReading serves doc: Title "X", Path /x.md, HTML <p>x</p>
+
+	// Reader focused on the doc (pane 1), asking from the librarian (pane 2).
+	form := url.Values{
+		"question": {"what is this document about?"},
+		"trail":    {"u/~/w.io/d/x.md/~/a"},
+		"idx":      {"2"},
+		"focus":    {"1"},
+	}
+	req := httptest.NewRequest(http.MethodPost, "/a/ask", strings.NewReader(form.Encode()))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationForm)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	if len(lib.contexts) != 1 {
+		t.Fatalf("contexts = %v; want one", lib.contexts)
+	}
+	got := lib.contexts[0]
+	for _, want := range []string{
+		"<reader-context>",
+		"the universe floor",
+		"mark://w.io/x.md",
+		"<- the reader's focus",
+		"this librarian conversation",
+		`The focused document (mark://w.io/x.md — "X")`,
+		"x", // the doc body text, extracted from the cached render
+		"</reader-context>",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("context missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestHtmlTextAndTruncate(t *testing.T) {
+	t.Parallel()
+
+	got := htmlText(`<h1>Title</h1><p>One <a href="/x">link</a>.</p><script>evil()</script><ul><li>a</li><li>b</li></ul>`)
+	for _, want := range []string{"Title", "One link.", "a\nb"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("htmlText missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "evil") {
+		t.Errorf("script content leaked: %s", got)
+	}
+
+	long := strings.Repeat("x", trailContextBudget-1) + "→ tail"
+	cut := truncateRunes(long, trailContextBudget)
+	if !utf8.ValidString(cut) || !strings.Contains(cut, "truncated") {
+		t.Errorf("rune-unsafe or unnoted truncation")
 	}
 }

@@ -27,6 +27,7 @@
   <input type="hidden" name="_csrf" value="{{ csrf }}">
   <input type="hidden" name="trail" value="{{ .Ask.TrailRest }}">
   <input type="hidden" name="idx" value="{{ .Ask.Idx }}">
+  <input type="hidden" name="focus" value="{{ .Ask.Focus }}">
   <input class="ask-input" name="question" placeholder="ask the librarian…"
          autocomplete="off" maxlength="4096" required>
   <button type="submit">ask</button>
