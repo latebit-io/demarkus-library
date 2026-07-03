@@ -113,6 +113,25 @@ spec:
               value: {{ . | quote }}
             {{- end }}
             {{- end }}
+            {{- /* The AI librarian (Phase 4) enables when an LLM provider key
+                   reaches the pod: nib's llmconfig auto-selects the builtin
+                   provider profile whose key env var is set (ANTHROPIC_API_KEY,
+                   MINIMAX_API_KEY, GEMINI_API_KEY, …). keyEnv names that env
+                   var; the value comes from an operator-provided Secret —
+                   there is deliberately no cleartext values path for an LLM
+                   key. Both fields empty ⇒ the librarian stays dark and the
+                   reading room is unchanged. */}}
+            {{- if and (trim .Values.library.librarian.keyEnv) (trim .Values.library.librarian.existingSecretRef.name) }}
+            - name: {{ .Values.library.librarian.keyEnv | quote }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.library.librarian.existingSecretRef.name | quote }}
+                  key: {{ .Values.library.librarian.existingSecretRef.key | quote }}
+            {{- with trim .Values.library.librarian.model }}
+            - name: LLM_MODEL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- end }}
           ports:
             - name: http
               protocol: TCP
