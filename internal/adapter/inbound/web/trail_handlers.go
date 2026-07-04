@@ -16,6 +16,14 @@ import (
 // pane is fetched live (refreshing the cache), every other pane comes from
 // the rendered-document cache — so one click costs one world read.
 
+// The overlay lenses a pane can be built for (paneView's overlay param):
+// none (a canvas pane), the reader (R4), or the metadata record.
+const (
+	overlayNone   = ""
+	overlayReader = "reader"
+	overlayMeta   = "meta"
+)
+
 // canvasVM is the view model of the "canvas" template.
 type canvasVM struct {
 	Title         string // focused pane's title (the <title>)
@@ -191,7 +199,7 @@ func (h *ReadingHandler) Trail(c *echo.Context) error {
 			if i == t.Meta {
 				metaDoc, metaAddr, haveMetaDoc = doc, addr, true
 			}
-			vm.Panes[i] = h.paneView(ctx, t, i, addr, doc, authed, false)
+			vm.Panes[i] = h.paneView(ctx, t, i, addr, doc, authed, overlayNone)
 		}
 	}
 
@@ -232,20 +240,16 @@ func (h *ReadingHandler) Trail(c *echo.Context) error {
 	// overlay (reader=true); ✕/backdrop/Esc close to trailURL(t), which keeps
 	// the original focus.
 	if t.Reader >= 0 && haveReaderDoc {
-		rp := h.paneView(ctx, t, t.Reader, readerAddr, readerDoc, authed, true)
+		rp := h.paneView(ctx, t, t.Reader, readerAddr, readerDoc, authed, overlayReader)
 		vm.Reader = &rp
 		vm.CloseURL = trailURL(t)
 	}
 
 	// The metadata overlay (the record lens): the addressed pane's catalog
-	// card, reusing its already-fetched document like the reader does. The
-	// margin data only computes for a focused pane, so build it from a trail
-	// copy focused there — presentation-only; the canvas panes above rendered
-	// from the real t.
+	// card, reusing its already-fetched document like the reader does — no
+	// extra world read, no re-recorded edges.
 	if t.Meta >= 0 && haveMetaDoc {
-		tm := t
-		tm.Focus = t.Meta
-		mp := h.paneView(ctx, tm, t.Meta, metaAddr, metaDoc, authed, false)
+		mp := h.paneView(ctx, t, t.Meta, metaAddr, metaDoc, authed, overlayMeta)
 		if mp.HasMargin {
 			mp.MetaOpen = true // the fold arrives expanded — this overlay IS the ask
 			vm.MetaPane = &mp
@@ -315,17 +319,19 @@ func (h *ReadingHandler) readPane(ctx context.Context, addr paneAddr, live bool)
 // paneView builds one pane's view model: display mode by distance from
 // focus (decision 3), links trail-ized so every href carries its post-click
 // state, margin only where attention is.
-// When reader is true the pane is built for the reader overlay (R4): the same
-// focused doc + margin, but body and backlink hrefs persist the overlay
-// (reader-mode links), edges are not re-recorded (the canvas build already
-// did), and the pane carries no "open reader" affordance (it is already open).
-func (h *ReadingHandler) paneView(ctx context.Context, t trail, i int, addr paneAddr, doc domain.Document, authed, reader bool) paneVM {
+// overlay marks a pane built for a lens instead of the canvas: the reader
+// overlay (R4) persists itself in body/backlink hrefs, the metadata overlay
+// keeps plain trail links (a record click is a navigation, not more lens).
+// Either way the pane carries the full margin, records no edges (the canvas
+// build already did), and offers no open-overlay affordances (it IS one).
+func (h *ReadingHandler) paneView(ctx context.Context, t trail, i int, addr paneAddr, doc domain.Document, authed bool, overlay string) paneVM {
 	focused := i == t.Focus
+	reader := overlay == overlayReader
 
 	mode := "spine"
 	switch {
-	case reader:
-		mode = "reader"
+	case overlay != "":
+		mode = overlay
 	case focused:
 		mode = "focused"
 	case i == t.Focus-1:
@@ -346,12 +352,12 @@ func (h *ReadingHandler) paneView(ctx context.Context, t trail, i int, addr pane
 	// is already open). Floor/graph panes never reach paneView, but guard the
 	// kind anyway so a future caller can't mint a reader link to a non-prose
 	// pane that parseTrail would reject.
-	if !reader && (addr.Kind == paneDoc || addr.Kind == paneTag) {
+	if overlay == "" && (addr.Kind == paneDoc || addr.Kind == paneTag) {
 		vm.ReaderURL = trailReaderURL(t, i)
 	}
 	// In the pane-scroll room the margin is summoned, not docked: the head
 	// offers "meta" beside "reader" and the record opens as an overlay.
-	if h.paneScroll && !reader && addr.Kind == paneDoc && !domain.IsListingPath(addr.Value) {
+	if h.paneScroll && overlay == "" && addr.Kind == paneDoc && !domain.IsListingPath(addr.Value) {
 		vm.MetaURL = trailMetaURL(t, i)
 	}
 	if mode == "spine" {
@@ -359,12 +365,12 @@ func (h *ReadingHandler) paneView(ctx context.Context, t trail, i int, addr pane
 	}
 
 	content, edges := rewriteLinks(doc.HTML, addr.World, doc.Path)
-	if !reader && addr.Kind == paneDoc && !domain.IsListingPath(addr.Value) {
+	if overlay == "" && addr.Kind == paneDoc && !domain.IsListingPath(addr.Value) {
 		// Feed the observed-links map (R3) from real document panes only —
 		// listings and tag pages are not edge sources. This runs for the
 		// focused pane and its body-only parent, so a doc's edges are recorded
 		// just before its graph/backlinks pane (to the right) reads them. The
-		// overlay reuses the focused pane, so skip it there (already recorded).
+		// overlays reuse already-rendered panes, so skip them (recorded once).
 		h.reading.RecordLinks(addr.World, doc.Path, edges)
 	}
 	if addr.Kind == paneTag {
@@ -381,9 +387,9 @@ func (h *ReadingHandler) paneView(ctx context.Context, t trail, i int, addr pane
 	// overlay (reader=true) those become reader-persisting URLs.
 	vm.Content = template.HTML(trailizeLinks(previewize(content), t, i, reader)) //nolint:gosec // sanitized in the markdown adapter; these passes only rewrite/wrap links, adding no unescaped content
 
-	// The overlay (reader) shows the addressed pane's full margin even when it
-	// is not the focused pane — reading mode is not a dead-end.
-	if (focused || reader) && addr.Kind == paneDoc && !domain.IsListingPath(addr.Value) {
+	// An overlay shows the addressed pane's full margin even when it is not
+	// the focused pane — a lens is not a dead-end.
+	if (focused || overlay != "") && addr.Kind == paneDoc && !domain.IsListingPath(addr.Value) {
 		vm.HasMargin = true
 		vm.Type = doc.Type
 		vm.Tags = tagLinks(addr.World, doc.Tags)

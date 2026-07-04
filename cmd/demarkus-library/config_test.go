@@ -51,3 +51,26 @@ func TestNewAppConfigRejectsBadFederation(t *testing.T) {
 		t.Fatalf("expected a DEMARKUS_FEDERATION parse error, got: %v", err)
 	}
 }
+
+func TestNewAppConfigLLMKeyStore(t *testing.T) {
+	// Defaults on (the dev-machine convenience); malformed stops startup.
+	cfg, err := NewAppConfig()
+	if err != nil {
+		t.Fatalf("NewAppConfig: %v", err)
+	}
+	if !cfg.LLMKeyStore {
+		t.Error("LLMKeyStore should default true")
+	}
+	t.Setenv("DEMARKUS_LLM_KEYSTORE", "definitely")
+	if _, err := NewAppConfig(); err == nil || !strings.Contains(err.Error(), "DEMARKUS_LLM_KEYSTORE") {
+		t.Fatalf("expected a DEMARKUS_LLM_KEYSTORE parse error, got: %v", err)
+	}
+	t.Setenv("DEMARKUS_LLM_KEYSTORE", "false")
+	cfg, err = NewAppConfig()
+	if err != nil {
+		t.Fatalf("NewAppConfig: %v", err)
+	}
+	if cfg.LLMKeyStore {
+		t.Error("DEMARKUS_LLM_KEYSTORE=false should pin env-only")
+	}
+}

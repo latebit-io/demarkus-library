@@ -248,14 +248,7 @@ func TestTrailPaneScrollFlag(t *testing.T) {
 
 	// Opted in (WithPaneScroll): the canvas body carries the class; the
 	// stylesheet does everything else.
-	app := echo.New()
-	view, err := NewView()
-	if err != nil {
-		t.Fatalf("NewView: %v", err)
-	}
-	app.Renderer = view
-	ReadingRoutes(app, NewReadingHandler(svc, "soul.demarkus.io", "/index.md").WithPaneScroll())
-	rec = get(app, "/t/w.io/d/a.md")
+	rec = get(paneScrollApp(t, svc), "/t/w.io/d/a.md")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d", rec.Code)
 	}
@@ -277,13 +270,7 @@ func TestTrailMetadataLens(t *testing.T) {
 		t.Errorf("meta affordance should be absent outside the pane-scroll room")
 	}
 
-	app := echo.New()
-	view, err := NewView()
-	if err != nil {
-		t.Fatalf("NewView: %v", err)
-	}
-	app.Renderer = view
-	ReadingRoutes(app, NewReadingHandler(svc, "soul.demarkus.io", "/index.md").WithPaneScroll())
+	app := paneScrollApp(t, svc)
 
 	// Pane-scroll room: the head offers "meta" with the ?meta= lens URL.
 	body = get(app, "/t/w.io/d/a.md").Body.String()
@@ -316,4 +303,17 @@ func TestTrailMetadataLens(t *testing.T) {
 			t.Errorf("meta=%q should degrade to the canvas (status %d)", mp, rec.Code)
 		}
 	}
+}
+
+// paneScrollApp is readingApp with the pane-scroll experiment on.
+func paneScrollApp(t *testing.T, svc *fakeReading) *echo.Echo {
+	t.Helper()
+	app := echo.New()
+	view, err := NewView()
+	if err != nil {
+		t.Fatalf("NewView: %v", err)
+	}
+	app.Renderer = view
+	ReadingRoutes(app, NewReadingHandler(svc, "soul.demarkus.io", "/index.md").WithPaneScroll())
+	return app
 }

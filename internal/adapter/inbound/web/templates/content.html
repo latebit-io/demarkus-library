@@ -100,10 +100,10 @@
     {{ .Content }}
   </article>
   <aside class="doc-margin">
-    <!-- The margin holds exactly: status, the OKF group (type, tags,
-         timestamp), provenance (version, agent), the complete metadata block
-         (every other cataloged key), properties, the protocol escape, and
-         floated sidenotes (ADR 0005 decision 8). An empty margin is correct. -->
+    <!-- The margin holds exactly: status, tags (lateral nav), a collapsible
+         metadata fold (OKF type/timestamp, provenance, every other cataloged
+         key, properties), backlinks, the protocol escape, and floated
+         sidenotes (ADR 0005 decision 8). An empty margin is correct. -->
     {{template "doc-meta" .}}
   </aside>
 </div>{{else}}<div class="doc-pane">

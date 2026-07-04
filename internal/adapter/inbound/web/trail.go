@@ -237,31 +237,27 @@ func trailURL(t trail) string {
 // that emits ?reader=; trailURL stays reader-free (the canonical canvas URL),
 // so every existing click closes the overlay.
 func trailReaderURL(t trail, reader int) string {
-	u := trailBasePath(t)
-	params := make([]string, 0, 2)
-	if t.Focus != len(t.Panes)-1 {
-		params = append(params, "focus="+strconv.Itoa(t.Focus))
-	}
-	if reader >= 0 {
-		params = append(params, "reader="+strconv.Itoa(reader))
-	}
-	if len(params) > 0 {
-		u += "?" + strings.Join(params, "&")
-	}
-	return u
+	return trailOverlayURL(t, "reader", reader)
 }
 
 // trailMetaURL encodes the trail with the metadata overlay open on pane
 // `meta` — the record twin of trailReaderURL, and like it the only builder
 // that emits ?meta=; every ordinary click closes the overlay.
 func trailMetaURL(t trail, meta int) string {
+	return trailOverlayURL(t, "meta", meta)
+}
+
+// trailOverlayURL is the shared skeleton of the overlay-lens URL builders:
+// the base path, a non-default focus, and one overlay param. idx < 0 yields
+// the bare trail (the close URL).
+func trailOverlayURL(t trail, param string, idx int) string {
 	u := trailBasePath(t)
 	params := make([]string, 0, 2)
 	if t.Focus != len(t.Panes)-1 {
 		params = append(params, "focus="+strconv.Itoa(t.Focus))
 	}
-	if meta >= 0 {
-		params = append(params, "meta="+strconv.Itoa(meta))
+	if idx >= 0 {
+		params = append(params, param+"="+strconv.Itoa(idx))
 	}
 	if len(params) > 0 {
 		u += "?" + strings.Join(params, "&")
