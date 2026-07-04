@@ -169,6 +169,10 @@
     .canvas:has(.pane:focus-within) .pane.focused:not(.engaged):not(:focus-within) > .pane-head {
                  border-bottom: 1px solid var(--faint); color: var(--muted); }
     .pane-head a { color: inherit; text-decoration: none; }
+    /* The head's status chip (ADR 0007): the marginless room's at-rest trust
+       signal — smaller than the margin badge, same color register. */
+    .pane-head .status { font-size: .52rem; padding: .12rem .35rem;
+                 margin-left: .3rem; vertical-align: middle; }
     .pane.spine { display: flex; flex-direction: column; align-items: center;
                   gap: .7rem; width: 2.4rem; min-height: 22rem;
                   padding: .8rem .3rem; border: 1px solid var(--faint);

@@ -74,3 +74,18 @@ func TestNewAppConfigLLMKeyStore(t *testing.T) {
 		t.Error("DEMARKUS_LLM_KEYSTORE=false should pin env-only")
 	}
 }
+
+func TestNewAppConfigPaneScrollDefaultsOn(t *testing.T) {
+	// ADR 0007: the pane-scroll room is the default; the env is the opt-out.
+	cfg, err := NewAppConfig()
+	if err != nil {
+		t.Fatalf("NewAppConfig: %v", err)
+	}
+	if !cfg.PaneScroll {
+		t.Error("PaneScroll should default true (ADR 0007)")
+	}
+	t.Setenv("DEMARKUS_PANE_SCROLL", "false")
+	if cfg, err = NewAppConfig(); err != nil || cfg.PaneScroll {
+		t.Errorf("DEMARKUS_PANE_SCROLL=false should select the page-scroll room (err %v)", err)
+	}
+}
