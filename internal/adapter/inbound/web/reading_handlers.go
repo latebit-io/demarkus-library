@@ -119,6 +119,7 @@ type backlinkVM struct {
 	Title      string
 	URL        string
 	PreviewURL string
+	Anchor     string // unique CSS anchor name pairing this link with its hover card
 }
 
 // viewOpts carries per-view presentation choices into present.

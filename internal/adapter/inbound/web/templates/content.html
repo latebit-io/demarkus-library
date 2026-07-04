@@ -84,7 +84,8 @@
      so click still navigates. */}}
 {{define "preview-link"}}<span class="preview-host"><a href="{{ .URL }}"
   hx-get="{{ .PreviewURL }}" hx-trigger="mouseenter delay:300ms once"
-  hx-target="next .preview-card" hx-swap="innerHTML">{{ .Title }}</a><span class="preview-card" role="tooltip"></span></span>{{end}}
+  hx-target="next .preview-card" hx-swap="innerHTML"
+  style="anchor-name:{{ .Anchor }}">{{ .Title }}</a><span class="preview-card" role="tooltip" style="position-anchor:{{ .Anchor }}"></span></span>{{end}}
 
 {{/* preview: the hover card fragment served at /w/:world/preview/<path>. */}}
 {{define "preview"}}<span class="preview-inner">

@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
+	"sync/atomic"
 
 	"github.com/labstack/echo/v5"
 	"golang.org/x/net/html"
@@ -21,6 +23,19 @@ import (
 // rendered-document cache, so a hover never costs a live world read.
 
 const previewSnippetLen = 180 // characters of opening text shown on the card
+
+// previewAnchorSeq mints document-unique CSS anchor names for the hover
+// cards. Anchor positioning resolves a SHARED anchor-name to the last
+// acceptable element in the whole document — not the nearest — so every
+// link/card pair needs its own name. Process-wide and monotonic: previewize
+// runs at request time (the doc cache stores pre-previewize HTML), so names
+// never repeat across panes, overlays, or htmx fragments on one page.
+var previewAnchorSeq atomic.Uint64
+
+// previewAnchorName returns the next unique anchor name (a CSS dashed-ident).
+func previewAnchorName() string {
+	return "--pv-" + strconv.FormatUint(previewAnchorSeq.Add(1), 10)
+}
 
 // previewVM is the "preview" fragment's view model.
 type previewVM struct {
@@ -86,6 +101,7 @@ func backlinkLinks(refs []domain.Ref, urlFor func(domain.Ref) string) []backlink
 			Title:      refTitle(r),
 			URL:        urlFor(r),
 			PreviewURL: previewURL(r),
+			Anchor:     previewAnchorName(),
 		})
 	}
 	return out
@@ -153,6 +169,9 @@ func previewableAnchor(n *html.Node) (paneAddr, string, bool) {
 
 // wrapWithPreview reparents anchor under a preview-host span, appends the
 // (initially empty) preview-card span, and adds the htmx hover attributes.
+// The pair shares a unique CSS anchor name so the card can be
+// anchor-positioned (position:fixed) onto its own link — escaping the pane
+// scroll clip — where the browser supports it.
 func wrapWithPreview(anchor *html.Node, src string) {
 	parent := anchor.Parent
 	if parent == nil {
@@ -164,14 +183,20 @@ func wrapWithPreview(anchor *html.Node, src string) {
 	parent.RemoveChild(anchor)
 	host.AppendChild(anchor)
 
+	name := previewAnchorName()
 	anchor.Attr = append(anchor.Attr,
 		html.Attribute{Key: "hx-get", Val: src},
 		html.Attribute{Key: "hx-trigger", Val: "mouseenter delay:300ms once"},
 		html.Attribute{Key: "hx-target", Val: "next .preview-card"},
 		html.Attribute{Key: "hx-swap", Val: "innerHTML"},
+		html.Attribute{Key: "style", Val: "anchor-name:" + name},
 	)
 	card := &html.Node{Type: html.ElementNode, DataAtom: atom.Span, Data: "span",
-		Attr: []html.Attribute{{Key: "class", Val: "preview-card"}, {Key: "role", Val: "tooltip"}}}
+		Attr: []html.Attribute{
+			{Key: "class", Val: "preview-card"},
+			{Key: "role", Val: "tooltip"},
+			{Key: "style", Val: "position-anchor:" + name},
+		}}
 	host.AppendChild(card)
 }
 
