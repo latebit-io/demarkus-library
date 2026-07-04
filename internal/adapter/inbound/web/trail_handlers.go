@@ -49,8 +49,8 @@ type canvasVM struct {
 	// floorSVG htmx-loads only when the reader pulls it up.
 	FloorHas bool
 
-	// PaneScroll marks the independent-pane-scroll experiment: the canvas
-	// template adds a body class and the stylesheet does the rest.
+	// PaneScroll marks the pane-scroll room (ADR 0007, the default): the
+	// canvas template adds a body class and the stylesheet does the rest.
 	PaneScroll bool
 }
 

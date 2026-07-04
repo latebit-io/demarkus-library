@@ -40,7 +40,7 @@ type ReadingHandler struct {
 	asks         *pendingAsks   // POST /a/ask → SSE handoff tokens (librarian_asks.go)
 	defaultWorld string
 	defaultDoc   string
-	paneScroll   bool // the independent-pane-scroll experiment (DEMARKUS_PANE_SCROLL)
+	paneScroll   bool // the pane-scroll room, ADR 0007 (DEMARKUS_PANE_SCROLL opts out)
 }
 
 // NewReadingHandler binds the reading service, the world served at /, and the
@@ -57,8 +57,9 @@ func (h ReadingHandler) WithLibrarian(lib port.Librarian) ReadingHandler {
 	return h
 }
 
-// WithPaneScroll turns on the independent-pane-scroll design experiment: the
-// canvas becomes a fixed-viewport room where each pane scrolls internally
+// WithPaneScroll selects the pane-scroll room (ADR 0007 — the default; the
+// composition root skips it only when DEMARKUS_PANE_SCROLL opts out): the
+// canvas is a fixed-viewport room where each pane scrolls internally
 // (the sliding-panes model). Presentation only — a body class the stylesheet
 // keys off; routes, trail state, and the no-JS room are untouched.
 func (h ReadingHandler) WithPaneScroll() ReadingHandler {
