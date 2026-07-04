@@ -29,6 +29,7 @@ const (
 	graphMaxRy    = 440 // cap so a huge neighborhood doesn't run away
 	graphLabelPad = 150 // horizontal room for the outward (left/right) node labels
 	graphVPad     = 60  // top/bottom room for labels
+	graphMaxSide  = 18  // nodes per arc; past this graphMaxRy's per-node budget collapses into label overlap
 )
 
 // arrowMarker is the <defs> block defining the directional edge arrowhead,
@@ -120,11 +121,16 @@ func graphSVG(n domain.Neighborhood, urlFor func(domain.Ref) string, onTrail map
 	if len(n.In) == 0 && len(n.Out) == 0 {
 		return template.HTML(`<p class="graph-empty">No links observed yet — the neighborhood fills in as connected documents are read.</p>`) //nolint:gosec // static markup
 	}
+	// High-degree hubs are capped per arc (refs arrive deterministically
+	// sorted, so the cut is stable); the overflow is declared honestly as a
+	// "+N more" note under the arc rather than drawn as overlapping labels.
+	in, inMore := capSide(n.In)
+	out, outMore := capSide(n.Out)
 	// A wide elliptical neighborhood sized to its node count, viewBox fit tightly
 	// so it fills the overlay instead of centering a small ring in a fixed box.
 	// ry grows with the busier side (so arcs never crowd vertically); rx is
 	// stretched wider; the canvas adds room for the outward node labels.
-	maxSide := max(len(n.In), len(n.Out))
+	maxSide := max(len(in), len(out))
 	ry := min(max(graphMinRy, maxSide*graphNodeVGap/2), graphMaxRy)
 	rx := int(float64(ry) * graphRatio)
 	width, height := 2*rx+2*graphLabelPad, 2*ry+2*graphVPad
@@ -137,7 +143,7 @@ func graphSVG(n domain.Neighborhood, urlFor func(domain.Ref) string, onTrail map
 
 	// Place backlinks across the left half (π/2 … 3π/2) and outbound links
 	// across the right half (-π/2 … π/2); a lone node sits at the pole.
-	placed := append(arcNodes(n.In, cx, cy, rx, ry, true), arcNodes(n.Out, cx, cy, rx, ry, false)...)
+	placed := append(arcNodes(in, cx, cy, rx, ry, true), arcNodes(out, cx, cy, rx, ry, false)...)
 
 	// Edges first, so nodes draw on top. Direction follows the reference: an
 	// outbound link points center→neighbor, a backlink points neighbor→center.
@@ -175,8 +181,24 @@ func graphSVG(n domain.Neighborhood, urlFor func(domain.Ref) string, onTrail map
 			pn.x, pn.y-graphNodeR-6, anchor, html.EscapeString(trimGraphLabel(refTitle(pn.ref))))
 		fmt.Fprintf(&b, `<title>%s — %s</title></a>`, html.EscapeString(pn.ref.Path), html.EscapeString(pn.ref.World))
 	}
+	if inMore > 0 {
+		fmt.Fprintf(&b, `<text class="graph-more" x="%d" y="%d" text-anchor="middle">+%d more backlinks</text>`,
+			cx-rx/2, height-12, inMore)
+	}
+	if outMore > 0 {
+		fmt.Fprintf(&b, `<text class="graph-more" x="%d" y="%d" text-anchor="middle">+%d more links</text>`,
+			cx+rx/2, height-12, outMore)
+	}
 	b.WriteString(`</svg>`)
 	return template.HTML(b.String()) //nolint:gosec // built from escaped parts; all text/attrs pass html.EscapeString
+}
+
+// capSide trims one arc's refs to graphMaxSide, reporting how many were cut.
+func capSide(refs []domain.Ref) (kept []domain.Ref, cut int) {
+	if len(refs) <= graphMaxSide {
+		return refs, 0
+	}
+	return refs[:graphMaxSide], len(refs) - graphMaxSide
 }
 
 // placedNode is a neighbor with its computed position.

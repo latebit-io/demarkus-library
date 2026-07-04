@@ -46,6 +46,7 @@ import (
 	"github.com/latebit-io/demarkus-library/internal/core/service"
 	"github.com/latebit-io/demarkus/client/fetch"
 	"github.com/latebit-io/nib/ai/llmconfig"
+	niboauth "github.com/latebit-io/nib/ai/oauth"
 )
 
 // sweepInterval is how often expired sessions and abandoned logins are
@@ -191,10 +192,14 @@ func main() {
 	// Feature-dark unless nib's llmconfig resolves an LLM provider (global
 	// llm.json or LLM_API_KEY/LLM_BASE_URL/LLM_MODEL) — without one the pane
 	// reads "not on duty" and /a/stream serves only the ?slow= soak.
-	lib := buildLibrarian(logger, reading, defaultWorld)
+	lib := buildLibrarian(logger, reading, defaultWorld, config.LLMKeyStore)
 	handler := web.NewReadingHandler(reading, defaultWorld, config.DefaultDoc)
 	if lib != nil {
 		handler = handler.WithLibrarian(lib)
+	}
+	if config.PaneScroll {
+		handler = handler.WithPaneScroll()
+		logger.Info("pane-scroll experiment enabled")
 	}
 	web.ReadingRoutes(app, handler, turnstile...)
 
@@ -250,11 +255,30 @@ func serve(app *echo.Echo, config *AppConfig) error {
 // read-only port slices. Returns nil — the feature-dark posture (plan D6) —
 // when no provider is configured; OAuth-profile auth is a nib-code concern
 // and intentionally unsupported here (servers use API keys).
-func buildLibrarian(logger *slog.Logger, reading *service.ReadingService, defaultWorld string) port.Librarian {
+func buildLibrarian(logger *slog.Logger, reading *service.ReadingService, defaultWorld string, keyStore bool) port.Librarian {
 	_, resolved := llmconfig.Resolve("")
 	if resolved.OAuthProvider != "" {
 		logger.Info("librarian disabled: OAuth LLM profiles are not supported server-side; configure an API-key profile")
 		return nil
+	}
+	if !resolved.HasProvider() && keyStore {
+		// The key may live in nib's keystore (`nib` TUI-entered keys in
+		// <UserConfigDir>/nib/keys.json) rather than the environment — the
+		// same fallback nib's own binaries use. Env keys keep priority;
+		// AppConfig (DEMARKUS_LLM_KEYSTORE=false) pins env-only. Failures
+		// are logged, not swallowed: a corrupt store file should be seen.
+		switch path, err := niboauth.DefaultKeyStorePath(); {
+		case err != nil:
+			logger.Warn("librarian: nib key store unavailable", "err", err)
+		default:
+			ks, err := niboauth.NewKeyStore(path)
+			switch {
+			case err != nil:
+				logger.Warn("librarian: nib key store unreadable", "path", path, "err", err)
+			case llmconfig.WireStoredKey(resolved, ks):
+				logger.Info("librarian: API key loaded from nib key store", "profile", resolved.Profile)
+			}
+		}
 	}
 	if !resolved.HasProvider() {
 		logger.Info("librarian disabled: no LLM provider configured")

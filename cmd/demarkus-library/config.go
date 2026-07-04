@@ -38,6 +38,21 @@ type AppConfig struct {
 	// explicitly (the cluster's fixed-name `root`).
 	Hub string
 
+	// PaneScroll turns on the independent-pane-scroll design experiment: a
+	// fixed-viewport canvas where each pane scrolls internally (the
+	// sliding-panes model) instead of the page scrolling as one. Prototype
+	// flag — default off; presentation only, no route or state change.
+	PaneScroll bool
+
+	// LLMKeyStore lets the librarian fall back to nib's on-disk key store
+	// (<UserConfigDir>/nib/keys.json) when no LLM key arrives via the
+	// environment — the dev-machine convenience that makes a TUI-entered key
+	// (e.g. fugu) just work. Environment keys always win; cluster
+	// deployments provide the key via Secret-mounted env and the store file
+	// simply doesn't exist there. Set false to pin the composition root to
+	// env-only LLM config.
+	LLMKeyStore bool
+
 	// TLS serves the library itself over HTTPS when both are set. In the
 	// cluster the ingress terminates TLS and these stay empty; locally they
 	// let the broker's https-only redirect rule be satisfied without a
@@ -80,6 +95,16 @@ func NewAppConfig() (*AppConfig, error) {
 	if err != nil {
 		return nil, err
 	}
+	// The pane-scroll experiment is a deliberate opt-in; strict parse so a
+	// typo'd value stops startup instead of silently running the wrong room.
+	paneScroll, err := getEnvAsBoolStrict("DEMARKUS_PANE_SCROLL", false)
+	if err != nil {
+		return nil, err
+	}
+	llmKeyStore, err := getEnvAsBoolStrict("DEMARKUS_LLM_KEYSTORE", true)
+	if err != nil {
+		return nil, err
+	}
 	if sessionTTL <= 0 {
 		// A non-positive TTL would mint sessions that expire on arrival —
 		// a confusing login loop instead of a clear startup failure.
@@ -87,9 +112,11 @@ func NewAppConfig() (*AppConfig, error) {
 	}
 
 	cfg := &AppConfig{
-		Port:       getEnvAsInt("PORT", 8080),
-		Transport:  getEnv("DEMARKUS_TRANSPORT", TransportQUIC),
-		Federation: federation,
+		Port:        getEnvAsInt("PORT", 8080),
+		Transport:   getEnv("DEMARKUS_TRANSPORT", TransportQUIC),
+		Federation:  federation,
+		PaneScroll:  paneScroll,
+		LLMKeyStore: llmKeyStore,
 
 		// Trimmed so whitespace-only values stay unset instead of
 		// flipping the server into TLS mode and failing on file open.

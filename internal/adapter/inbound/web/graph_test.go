@@ -1,7 +1,9 @@
 package web
 
 import (
+	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -137,8 +139,54 @@ func TestDocMarginOffersGraphAndBacklinks(t *testing.T) {
 		!strings.Contains(body, `hx-get="/w/w.io/preview/referrer.md"`) {
 		t.Errorf("backlinks block missing: %s", body)
 	}
+	// The backlink pair carries its CSS anchor name through html/template's
+	// CSS filter intact — a plain-string Anchor is rejected as ZgotmplZ
+	// (custom idents need template.CSS), which silently unpins the card.
+	if !regexp.MustCompile(`style="anchor-name:--pv-\d+"`).MatchString(body) {
+		t.Errorf("backlink anchor-name missing or mangled: %s", body)
+	}
+	if strings.Contains(body, "ZgotmplZ") {
+		t.Errorf("template rejected a CSS value (ZgotmplZ) in: %s", body)
+	}
 	// The backlink navigates onto the trail (truncate to focus, append).
 	if !strings.Contains(body, `href="/t/w.io/d/x.md/~/w.io/d/referrer.md"`) {
 		t.Errorf("backlink trail URL missing: %s", body)
+	}
+}
+
+func TestGraphSVGCapsHighDegreeArcs(t *testing.T) {
+	// A hub past graphMaxSide per side: the arc draws the cap, the overflow
+	// is declared as a "+N more" note instead of overlapping labels.
+	n := domain.Neighborhood{Center: domain.Ref{World: "soul", Path: "/hub.md"}}
+	for i := range graphMaxSide + 7 {
+		n.Out = append(n.Out, domain.Ref{World: "soul", Path: fmt.Sprintf("/out-%02d.md", i)})
+	}
+	for i := range graphMaxSide + 2 {
+		n.In = append(n.In, domain.Ref{World: "soul", Path: fmt.Sprintf("/in-%02d.md", i)})
+	}
+	svg := string(graphSVG(n, func(r domain.Ref) string { return docRoute(r.World, r.Path) }, nil))
+
+	if got := strings.Count(svg, "graph-out"); got != graphMaxSide {
+		t.Errorf("outbound nodes drawn = %d, want cap %d", got, graphMaxSide)
+	}
+	if got := strings.Count(svg, `class="graph-node graph-in`); got != graphMaxSide {
+		t.Errorf("inbound nodes drawn = %d, want cap %d", got, graphMaxSide)
+	}
+	if !strings.Contains(svg, "+7 more links") {
+		t.Errorf("outbound overflow note missing: %s", svg)
+	}
+	if !strings.Contains(svg, "+2 more backlinks") {
+		t.Errorf("inbound overflow note missing: %s", svg)
+	}
+}
+
+func TestGraphSVGNoOverflowNoteAtCap(t *testing.T) {
+	n := domain.Neighborhood{Center: domain.Ref{World: "soul", Path: "/c.md"}}
+	for i := range graphMaxSide {
+		n.Out = append(n.Out, domain.Ref{World: "soul", Path: fmt.Sprintf("/o-%02d.md", i)})
+	}
+	svg := string(graphSVG(n, func(r domain.Ref) string { return docRoute(r.World, r.Path) }, nil))
+	if strings.Contains(svg, "graph-more") {
+		t.Errorf("no overflow note expected at exactly the cap: %s", svg)
 	}
 }

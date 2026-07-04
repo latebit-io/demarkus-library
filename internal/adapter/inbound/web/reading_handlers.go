@@ -40,6 +40,7 @@ type ReadingHandler struct {
 	asks         *pendingAsks   // POST /a/ask → SSE handoff tokens (librarian_asks.go)
 	defaultWorld string
 	defaultDoc   string
+	paneScroll   bool // the independent-pane-scroll experiment (DEMARKUS_PANE_SCROLL)
 }
 
 // NewReadingHandler binds the reading service, the world served at /, and the
@@ -53,6 +54,15 @@ func NewReadingHandler(reading port.ReadingService, defaultWorld, defaultDoc str
 // librarian pane renders its not-on-duty state and asks are rejected.
 func (h ReadingHandler) WithLibrarian(lib port.Librarian) ReadingHandler {
 	h.lib = lib
+	return h
+}
+
+// WithPaneScroll turns on the independent-pane-scroll design experiment: the
+// canvas becomes a fixed-viewport room where each pane scrolls internally
+// (the sliding-panes model). Presentation only — a body class the stylesheet
+// keys off; routes, trail state, and the no-JS room are untouched.
+func (h ReadingHandler) WithPaneScroll() ReadingHandler {
+	h.paneScroll = true
 	return h
 }
 
@@ -109,6 +119,11 @@ type backlinkVM struct {
 	Title      string
 	URL        string
 	PreviewURL string
+	// Anchor is the unique CSS anchor name pairing this link with its hover
+	// card. template.CSS, not string: html/template's CSS filter rejects a
+	// custom-ident value (`--pv-1` → ZgotmplZ) unless the VM vouches for it —
+	// safe here because previewAnchorName mints it from a counter, no input.
+	Anchor template.CSS
 }
 
 // viewOpts carries per-view presentation choices into present.

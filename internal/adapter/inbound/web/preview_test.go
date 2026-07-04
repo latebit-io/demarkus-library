@@ -2,6 +2,7 @@ package web
 
 import (
 	"net/http"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -82,5 +83,18 @@ func TestPreviewHandlerMissingIsNoContent(t *testing.T) {
 	rec := get(readingApp(t, svc), "/w/soul/preview/gone.md")
 	if rec.Code != http.StatusNoContent {
 		t.Errorf("status = %d, want 204 (empty card stays hidden)", rec.Code)
+	}
+}
+
+func TestPreviewizeMergesExistingStyle(t *testing.T) {
+	// An anchor that already carries a style attribute gets the anchor-name
+	// merged into it — never a second style= attribute (invalid HTML; the
+	// browser keeps only the first, dropping whichever came second).
+	out := previewize(`<p><a href="/w/soul/d/x.md" style="color:red">x</a></p>`)
+	if strings.Count(out, "style=") != 2 { // one on the anchor, one on the card
+		t.Errorf("want exactly one style attr on anchor + one on card, got: %s", out)
+	}
+	if !regexp.MustCompile(`style="color:red;anchor-name:--pv-\d+"`).MatchString(out) {
+		t.Errorf("existing style not merged with anchor-name: %s", out)
 	}
 }

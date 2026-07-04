@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/labstack/echo/v5"
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
 )
 
@@ -230,4 +231,89 @@ func TestTrailPaneKindsRouteToVerbs(t *testing.T) {
 	if strings.Join(svc.calls, ",") != strings.Join(want, ",") {
 		t.Errorf("calls = %v, want %v", svc.calls, want)
 	}
+}
+
+func TestTrailPaneScrollFlag(t *testing.T) {
+	svc := &fakeReading{docs: map[string]domain.Document{
+		"/a.md": {Title: "A", Path: "/a.md", HTML: "<p>a</p>"},
+	}}
+
+	// Default room: no experiment class.
+	rec := get(readingApp(t, svc), "/t/w.io/d/a.md")
+	// The inline stylesheet always mentions the selector; the body class
+	// attribute is the flag's actual surface.
+	if strings.Contains(rec.Body.String(), `class="canvas-page pane-scroll"`) {
+		t.Errorf("pane-scroll body class should be absent by default")
+	}
+
+	// Opted in (WithPaneScroll): the canvas body carries the class; the
+	// stylesheet does everything else.
+	rec = get(paneScrollApp(t, svc), "/t/w.io/d/a.md")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), `class="canvas-page pane-scroll"`) {
+		t.Errorf("canvas body missing pane-scroll class")
+	}
+}
+
+func TestTrailMetadataLens(t *testing.T) {
+	svc := &fakeReading{docs: map[string]domain.Document{
+		"/a.md": {Title: "A", Path: "/a.md", HTML: "<p>a</p>", Status: "accepted",
+			Version: "7", Agent: "claude-code",
+			Meta: []domain.Property{{Key: "etag", Value: "abc123"}}},
+	}}
+
+	// Default room: no "meta" affordance (the margin is docked there).
+	body := get(readingApp(t, svc), "/t/w.io/d/a.md").Body.String()
+	if strings.Contains(body, ">meta</a>") {
+		t.Errorf("meta affordance should be absent outside the pane-scroll room")
+	}
+
+	app := paneScrollApp(t, svc)
+
+	// Pane-scroll room: the head offers "meta" with the ?meta= lens URL.
+	body = get(app, "/t/w.io/d/a.md").Body.String()
+	if !strings.Contains(body, `href="/t/w.io/d/a.md?meta=0">meta</a>`) {
+		t.Errorf("meta affordance missing in the pane-scroll room: %s", body)
+	}
+	if strings.Contains(body, "meta-backdrop") {
+		t.Errorf("metadata overlay should be closed until summoned")
+	}
+
+	// Summoned: the overlay carries the record, pre-expanded, closing to the
+	// bare trail.
+	body = get(app, "/t/w.io/d/a.md?meta=0").Body.String()
+	for _, want := range []string{
+		"meta-backdrop",
+		`<details class="meta-fold" open>`,
+		"abc123",                // the out-of-band record reaches the card
+		"claude-code",           // provenance too
+		`href="/t/w.io/d/a.md"`, // close = bare trail
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("metadata overlay missing %q", want)
+		}
+	}
+
+	// Junk/non-doc indexes degrade to the plain canvas, never a 400.
+	for _, mp := range []string{"9", "-1", "junk"} {
+		rec := get(app, "/t/w.io/d/a.md?meta="+mp)
+		if rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), "meta-backdrop") {
+			t.Errorf("meta=%q should degrade to the canvas (status %d)", mp, rec.Code)
+		}
+	}
+}
+
+// paneScrollApp is readingApp with the pane-scroll experiment on.
+func paneScrollApp(t *testing.T, svc *fakeReading) *echo.Echo {
+	t.Helper()
+	app := echo.New()
+	view, err := NewView()
+	if err != nil {
+		t.Fatalf("NewView: %v", err)
+	}
+	app.Renderer = view
+	ReadingRoutes(app, NewReadingHandler(svc, "soul.demarkus.io", "/index.md").WithPaneScroll())
+	return app
 }

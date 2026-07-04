@@ -137,9 +137,18 @@
   // at the right edge, so bring the focused pane into view after each
   // render. htmx's own `show:` modifier is vertical-biased; this is the
   // pre-agreed snippet. Everything else about the canvas is server state.
+  // Horizontal-only, on the canvas scroller itself: scrollIntoView with a
+  // pane taller than the viewport also aligned its top edge with the
+  // viewport, scrolling the page down past the nav — the canvas's own
+  // scrollLeft is the only axis "into view" ever meant here.
   function showFocusedPane() {
     var pane = document.querySelector(".pane.focused");
-    if (pane) pane.scrollIntoView({ inline: "nearest", block: "nearest" });
+    var canvas = pane && pane.closest && pane.closest("main.canvas");
+    if (!pane || !canvas) return;
+    var pr = pane.getBoundingClientRect();
+    var cr = canvas.getBoundingClientRect();
+    if (pr.right > cr.right) canvas.scrollLeft += pr.right - cr.right;
+    if (pr.left < cr.left) canvas.scrollLeft -= cr.left - pr.left;
   }
 
   // Click engagement: clicking into a pane moves the VISUAL attention cue
@@ -362,9 +371,17 @@
     showFocusedPane();
   });
   // htmx fragment swaps (hx-boost navigation) land after settle; rescan
-  // just the swapped subtree and re-center the canvas.
+  // just the swapped subtree, and re-center the canvas only when the swap
+  // actually re-rendered panes. afterSettle fires for EVERY swap — hover
+  // preview cards, palette keystrokes, librarian exchanges — and
+  // re-centering on those yanked the viewport mid-read.
   document.body.addEventListener("htmx:afterSettle", function (e) {
-    scan(e.target);
-    showFocusedPane();
+    var t = e.target;
+    scan(t);
+    if (t === document.body ||
+        (t.matches && t.matches("main.canvas, .pane")) ||
+        (t.querySelector && t.querySelector("main.canvas, .pane"))) {
+      showFocusedPane();
+    }
   });
 })();
