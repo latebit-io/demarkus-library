@@ -38,6 +38,12 @@ type AppConfig struct {
 	// explicitly (the cluster's fixed-name `root`).
 	Hub string
 
+	// PaneScroll turns on the independent-pane-scroll design experiment: a
+	// fixed-viewport canvas where each pane scrolls internally (the
+	// sliding-panes model) instead of the page scrolling as one. Prototype
+	// flag — default off; presentation only, no route or state change.
+	PaneScroll bool
+
 	// TLS serves the library itself over HTTPS when both are set. In the
 	// cluster the ingress terminates TLS and these stay empty; locally they
 	// let the broker's https-only redirect rule be satisfied without a
@@ -80,6 +86,12 @@ func NewAppConfig() (*AppConfig, error) {
 	if err != nil {
 		return nil, err
 	}
+	// The pane-scroll experiment is a deliberate opt-in; strict parse so a
+	// typo'd value stops startup instead of silently running the wrong room.
+	paneScroll, err := getEnvAsBoolStrict("DEMARKUS_PANE_SCROLL", false)
+	if err != nil {
+		return nil, err
+	}
 	if sessionTTL <= 0 {
 		// A non-positive TTL would mint sessions that expire on arrival —
 		// a confusing login loop instead of a clear startup failure.
@@ -90,6 +102,7 @@ func NewAppConfig() (*AppConfig, error) {
 		Port:       getEnvAsInt("PORT", 8080),
 		Transport:  getEnv("DEMARKUS_TRANSPORT", TransportQUIC),
 		Federation: federation,
+		PaneScroll: paneScroll,
 
 		// Trimmed so whitespace-only values stay unset instead of
 		// flipping the server into TLS mode and failing on file open.

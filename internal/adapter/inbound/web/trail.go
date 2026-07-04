@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/latebit-io/demarkus-library/internal/core/domain"
 )
 
 // The trail (ADR 0005 decisions 1–4): the reading room's spatial state is a
@@ -70,6 +72,7 @@ type trail struct {
 	Panes  []paneAddr
 	Focus  int
 	Reader int // pane index shown in the reader overlay; -1 = no overlay
+	Meta   int // pane index whose catalog record shows in the metadata overlay; -1 = none
 }
 
 var errBadTrail = errors.New("malformed trail")
@@ -114,7 +117,24 @@ func parseTrail(rest, focusParam, readerParam string) (trail, error) {
 			}
 		}
 	}
+	t.Meta = -1
 	return t, nil
+}
+
+// withMeta applies the ?meta=<paneIndex> overlay param — the metadata lens
+// (same family as the reader lens): the addressed doc pane's catalog record
+// as an overlay, orthogonal to focus. Only real documents carry a record
+// (listings/tags/floor have no margin data). Out-of-range, non-doc, or junk
+// ⇒ no overlay, never an error — a stale link degrades to the canvas.
+func (t trail) withMeta(param string) trail {
+	t.Meta = -1
+	if param != "" {
+		if i, err := strconv.Atoi(param); err == nil && i >= 0 && i < len(t.Panes) &&
+			t.Panes[i].Kind == paneDoc && !domain.IsListingPath(t.Panes[i].Value) {
+			t.Meta = i
+		}
+	}
+	return t
 }
 
 // parsePaneChunk decodes one <world>/<kind>/<value> chunk, or the bare
@@ -231,6 +251,24 @@ func trailReaderURL(t trail, reader int) string {
 	return u
 }
 
+// trailMetaURL encodes the trail with the metadata overlay open on pane
+// `meta` — the record twin of trailReaderURL, and like it the only builder
+// that emits ?meta=; every ordinary click closes the overlay.
+func trailMetaURL(t trail, meta int) string {
+	u := trailBasePath(t)
+	params := make([]string, 0, 2)
+	if t.Focus != len(t.Panes)-1 {
+		params = append(params, "focus="+strconv.Itoa(t.Focus))
+	}
+	if meta >= 0 {
+		params = append(params, "meta="+strconv.Itoa(meta))
+	}
+	if len(params) > 0 {
+		u += "?" + strings.Join(params, "&")
+	}
+	return u
+}
+
 // paneChunk encodes one pane address as its chunk (no leading slash).
 func paneChunk(p paneAddr) string {
 	switch p.Kind {
@@ -257,17 +295,17 @@ func paneChunk(p paneAddr) string {
 func trailAfterClick(t trail, idx int, target paneAddr) trail {
 	for i, p := range t.Panes {
 		if p == target {
-			return trail{Panes: t.Panes, Focus: i, Reader: -1}
+			return trail{Panes: t.Panes, Focus: i, Reader: -1, Meta: -1}
 		}
 	}
 	panes := append(slices.Clone(t.Panes[:idx+1]), target)
 	if len(panes) > maxPanes {
 		panes = panes[len(panes)-maxPanes:]
 	}
-	return trail{Panes: panes, Focus: len(panes) - 1, Reader: -1}
+	return trail{Panes: panes, Focus: len(panes) - 1, Reader: -1, Meta: -1}
 }
 
 // trailFocused is the spine/header click: same path, attention moves.
 func trailFocused(t trail, idx int) trail {
-	return trail{Panes: t.Panes, Focus: idx, Reader: -1}
+	return trail{Panes: t.Panes, Focus: idx, Reader: -1, Meta: -1}
 }

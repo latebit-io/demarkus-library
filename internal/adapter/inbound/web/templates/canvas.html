@@ -5,7 +5,7 @@
   <span class="spine-title">{{ .Title }}</span>
   {{- if .Gone }}<span class="status">gone</span>{{ end }}
 </a>{{else}}<section class="pane {{ .Mode }}">
-  <header class="pane-head"><a href="{{ .FocusURL }}"><code>{{ .World }}{{ .Path }}</code></a>{{if .ReaderURL}} <a class="reader-link" href="{{ .ReaderURL }}">reader</a>{{end}}</header>
+  <header class="pane-head"><a href="{{ .FocusURL }}"><code>{{ .World }}{{ .Path }}</code></a>{{if .ReaderURL}} <a class="reader-link" href="{{ .ReaderURL }}">reader</a>{{end}}{{if .MetaURL}} <a class="reader-link" href="{{ .MetaURL }}">meta</a>{{end}}</header>
   <div class="pane-cols">
     <article class="doc-body">
       <h1>{{ .Title }}</h1>
@@ -30,7 +30,7 @@
      URL; every link already carries its post-click trail, so hx-boost'd
      clicks are plain page swaps and browser back/forward is temporal
      history over spatial states. -->
-<body hx-boost="true" class="canvas-page">
+<body hx-boost="true" class="canvas-page{{if .PaneScroll}} pane-scroll{{end}}">
   {{template "nav" .}}
   <main id="main" class="canvas">
     {{- range .Panes }}
@@ -39,6 +39,9 @@
   </main>
   {{- if .Reader }}
   {{template "reader" .}}
+  {{- end }}
+  {{- if .MetaPane }}
+  {{template "meta-overlay" .}}
   {{- end }}
   {{template "dock" .Dock}}
   {{template "graph-overlay" .Graph}}
@@ -128,6 +131,20 @@
      doc-body + margin as the focused pane, centered. URL state (?reader=i);
      the scrim and ✕ are <a> links back to the bare trail, so Back, the ✕, a
      backdrop click, and Esc (islands.js) all close it. SSR + CSS only. */}}
+{{/* The metadata overlay (the record lens, ?meta=<i>): the addressed doc's
+     catalog card — status, tags, OKF, provenance, hashes, backlinks, escape
+     links — summoned from the pane head's "meta" affordance in the
+     pane-scroll room, where the margin is not docked. Same close grammar as
+     the reader: scrim, ✕, Esc (islands.js clicks the reader-close), Back. */}}
+{{define "meta-overlay"}}<div class="reader-backdrop meta-backdrop">
+  <a class="reader-scrim" href="{{ .CloseURL }}" aria-label="Close metadata"></a>
+  <div class="reader-panel meta-panel" role="dialog" aria-modal="true" aria-label="Document metadata">
+    <a class="reader-close" href="{{ .CloseURL }}" title="Close (Esc)" aria-label="Close metadata">✕</a>
+    <p class="meta-title"><code>{{ .MetaPane.World }}{{ .MetaPane.Path }}</code></p>
+    {{template "doc-meta" .MetaPane}}
+  </div>
+</div>{{end}}
+
 {{define "reader"}}<div class="reader-backdrop">
   <a class="reader-scrim" href="{{ .CloseURL }}" aria-label="Close reader"></a>
   <div class="reader-panel" role="dialog" aria-modal="true" aria-label="Reader">

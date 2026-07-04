@@ -104,8 +104,9 @@ func floorSVG(floor domain.Floor, t trail, idx int) template.HTML {
 		fmt.Fprintf(&b, `<line class="floor-edge" x1="%d" y1="%d" x2="%d" y2="%d"/>`, from.x, from.y, to.x, to.y)
 	}
 
+	satCap := floorSatCap(len(systems))
 	for _, fw := range systems {
-		floorSystem(&b, fw, centers[fw.World.Name], t, idx)
+		floorSystem(&b, fw, centers[fw.World.Name], t, idx, satCap)
 	}
 	for _, fw := range portals {
 		floorPortal(&b, fw, centers[fw.World.Name], t, idx)
@@ -176,9 +177,29 @@ func floorViewToggle(t trail, mapView bool) template.HTML {
 	return template.HTML(`<a class="floor-view universe-open" href="` + html.EscapeString(base+sep+"view=map") + `" hx-boost="false">view as map →</a>`) //nolint:gosec // escaped
 }
 
+// floorSatCap scales the per-world satellite count down as the universe grows:
+// a couple of worlds can afford full orbits, but at tens of worlds every
+// cell's ten labels turn the grid to noise (roadmap "satellite density"). Docs
+// arrive importance-ordered, so trimming keeps the right ones; the world map
+// (zoom level 2) still shows the full catalog.
+func floorSatCap(systems int) int {
+	switch {
+	case systems <= 4:
+		return 10 // the fetch cap (floorSatellites) — effectively uncapped
+	case systems <= 9:
+		return 6
+	case systems <= 16:
+		return 4
+	default:
+		return 3
+	}
+}
+
 // floorSystem renders one authorized world: the world node (zooms into the
 // world map) plus its top-importance documents as satellites on an orbit ring.
-func floorSystem(b *strings.Builder, fw domain.FloorWorld, c floorPoint, t trail, idx int) {
+// satCap bounds the satellites drawn; the world radius keeps tracking the full
+// catalog sample so world size stays comparable across zoom levels.
+func floorSystem(b *strings.Builder, fw domain.FloorWorld, c floorPoint, t trail, idx, satCap int) {
 	worldR := 30 + 2*len(fw.Docs)
 	cls := "floor-system"
 	if fw.Err {
@@ -200,8 +221,12 @@ func floorSystem(b *strings.Builder, fw domain.FloorWorld, c floorPoint, t trail
 	}
 	b.WriteString(`</a>`)
 
-	for j, doc := range fw.Docs {
-		angle := 2*math.Pi*float64(j)/float64(len(fw.Docs)) - math.Pi/2
+	docs := fw.Docs
+	if len(docs) > satCap {
+		docs = docs[:satCap]
+	}
+	for j, doc := range docs {
+		angle := 2*math.Pi*float64(j)/float64(len(docs)) - math.Pi/2
 		dx := c.x + int(floorOrbitR*math.Cos(angle))
 		dy := c.y + int(floorOrbitR*math.Sin(angle))
 		r := 5 + int(doc.Importance*9)

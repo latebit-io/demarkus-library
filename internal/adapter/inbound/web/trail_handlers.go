@@ -25,6 +25,7 @@ type canvasVM struct {
 	LibrarianURL  string // nav door: append the librarian pane to THIS trail (empty ⇒ not configured)
 	Panes         []paneVM
 	Reader        *paneVM        // the reader overlay (R4); nil when closed
+	MetaPane      *paneVM        // the metadata overlay (the record lens); nil when closed
 	CloseURL      string         // ✕ / backdrop / Esc target: the bare trail (no overlay)
 	Dock          dockVM         // the bottom orientation strip (ADR 0006 §2)
 	Graph         graphOverlayVM // the on-demand graph overlay (ADR 0006 §4)
@@ -39,6 +40,10 @@ type canvasVM struct {
 	// floor is on the canvas, where its "view as map" trigger lives. Lazy — the
 	// floorSVG htmx-loads only when the reader pulls it up.
 	FloorHas bool
+
+	// PaneScroll marks the independent-pane-scroll experiment: the canvas
+	// template adds a body class and the stylesheet does the rest.
+	PaneScroll bool
 }
 
 // graphOverlayVM is the focused doc's graph overlay (ADR 0006 §4): summoned by
@@ -83,6 +88,13 @@ type paneVM struct {
 	NewURL     string           // margin affordance: create a doc in this folder (Phase 3); only when authed
 	AppendURL  string           // margin affordance: append to this doc (Phase 3); only when authed
 	Backlinks  []backlinkVM     // "referenced by" — the observed-links map
+
+	// The metadata lens (pane-scroll experiment): MetaURL is the pane-head
+	// affordance that opens this doc's catalog record as an overlay
+	// (?meta=<i>); MetaOpen renders the record's fold pre-expanded (set on
+	// the overlay's own pane, where the record is the point).
+	MetaURL  string
+	MetaOpen bool
 }
 
 // Trail renders the canvas for the trail encoded at /t/*.
@@ -91,6 +103,7 @@ func (h *ReadingHandler) Trail(c *echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "malformed trail")
 	}
+	t = t.withMeta(c.QueryParam("meta"))
 	ctx := c.Request().Context()
 	authed := c.Get(authedKey) != nil
 
@@ -98,6 +111,7 @@ func (h *ReadingHandler) Trail(c *echo.Context) error {
 		Authenticated: authed,
 		User:          userEmail(c),
 		Panes:         make([]paneVM, len(t.Panes)),
+		PaneScroll:    h.paneScroll,
 	}
 	if h.lib != nil {
 		// The nav's librarian door appends the pane to the CURRENT trail —
@@ -112,6 +126,9 @@ func (h *ReadingHandler) Trail(c *echo.Context) error {
 	var readerDoc domain.Document
 	var readerAddr paneAddr
 	var haveReaderDoc bool
+	var metaDoc domain.Document
+	var metaAddr paneAddr
+	var haveMetaDoc bool
 	for i, addr := range t.Panes {
 		focused := i == t.Focus
 		if addr.Kind == paneFloor {
@@ -171,6 +188,9 @@ func (h *ReadingHandler) Trail(c *echo.Context) error {
 			if i == t.Reader {
 				readerDoc, readerAddr, haveReaderDoc = doc, addr, true
 			}
+			if i == t.Meta {
+				metaDoc, metaAddr, haveMetaDoc = doc, addr, true
+			}
 			vm.Panes[i] = h.paneView(ctx, t, i, addr, doc, authed, false)
 		}
 	}
@@ -215,6 +235,22 @@ func (h *ReadingHandler) Trail(c *echo.Context) error {
 		rp := h.paneView(ctx, t, t.Reader, readerAddr, readerDoc, authed, true)
 		vm.Reader = &rp
 		vm.CloseURL = trailURL(t)
+	}
+
+	// The metadata overlay (the record lens): the addressed pane's catalog
+	// card, reusing its already-fetched document like the reader does. The
+	// margin data only computes for a focused pane, so build it from a trail
+	// copy focused there — presentation-only; the canvas panes above rendered
+	// from the real t.
+	if t.Meta >= 0 && haveMetaDoc {
+		tm := t
+		tm.Focus = t.Meta
+		mp := h.paneView(ctx, tm, t.Meta, metaAddr, metaDoc, authed, false)
+		if mp.HasMargin {
+			mp.MetaOpen = true // the fold arrives expanded — this overlay IS the ask
+			vm.MetaPane = &mp
+			vm.CloseURL = trailURL(t)
+		}
 	}
 	return c.Render(http.StatusOK, "canvas", vm)
 }
@@ -312,6 +348,11 @@ func (h *ReadingHandler) paneView(ctx context.Context, t trail, i int, addr pane
 	// pane that parseTrail would reject.
 	if !reader && (addr.Kind == paneDoc || addr.Kind == paneTag) {
 		vm.ReaderURL = trailReaderURL(t, i)
+	}
+	// In the pane-scroll room the margin is summoned, not docked: the head
+	// offers "meta" beside "reader" and the record opens as an overlay.
+	if h.paneScroll && !reader && addr.Kind == paneDoc && !domain.IsListingPath(addr.Value) {
+		vm.MetaURL = trailMetaURL(t, i)
 	}
 	if mode == "spine" {
 		return vm // spines carry title + status only; no body is rendered

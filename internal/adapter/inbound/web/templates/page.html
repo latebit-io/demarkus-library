@@ -78,6 +78,14 @@
                            text-transform: uppercase; color: var(--muted); margin: 0 0 .35rem; }
     .doc-meta .okf > * { margin: 0 0 .5rem; }
     .doc-meta .okf > :last-child { margin-bottom: 0; }
+    /* The catalog-record fold: a <details> in the meta-head register. Closed
+       it is one quiet line; open, the groups keep their internal rhythm. */
+    .doc-meta .meta-fold summary { cursor: pointer; user-select: none;
+                           list-style-position: outside; }
+    .doc-meta .meta-fold summary:hover { color: var(--ink); }
+    .doc-meta .meta-fold[open] summary { margin-bottom: .5rem; }
+    .doc-meta .meta-fold > :not(summary) { margin: 0 0 .6rem; }
+    .doc-meta .meta-fold > :last-child { margin-bottom: 0; }
     .doc-meta .meta-extra { border-top: 1px solid var(--faint); padding-top: .55rem; }
     .doc-meta .meta-extra dt { font-variant-numeric: tabular-nums; }
     .doc-meta .meta-extra dd { font-variant-numeric: tabular-nums; }
@@ -177,6 +185,55 @@
     a.active-link { background: var(--faint); border-radius: 3px;
                     padding: 0 .2rem; text-decoration-thickness: 2px; }
 
+    /* ── Independent pane scroll (design experiment, DEMARKUS_PANE_SCROLL):
+          the sliding-panes model. The room becomes a fixed viewport — nav on
+          top, dock on the bottom, the canvas filling the rest — and each pane
+          scrolls internally, so reading deep into one document no longer
+          drags its neighbors (and the dock/nav never leave). Presentation
+          only: same markup, same URLs, same no-JS behavior. ─────────────── */
+    body.pane-scroll { height: 100dvh; overflow: hidden; box-sizing: border-box;
+                       display: flex; flex-direction: column; }
+    body.pane-scroll nav { flex: 0 0 auto; }
+    body.pane-scroll main.canvas { flex: 1 1 auto; min-height: 0;
+                       align-items: stretch; }
+    body.pane-scroll .pane { overflow-y: auto; overscroll-behavior-y: contain;
+                       /* Independent scrollers must whisper: thin, muted,
+                          and only while the pane is under the pointer. */
+                       scrollbar-width: thin;
+                       scrollbar-color: transparent transparent; }
+    body.pane-scroll .pane:hover { scrollbar-color: light-dark(#11111138, #dddddd38) transparent; }
+    /* Column rules: with every pane a full-height scroller, adjacent text
+       columns need a boundary the gap alone no longer provides. Interior
+       edges only; spines carry their own border box. */
+    body.pane-scroll .pane:not(.spine):not(:first-child) {
+                       border-left: 1px solid var(--faint); padding-left: 1.25rem; }
+    /* The address rail stays readable while the pane's content scrolls under
+       it — same paper-backed sticky register as the margin's doc-meta. */
+    body.pane-scroll .pane-head { position: sticky; top: 0; z-index: 2;
+                       background: var(--paper); margin-bottom: 0;
+                       padding-bottom: .35rem; }
+    body.pane-scroll .pane-head + .pane-cols { margin-top: .8rem; }
+    /* Spines stretch to the room's full height — a floor-to-ceiling book
+       edge, not a floating chip. (The librarian transcript keeps its own
+       bounded scroller: that is what pins the view to the newest exchange
+       while tokens stream and keeps the ask form in reach.) */
+    body.pane-scroll .pane.spine { min-height: 0; }
+    /* Marginless, wider panes: in this room the catalog record is summoned
+       (the head's "meta" affordance → the ?meta= overlay), so the reading
+       column takes the freed width. Panes grow to share the viewport;
+       measure stays bounded so long lines never sprawl. Sidenotes follow
+       the margin out (still available in the reader overlay). */
+    body.pane-scroll .pane.focused, body.pane-scroll .pane.body {
+                       width: auto; flex: 1 1 60ch; min-width: 46ch; max-width: 82ch; }
+    body.pane-scroll .pane .pane-cols { display: block; }
+    body.pane-scroll .pane .doc-margin { display: none; }
+    body.pane-scroll .pane .sidenote { display: none; }
+    /* The metadata overlay: the record as a card, not a page. */
+    .meta-panel { width: 34rem; }
+    .meta-panel .meta-title { margin: 0 0 .8rem; font-family: system-ui, sans-serif;
+                       font-size: .75rem; color: var(--muted); overflow-wrap: anywhere; }
+    .meta-panel .doc-meta { position: static; } /* sticky is a margin behavior */
+
     /* ── The floor: SSR-SVG universe map (pane zero). Trust signals ride
           the nodes — status as stroke color, importance as radius. ──── */
     svg.floor { max-width: 100%; height: auto; }
@@ -231,6 +288,11 @@
                     font-family: system-ui, sans-serif; font-size: .76rem;
                     line-height: 1.45; white-space: normal; }
     .preview-host:hover .preview-card:not(:empty) { display: block; }
+    /* Margin cards (backlinks) open leftward: the margin is the pane's right
+       edge, so a left-anchored card would overhang into the neighboring pane
+       (or grow the canvas scroll). Right-anchored, it opens over the gutter
+       and body — always inside its own pane. */
+    .doc-margin .preview-card { left: auto; right: 0; }
     .preview-inner { display: flex; flex-direction: column; gap: .35rem; }
     .preview-title a { font-weight: 600; color: inherit; }
     .preview-snippet { color: var(--muted); }
@@ -258,6 +320,7 @@
     .graph-node.graph-walked { fill: light-dark(#1a7f37, #3fb950);
             stroke: light-dark(#1a7f37, #3fb950); stroke-width: 3; }
     .graph-node-label { font-size: 11px; }
+    .graph-more { font-size: 11px; font-style: italic; }
     svg.graph a:hover circle { stroke-width: 3; }
     .graph-empty { color: var(--muted); font-style: italic; }
 

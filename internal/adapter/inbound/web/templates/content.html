@@ -1,50 +1,56 @@
 {{define "doc-meta"}}<div class="doc-meta">
       <p><span class="status status-{{ .Status }}">{{ .Status }}</span></p>
-      {{- /* OKF group: the Open Knowledge Format frontmatter fields only —
-             type, tags, timestamp. Status/version/agent are demarkus
-             catalog/provenance and stay out of this block. */ -}}
-      {{- if or .Type .Tags .Modified }}
-      <section class="okf" aria-label="Open Knowledge Format">
-        <p class="meta-head">OKF</p>
+      {{- /* Tags stay out of the fold: they are lateral navigation (tag
+             pages), not record-keeping. */ -}}
+      {{- if .Tags }}
+      <ul class="tags">
+        {{- range .Tags }}
+        <li><a href="{{ .URL }}">{{ .Name }}</a></li>
+        {{- end }}
+      </ul>
+      {{- end }}
+      {{- /* The catalog record folds behind a zero-JS <details> (the dock
+             idiom): the margin leads with signal (status, tags, backlinks,
+             affordances); the ledger — OKF fields, provenance, hashes,
+             frontmatter properties — is one click away. Nothing cataloged
+             is hidden, it just waits to be asked. */ -}}
+      {{- if or .Type .Modified .Version .Agent .Meta .Properties }}
+      <details class="meta-fold"{{if .MetaOpen}} open{{end}}>
+        <summary class="meta-head">metadata</summary>
         {{- if or .Type .Modified }}
-        <dl class="okf-fields">
-          {{- if .Type }}<dt>type</dt><dd>{{ .Type }}</dd>{{ end }}
-          {{- if .Modified }}<dt>timestamp</dt><dd>{{ .Modified }}</dd>{{ end }}
+        <section class="okf" aria-label="Open Knowledge Format">
+          <p class="meta-head">OKF</p>
+          <dl class="okf-fields">
+            {{- if .Type }}<dt>type</dt><dd>{{ .Type }}</dd>{{ end }}
+            {{- if .Modified }}<dt>timestamp</dt><dd>{{ .Modified }}</dd>{{ end }}
+          </dl>
+        </section>
+        {{- end }}
+        {{- if or .Version .Agent }}
+        <dl class="provenance">
+          {{- if .Version }}<dt>version</dt><dd><a href="/w/{{ .WorldPath }}/versions{{ .Path }}">{{ .Version }}</a></dd>{{ end }}
+          {{- if .Agent }}<dt>agent</dt><dd>{{ .Agent }}</dd>{{ end }}
         </dl>
         {{- end }}
-        {{- if .Tags }}
-        <ul class="tags">
-          {{- range .Tags }}
-          <li><a href="{{ .URL }}">{{ .Name }}</a></li>
-          {{- end }}
-        </ul>
+        {{- /* Every remaining out-of-band metadata key (importance, etag,
+               content-hash, publisher-custom). */ -}}
+        {{- if .Meta }}
+        <section class="meta-extra">
+          <dl>
+            {{- range .Meta }}
+            <dt>{{ .Key }}</dt><dd>{{ .Value }}</dd>
+            {{- end }}
+          </dl>
+        </section>
         {{- end }}
-      </section>
-      {{- end }}
-      {{- if or .Version .Agent }}
-      <dl class="provenance">
-        {{- if .Version }}<dt>version</dt><dd><a href="/w/{{ .WorldPath }}/versions{{ .Path }}">{{ .Version }}</a></dd>{{ end }}
-        {{- if .Agent }}<dt>agent</dt><dd>{{ .Agent }}</dd>{{ end }}
-      </dl>
-      {{- end }}
-      {{- /* Every remaining out-of-band metadata key (importance, etag,
-             content-hash, publisher-custom) — nothing cataloged stays hidden. */ -}}
-      {{- if .Meta }}
-      <section class="meta-extra">
-        <p class="meta-head">metadata</p>
-        <dl>
-          {{- range .Meta }}
+        {{- if .Properties }}
+        <dl class="properties">
+          {{- range .Properties }}
           <dt>{{ .Key }}</dt><dd>{{ .Value }}</dd>
           {{- end }}
         </dl>
-      </section>
-      {{- end }}
-      {{- if .Properties }}
-      <dl class="properties">
-        {{- range .Properties }}
-        <dt>{{ .Key }}</dt><dd>{{ .Value }}</dd>
         {{- end }}
-      </dl>
+      </details>
       {{- end }}
       {{- if .Backlinks }}
       <div class="backlinks">

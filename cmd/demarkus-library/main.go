@@ -46,6 +46,7 @@ import (
 	"github.com/latebit-io/demarkus-library/internal/core/service"
 	"github.com/latebit-io/demarkus/client/fetch"
 	"github.com/latebit-io/nib/ai/llmconfig"
+	niboauth "github.com/latebit-io/nib/ai/oauth"
 )
 
 // sweepInterval is how often expired sessions and abandoned logins are
@@ -196,6 +197,10 @@ func main() {
 	if lib != nil {
 		handler = handler.WithLibrarian(lib)
 	}
+	if config.PaneScroll {
+		handler = handler.WithPaneScroll()
+		logger.Info("pane-scroll experiment enabled")
+	}
 	web.ReadingRoutes(app, handler, turnstile...)
 
 	logger.Info("demarkus Library reading room starting",
@@ -255,6 +260,17 @@ func buildLibrarian(logger *slog.Logger, reading *service.ReadingService, defaul
 	if resolved.OAuthProvider != "" {
 		logger.Info("librarian disabled: OAuth LLM profiles are not supported server-side; configure an API-key profile")
 		return nil
+	}
+	if !resolved.HasProvider() {
+		// The key may live in nib's keystore (`nib` TUI-entered keys in
+		// <UserConfigDir>/nib/keys.json) rather than the environment — the
+		// same fallback nib's own binaries use. Env keys keep priority; in
+		// the cluster the Secret-mounted env is all there is.
+		if path, err := niboauth.DefaultKeyStorePath(); err == nil {
+			if ks, err := niboauth.NewKeyStore(path); err == nil {
+				llmconfig.WireStoredKey(resolved, ks)
+			}
+		}
 	}
 	if !resolved.HasProvider() {
 		logger.Info("librarian disabled: no LLM provider configured")

@@ -1,6 +1,7 @@
 package web
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -269,5 +270,36 @@ func TestTrailFloorErrorHandling(t *testing.T) {
 	rec := get(readingApp(t, svc), "/t/u/~/w.io/d/x.md")
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `class="pane spine gone"`) {
 		t.Errorf("unfocused floor error must tombstone: %d", rec.Code)
+	}
+}
+
+func TestFloorSatCapScalesWithUniverse(t *testing.T) {
+	for _, c := range []struct{ systems, cap int }{{1, 10}, {4, 10}, {5, 6}, {9, 6}, {10, 4}, {16, 4}, {17, 3}, {40, 3}} {
+		if got := floorSatCap(c.systems); got != c.cap {
+			t.Errorf("floorSatCap(%d) = %d, want %d", c.systems, got, c.cap)
+		}
+	}
+}
+
+func TestFloorSVGTrimsSatellitesAtScale(t *testing.T) {
+	// Ten worlds, each with 10 satellites: only floorSatCap(10)=4 draw per
+	// world, importance order preserved (docs arrive pre-sorted).
+	var floor domain.Floor
+	for w := range 10 {
+		fw := domain.FloorWorld{World: domain.WorldInfo{Name: fmt.Sprintf("w%02d", w)}}
+		for d := range 10 {
+			fw.Docs = append(fw.Docs, domain.FloorDoc{
+				Path: fmt.Sprintf("/doc-%02d.md", d), Title: fmt.Sprintf("doc %02d", d), Importance: 1 - float64(d)/10,
+			})
+		}
+		floor.Worlds = append(floor.Worlds, fw)
+	}
+	svg := string(floorSVG(floor, trail{Panes: []paneAddr{{Kind: paneFloor}}, Focus: 0}, 0))
+
+	if got := strings.Count(svg, "floor-doc "); got != 10*4 {
+		t.Errorf("satellites drawn = %d, want %d", got, 10*4)
+	}
+	if !strings.Contains(svg, "/doc-03.md") || strings.Contains(svg, "/doc-04.md") {
+		t.Errorf("cap should keep the top-importance docs and drop the tail")
 	}
 }
