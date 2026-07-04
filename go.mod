@@ -6,8 +6,8 @@ require (
 	github.com/alecthomas/chroma/v2 v2.14.0
 	github.com/gohugoio/hugo-goldmark-extensions/passthrough v0.5.0
 	github.com/labstack/echo/v5 v5.1.1
-	github.com/latebit-io/nib/agent v0.0.0-20260703002345-4c5495a6525c
-	github.com/latebit-io/nib/ai v0.0.0
+	github.com/latebit-io/nib/agent v0.1.0
+	github.com/latebit-io/nib/ai v0.1.0
 	github.com/mark3labs/mcp-go v0.44.0
 	github.com/microcosm-cc/bluemonday v1.0.27
 	github.com/yuin/goldmark v1.8.2
@@ -43,9 +43,3 @@ require (
 	golang.org/x/time v0.15.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1
 )
-
-// nib/agent's go.mod requires nib/ai v0.0.0 satisfied by a local
-// `replace ../ai` inside the nib monorepo — consumers don't inherit
-// dependency replaces, so pin nib/ai to the same revision as nib/agent
-// here. Drop this once nib tags its modules (agent/vX.Y.Z, ai/vX.Y.Z).
-replace github.com/latebit-io/nib/ai => github.com/latebit-io/nib/ai v0.0.0-20260703002345-4c5495a6525c
