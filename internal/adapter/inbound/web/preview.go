@@ -2,6 +2,7 @@ package web
 
 import (
 	"bytes"
+	"html/template"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -101,7 +102,7 @@ func backlinkLinks(refs []domain.Ref, urlFor func(domain.Ref) string) []backlink
 			Title:      refTitle(r),
 			URL:        urlFor(r),
 			PreviewURL: previewURL(r),
-			Anchor:     previewAnchorName(),
+			Anchor:     template.CSS(previewAnchorName()), //nolint:gosec // counter-minted ident, no input reaches it
 		})
 	}
 	return out
@@ -189,8 +190,8 @@ func wrapWithPreview(anchor *html.Node, src string) {
 		html.Attribute{Key: "hx-trigger", Val: "mouseenter delay:300ms once"},
 		html.Attribute{Key: "hx-target", Val: "next .preview-card"},
 		html.Attribute{Key: "hx-swap", Val: "innerHTML"},
-		html.Attribute{Key: "style", Val: "anchor-name:" + name},
 	)
+	setStyleDecl(anchor, "anchor-name:"+name)
 	card := &html.Node{Type: html.ElementNode, DataAtom: atom.Span, Data: "span",
 		Attr: []html.Attribute{
 			{Key: "class", Val: "preview-card"},
@@ -198,6 +199,25 @@ func wrapWithPreview(anchor *html.Node, src string) {
 			{Key: "style", Val: "position-anchor:" + name},
 		}}
 	host.AppendChild(card)
+}
+
+// setStyleDecl adds a CSS declaration to a node's style attribute, merging
+// with an existing one rather than emitting a duplicate style= attribute.
+// (The sanitizer strips style from document HTML today, so the merge path is
+// belt-and-braces for a future policy that lets one through.)
+func setStyleDecl(n *html.Node, decl string) {
+	for i, attr := range n.Attr {
+		if attr.Key != "style" {
+			continue
+		}
+		if existing := strings.TrimRight(strings.TrimSpace(attr.Val), ";"); existing != "" {
+			n.Attr[i].Val = existing + ";" + decl
+		} else {
+			n.Attr[i].Val = decl
+		}
+		return
+	}
+	n.Attr = append(n.Attr, html.Attribute{Key: "style", Val: decl})
 }
 
 // previewSnippet extracts the opening prose of a rendered document for the

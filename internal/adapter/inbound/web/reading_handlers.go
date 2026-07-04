@@ -119,7 +119,11 @@ type backlinkVM struct {
 	Title      string
 	URL        string
 	PreviewURL string
-	Anchor     string // unique CSS anchor name pairing this link with its hover card
+	// Anchor is the unique CSS anchor name pairing this link with its hover
+	// card. template.CSS, not string: html/template's CSS filter rejects a
+	// custom-ident value (`--pv-1` → ZgotmplZ) unless the VM vouches for it —
+	// safe here because previewAnchorName mints it from a counter, no input.
+	Anchor template.CSS
 }
 
 // viewOpts carries per-view presentation choices into present.

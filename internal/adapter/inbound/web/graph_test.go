@@ -3,6 +3,7 @@ package web
 import (
 	"fmt"
 	"net/http"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -137,6 +138,15 @@ func TestDocMarginOffersGraphAndBacklinks(t *testing.T) {
 	if !strings.Contains(body, "referenced by") ||
 		!strings.Contains(body, `hx-get="/w/w.io/preview/referrer.md"`) {
 		t.Errorf("backlinks block missing: %s", body)
+	}
+	// The backlink pair carries its CSS anchor name through html/template's
+	// CSS filter intact — a plain-string Anchor is rejected as ZgotmplZ
+	// (custom idents need template.CSS), which silently unpins the card.
+	if !regexp.MustCompile(`style="anchor-name:--pv-\d+"`).MatchString(body) {
+		t.Errorf("backlink anchor-name missing or mangled: %s", body)
+	}
+	if strings.Contains(body, "ZgotmplZ") {
+		t.Errorf("template rejected a CSS value (ZgotmplZ) in: %s", body)
 	}
 	// The backlink navigates onto the trail (truncate to focus, append).
 	if !strings.Contains(body, `href="/t/w.io/d/x.md/~/w.io/d/referrer.md"`) {
