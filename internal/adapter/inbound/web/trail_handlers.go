@@ -49,8 +49,8 @@ type canvasVM struct {
 	// floorSVG htmx-loads only when the reader pulls it up.
 	FloorHas bool
 
-	// PaneScroll marks the independent-pane-scroll experiment: the canvas
-	// template adds a body class and the stylesheet does the rest.
+	// PaneScroll marks the pane-scroll room (ADR 0007, the default): the
+	// canvas template adds a body class and the stylesheet does the rest.
 	PaneScroll bool
 }
 
@@ -97,12 +97,15 @@ type paneVM struct {
 	AppendURL  string           // margin affordance: append to this doc (Phase 3); only when authed
 	Backlinks  []backlinkVM     // "referenced by" — the observed-links map
 
-	// The metadata lens (pane-scroll experiment): MetaURL is the pane-head
+	// The metadata lens (pane-scroll room): MetaURL is the pane-head
 	// affordance that opens this doc's catalog record as an overlay
 	// (?meta=<i>); MetaOpen renders the record's fold pre-expanded (set on
-	// the overlay's own pane, where the record is the point).
-	MetaURL  string
-	MetaOpen bool
+	// the overlay's own pane, where the record is the point). HeadStatus
+	// puts the status chip in the pane head — the marginless room's at-rest
+	// trust signal (the badge otherwise waits behind the lens).
+	MetaURL    string
+	MetaOpen   bool
+	HeadStatus string
 }
 
 // Trail renders the canvas for the trail encoded at /t/*.
@@ -356,9 +359,11 @@ func (h *ReadingHandler) paneView(ctx context.Context, t trail, i int, addr pane
 		vm.ReaderURL = trailReaderURL(t, i)
 	}
 	// In the pane-scroll room the margin is summoned, not docked: the head
-	// offers "meta" beside "reader" and the record opens as an overlay.
+	// offers "meta" beside "reader", the record opens as an overlay, and the
+	// status chip keeps the room's one at-rest trust signal visible.
 	if h.paneScroll && overlay == "" && addr.Kind == paneDoc && !domain.IsListingPath(addr.Value) {
 		vm.MetaURL = trailMetaURL(t, i)
+		vm.HeadStatus = doc.Status
 	}
 	if mode == "spine" {
 		return vm // spines carry title + status only; no body is rendered

@@ -199,7 +199,8 @@ func main() {
 	}
 	if config.PaneScroll {
 		handler = handler.WithPaneScroll()
-		logger.Info("pane-scroll experiment enabled")
+	} else {
+		logger.Info("page-scroll room selected (DEMARKUS_PANE_SCROLL=false)")
 	}
 	web.ReadingRoutes(app, handler, turnstile...)
 

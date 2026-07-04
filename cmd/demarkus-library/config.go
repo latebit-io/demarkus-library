@@ -38,10 +38,12 @@ type AppConfig struct {
 	// explicitly (the cluster's fixed-name `root`).
 	Hub string
 
-	// PaneScroll turns on the independent-pane-scroll design experiment: a
-	// fixed-viewport canvas where each pane scrolls internally (the
-	// sliding-panes model) instead of the page scrolling as one. Prototype
-	// flag — default off; presentation only, no route or state change.
+	// PaneScroll runs the reading room as the pane-scroll room (ADR 0007,
+	// the experiment's verdict): a fixed-viewport canvas where each pane
+	// scrolls internally, the margin is summoned via the ?meta= lens, and
+	// reading columns share the screen. Default ON — the flag is now the
+	// opt-out escape hatch back to the page-scroll room, kept until that
+	// room is retired. Presentation only, no route or state change.
 	PaneScroll bool
 
 	// LLMKeyStore lets the librarian fall back to nib's on-disk key store
@@ -95,9 +97,9 @@ func NewAppConfig() (*AppConfig, error) {
 	if err != nil {
 		return nil, err
 	}
-	// The pane-scroll experiment is a deliberate opt-in; strict parse so a
-	// typo'd value stops startup instead of silently running the wrong room.
-	paneScroll, err := getEnvAsBoolStrict("DEMARKUS_PANE_SCROLL", false)
+	// Strict parse so a typo'd value stops startup instead of silently
+	// picking a room (the switch decides the whole canvas presentation).
+	paneScroll, err := getEnvAsBoolStrict("DEMARKUS_PANE_SCROLL", true)
 	if err != nil {
 		return nil, err
 	}

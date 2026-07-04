@@ -272,10 +272,14 @@ func TestTrailMetadataLens(t *testing.T) {
 
 	app := paneScrollApp(t, svc)
 
-	// Pane-scroll room: the head offers "meta" with the ?meta= lens URL.
+	// Pane-scroll room: the head offers "meta" with the ?meta= lens URL and
+	// carries the status chip — the marginless room's at-rest trust signal.
 	body = get(app, "/t/w.io/d/a.md").Body.String()
 	if !strings.Contains(body, `href="/t/w.io/d/a.md?meta=0">meta</a>`) {
 		t.Errorf("meta affordance missing in the pane-scroll room: %s", body)
+	}
+	if !strings.Contains(body, `<span class="status status-accepted">accepted</span>`) {
+		t.Errorf("head status chip missing in the pane-scroll room: %s", body)
 	}
 	if strings.Contains(body, "meta-backdrop") {
 		t.Errorf("metadata overlay should be closed until summoned")

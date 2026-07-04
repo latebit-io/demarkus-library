@@ -5,7 +5,7 @@
   <span class="spine-title">{{ .Title }}</span>
   {{- if .Gone }}<span class="status">gone</span>{{ end }}
 </a>{{else}}<section class="pane {{ .Mode }}">
-  <header class="pane-head"><a href="{{ .FocusURL }}"><code>{{ .World }}{{ .Path }}</code></a>{{if .ReaderURL}} <a class="reader-link" href="{{ .ReaderURL }}">reader</a>{{end}}{{if .MetaURL}} <a class="reader-link" href="{{ .MetaURL }}">meta</a>{{end}}</header>
+  <header class="pane-head"><a href="{{ .FocusURL }}"><code>{{ .World }}{{ .Path }}</code></a>{{if .HeadStatus}} <span class="status status-{{ .HeadStatus }}">{{ .HeadStatus }}</span>{{end}}{{if .ReaderURL}} <a class="reader-link" href="{{ .ReaderURL }}">reader</a>{{end}}{{if .MetaURL}} <a class="reader-link" href="{{ .MetaURL }}">meta</a>{{end}}</header>
   <div class="pane-cols">
     <article class="doc-body">
       <h1>{{ .Title }}</h1>
