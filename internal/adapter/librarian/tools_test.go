@@ -2,6 +2,7 @@ package librarian
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -274,5 +275,37 @@ func TestOpenTool_ForceReturnsFullBody(t *testing.T) {
 	}
 	if !strings.Contains(res.Content, "filler line") {
 		t.Error("force should return the body")
+	}
+}
+
+func TestOpenTool_HugeOutlineKeepsFooter(t *testing.T) {
+	t.Parallel()
+
+	// Enough headings that the rendered outline alone exceeds the 16KB
+	// cap: the tree gets truncated, the navigation footer must survive.
+	var doc strings.Builder
+	doc.WriteString("# Monster\n\nOpening paragraph.\n\n")
+	for i := range 1200 {
+		fmt.Fprintf(&doc, "## Section heading number %d with some length to it\n\nbody\n\n", i)
+	}
+	ports := newFakePorts()
+	ports.raw.Body = doc.String()
+	tool := &openTool{reader: ports, defaultWorld: "root"}
+
+	res := tool.Execute(context.Background(), call("open", `{"path":"/ops/deploy.md"}`))
+	if res.IsError {
+		t.Fatalf("unexpected error: %s", res.Content)
+	}
+	if !strings.Contains(res.Content, "[outline truncated —") {
+		t.Error("oversized outline should carry its own truncation note")
+	}
+	if !strings.HasSuffix(strings.TrimRight(res.Content, "\n"), "open /ops/deploy.md#<anchor> for a section; force for the full body") {
+		t.Errorf("navigation footer must survive outline truncation; tail:\n%s", res.Content[len(res.Content)-200:])
+	}
+	if strings.Contains(res.Content, "\n\n[truncated —") {
+		t.Error("generic truncation must not fire on outline mode")
+	}
+	if !utf8.ValidString(res.Content) {
+		t.Error("truncated outline is not valid UTF-8")
 	}
 }

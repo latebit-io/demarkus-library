@@ -230,22 +230,39 @@ func (t *openTool) Execute(ctx context.Context, call llm.ToolCall) nibagent.Tool
 			o.WriteString(para)
 			o.WriteString("\n")
 		}
-		fmt.Fprintf(&o, "\nopen %s#<anchor> for a section; force for the full body\n", path)
-		body = o.String()
+		// Outline mode owns its truncation so a pathologically
+		// heading-heavy outline can never lose the navigation footer to
+		// the generic cut below — that would recreate the dead end this
+		// mode exists to remove.
+		footer := fmt.Sprintf("\nopen %s#<anchor> for a section; force for the full body\n", path)
+		outline := o.String()
+		if cut, dropped := truncateRuneSafe(outline, maxOpenBytes-len(footer)-64); dropped > 0 {
+			outline = cut + fmt.Sprintf("\n\n[outline truncated — %d more bytes]", dropped)
+		}
+		body = outline + footer
 	}
 
 	b.WriteString("\n")
-	if len(body) > maxOpenBytes {
-		// Back off to a rune boundary so the cut never splits a UTF-8
-		// sequence — an invalid tail would corrupt the model's context.
-		cut := maxOpenBytes
-		for cut > 0 && !utf8.RuneStart(body[cut]) {
-			cut--
-		}
-		body = body[:cut] + fmt.Sprintf("\n\n[truncated — %d more bytes]", len(body)-cut)
+	if cut, dropped := truncateRuneSafe(body, maxOpenBytes); dropped > 0 {
+		body = cut + fmt.Sprintf("\n\n[truncated — %d more bytes]", dropped)
 	}
 	b.WriteString(body)
 	return nibagent.ToolResult{Content: b.String()}
+}
+
+// truncateRuneSafe cuts s to at most limit bytes, backing off to a rune
+// boundary so the cut never splits a UTF-8 sequence — an invalid tail
+// would corrupt the model's context. Returns the cut string and how many
+// bytes were dropped (0 when s already fits).
+func truncateRuneSafe(s string, limit int) (cutStr string, dropped int) {
+	if len(s) <= limit {
+		return s, 0
+	}
+	cut := limit
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut], len(s) - cut
 }
 
 // linksTool traces a document's neighborhood: observed outbound links and
