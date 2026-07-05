@@ -15,6 +15,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/latebit-io/demarkus-library/internal/core/port"
+	"github.com/latebit-io/demarkus/client/mdoutline"
 	nibagent "github.com/latebit-io/nib/agent"
 	"github.com/latebit-io/nib/ai/llm"
 )
@@ -23,6 +24,12 @@ const (
 	// maxOpenBytes caps a document body fed back to the model — token
 	// economy over completeness; the truncation note says what was cut.
 	maxOpenBytes = 16 * 1024
+	// outlineThreshold is the body size above which open returns an
+	// outline (heading tree + opening paragraph) instead of the body.
+	// Matches the demarkus MCP surfaces' mark_fetch threshold, and the
+	// anchors are the same GitHub-style slugs — path#anchor means the
+	// same section here, in mark_fetch, and in an MCP resource URI.
+	outlineThreshold = 8 * 1024
 	// maxFindRows caps find results; past this the model should narrow.
 	maxFindRows = 25
 )
@@ -151,16 +158,20 @@ type openTool struct {
 func (t *openTool) Definition() llm.ToolDef {
 	return llm.ToolDef{Type: "function", Function: llm.FunctionDef{
 		Name:        "open",
-		Description: "Read a document's raw markdown source and catalog metadata. path is the document path (e.g. /plans/roadmap.md); paths ending in / are directory listings and cannot be opened — find their documents instead.",
+		Description: "Read a document's raw markdown source and catalog metadata. path is the document path (e.g. /plans/roadmap.md); append #<anchor> to read one section (anchors are GitHub-style heading slugs). Documents over 8KB return an outline — heading tree with anchors and the opening paragraph — instead of the body; open path#<anchor> for the section you need, or pass force for the full (16KB-capped) body. Paths ending in / are directory listings and cannot be opened — find their documents instead.",
 		Parameters: llm.FunctionParams{Type: "object", Properties: map[string]llm.FunctionParam{
-			"path":  {Type: "string", Description: "document path within the world"},
+			"path":  {Type: "string", Description: "document path within the world; append #<anchor> for a single section"},
 			"world": {Type: "string", Description: "world to read from (default: the reading room's default world)"},
+			"force": {Type: "boolean", Description: "return the full body even when the document is large (still capped at 16KB)"},
 		}, Required: []string{"path"}},
 	}}
 }
 
 func (t *openTool) Execute(ctx context.Context, call llm.ToolCall) nibagent.ToolResult {
-	var in struct{ Path, World string }
+	var in struct {
+		Path, World string
+		Force       bool
+	}
 	if err := decodeArgs(call.Function.Arguments, &in); err != nil {
 		return errResult(err)
 	}
@@ -171,13 +182,14 @@ func (t *openTool) Execute(ctx context.Context, call llm.ToolCall) nibagent.Tool
 	if world == "" {
 		world = t.defaultWorld
 	}
-	raw, err := t.reader.Raw(ctx, world, in.Path)
+	path, anchor, _ := strings.Cut(in.Path, "#")
+	raw, err := t.reader.Raw(ctx, world, path)
 	if err != nil {
 		return errResult(err)
 	}
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "mark://%s%s\n", world, in.Path)
+	fmt.Fprintf(&b, "mark://%s%s\n", world, path)
 	keys := make([]string, 0, len(raw.Metadata))
 	for k := range raw.Metadata {
 		keys = append(keys, k)
@@ -186,19 +198,71 @@ func (t *openTool) Execute(ctx context.Context, call llm.ToolCall) nibagent.Tool
 	for _, k := range keys {
 		fmt.Fprintf(&b, "%s: %s\n", k, raw.Metadata[k])
 	}
-	b.WriteString("\n")
+
 	body := raw.Body
-	if len(body) > maxOpenBytes {
-		// Back off to a rune boundary so the cut never splits a UTF-8
-		// sequence — an invalid tail would corrupt the model's context.
-		cut := maxOpenBytes
-		for cut > 0 && !utf8.RuneStart(body[cut]) {
-			cut--
+	switch {
+	case anchor != "":
+		// Section open: works at any size, same anchors as the demarkus
+		// MCP surfaces (mdoutline is the shared implementation).
+		section, ok := mdoutline.Section(body, anchor)
+		if !ok {
+			available := strings.Join(mdoutline.Anchors(body), ", ")
+			if available == "" {
+				available = "(document has no headings)"
+			}
+			return errResult(fmt.Errorf("open: section #%s not found in mark://%s%s; available anchors: %s", anchor, world, path, available))
 		}
-		body = body[:cut] + fmt.Sprintf("\n\n[truncated — %d more bytes]", len(raw.Body)-cut)
+		fmt.Fprintf(&b, "section: #%s\n", anchor)
+		body = section
+	case !in.Force && len(body) >= outlineThreshold:
+		// Outline mode replaces the old blind truncation: the model gets
+		// the whole document's map and a way to reach every section,
+		// instead of losing the tail past 16KB with no recourse.
+		fmt.Fprintf(&b, "mode: outline\nsize: %d bytes, %d lines\n", len(body), strings.Count(body, "\n")+1)
+		var o strings.Builder
+		if tree := mdoutline.Outline(body); tree != "" {
+			o.WriteString(tree)
+		} else {
+			o.WriteString("(document has no headings)\n")
+		}
+		if para := mdoutline.OpeningParagraph(body); para != "" {
+			o.WriteString("\n")
+			o.WriteString(para)
+			o.WriteString("\n")
+		}
+		// Outline mode owns its truncation so a pathologically
+		// heading-heavy outline can never lose the navigation footer to
+		// the generic cut below — that would recreate the dead end this
+		// mode exists to remove.
+		footer := fmt.Sprintf("\nopen %s#<anchor> for a section; force for the full body\n", path)
+		outline := o.String()
+		if cut, dropped := truncateRuneSafe(outline, maxOpenBytes-len(footer)-64); dropped > 0 {
+			outline = cut + fmt.Sprintf("\n\n[outline truncated — %d more bytes]", dropped)
+		}
+		body = outline + footer
+	}
+
+	b.WriteString("\n")
+	if cut, dropped := truncateRuneSafe(body, maxOpenBytes); dropped > 0 {
+		body = cut + fmt.Sprintf("\n\n[truncated — %d more bytes]", dropped)
 	}
 	b.WriteString(body)
 	return nibagent.ToolResult{Content: b.String()}
+}
+
+// truncateRuneSafe cuts s to at most limit bytes, backing off to a rune
+// boundary so the cut never splits a UTF-8 sequence — an invalid tail
+// would corrupt the model's context. Returns the cut string and how many
+// bytes were dropped (0 when s already fits).
+func truncateRuneSafe(s string, limit int) (cutStr string, dropped int) {
+	if len(s) <= limit {
+		return s, 0
+	}
+	cut := limit
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut], len(s) - cut
 }
 
 // linksTool traces a document's neighborhood: observed outbound links and

@@ -31,7 +31,7 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/css v1.0.1 // indirect
 	github.com/invopop/jsonschema v0.13.0 // indirect
-	github.com/latebit-io/demarkus/client v0.12.40
+	github.com/latebit-io/demarkus/client v0.17.0
 	github.com/latebit-io/demarkus/protocol v0.7.13
 	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/quic-go/quic-go v0.59.1 // indirect
