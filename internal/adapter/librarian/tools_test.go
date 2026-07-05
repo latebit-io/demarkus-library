@@ -52,7 +52,7 @@ func TestOpenTool_DefaultWorldMetadataAndTruncation(t *testing.T) {
 	ports.raw.Body = strings.Repeat("x", maxOpenBytes+500)
 	tool := &openTool{reader: ports, defaultWorld: "root"}
 
-	res := tool.Execute(context.Background(), call("open", `{"path":"/ops/deploy.md"}`))
+	res := tool.Execute(context.Background(), call("open", `{"path":"/ops/deploy.md","force":true}`))
 	if res.IsError {
 		t.Fatalf("unexpected error: %s", res.Content)
 	}
@@ -78,7 +78,7 @@ func TestOpenTool_TruncationIsRuneSafe(t *testing.T) {
 	ports.raw.Body = strings.Repeat("x", maxOpenBytes-1) + "→ tail"
 	tool := &openTool{reader: ports, defaultWorld: "root"}
 
-	res := tool.Execute(context.Background(), call("open", `{"path":"/ops/deploy.md"}`))
+	res := tool.Execute(context.Background(), call("open", `{"path":"/ops/deploy.md","force":true}`))
 	if res.IsError {
 		t.Fatalf("unexpected error: %s", res.Content)
 	}
@@ -150,5 +150,129 @@ func TestCompactArgs(t *testing.T) {
 	}
 	if got := compactArgs("{broken"); got != "{broken" {
 		t.Errorf("unparseable args should pass through; got %q", got)
+	}
+}
+
+const outlineTestDoc = `# Big Doc
+
+Opening paragraph of the big doc.
+
+## Setup
+
+Setup body.
+
+## Usage
+
+Usage body.
+`
+
+// bigStructuredDoc pads outlineTestDoc past the outline threshold while
+// keeping real headings.
+func bigStructuredDoc() string {
+	return outlineTestDoc + "\n## Filler\n\n" + strings.Repeat("filler line\n", 900)
+}
+
+func TestOpenTool_LargeDocReturnsOutline(t *testing.T) {
+	t.Parallel()
+
+	ports := newFakePorts()
+	ports.raw.Body = bigStructuredDoc()
+	tool := &openTool{reader: ports, defaultWorld: "root"}
+
+	res := tool.Execute(context.Background(), call("open", `{"path":"/ops/deploy.md"}`))
+	if res.IsError {
+		t.Fatalf("unexpected error: %s", res.Content)
+	}
+	for _, want := range []string{
+		"mode: outline",
+		"size: ",
+		"- Setup (#setup,",
+		"Opening paragraph of the big doc.",
+		"open /ops/deploy.md#<anchor> for a section; force for the full body",
+	} {
+		if !strings.Contains(res.Content, want) {
+			t.Errorf("outline missing %q:\n%s", want, res.Content)
+		}
+	}
+	if strings.Contains(res.Content, "filler line") {
+		t.Error("outline should not include section bodies")
+	}
+}
+
+func TestOpenTool_SectionOpen(t *testing.T) {
+	t.Parallel()
+
+	ports := newFakePorts()
+	ports.raw.Body = bigStructuredDoc()
+	tool := &openTool{reader: ports, defaultWorld: "root"}
+
+	res := tool.Execute(context.Background(), call("open", `{"path":"/ops/deploy.md#setup"}`))
+	if res.IsError {
+		t.Fatalf("unexpected error: %s", res.Content)
+	}
+	for _, want := range []string{"section: #setup", "## Setup", "Setup body."} {
+		if !strings.Contains(res.Content, want) {
+			t.Errorf("section open missing %q:\n%s", want, res.Content)
+		}
+	}
+	if strings.Contains(res.Content, "Usage body.") || strings.Contains(res.Content, "mode: outline") {
+		t.Errorf("section open leaked other content:\n%.300s", res.Content)
+	}
+	if got := ports.rawCalls(); len(got) != 1 || got[0] != "root:/ops/deploy.md" {
+		t.Errorf("Raw calls = %v; the #anchor must be stripped before the world read", got)
+	}
+}
+
+func TestOpenTool_SectionNotFoundListsAnchors(t *testing.T) {
+	t.Parallel()
+
+	ports := newFakePorts()
+	ports.raw.Body = outlineTestDoc
+	tool := &openTool{reader: ports, defaultWorld: "root"}
+
+	res := tool.Execute(context.Background(), call("open", `{"path":"/ops/deploy.md#nope"}`))
+	if !res.IsError {
+		t.Fatal("missing section should be a tool error")
+	}
+	if !strings.Contains(res.Content, "available anchors") || !strings.Contains(res.Content, "setup") {
+		t.Errorf("error should list available anchors:\n%s", res.Content)
+	}
+}
+
+func TestOpenTool_SmallDocKeepsFullBody(t *testing.T) {
+	t.Parallel()
+
+	ports := newFakePorts()
+	ports.raw.Body = outlineTestDoc
+	tool := &openTool{reader: ports, defaultWorld: "root"}
+
+	res := tool.Execute(context.Background(), call("open", `{"path":"/ops/deploy.md"}`))
+	if res.IsError {
+		t.Fatalf("unexpected error: %s", res.Content)
+	}
+	if !strings.Contains(res.Content, "Setup body.") || !strings.Contains(res.Content, "Usage body.") {
+		t.Errorf("small doc should return the full body:\n%s", res.Content)
+	}
+	if strings.Contains(res.Content, "mode: outline") {
+		t.Error("small doc should not be outlined")
+	}
+}
+
+func TestOpenTool_ForceReturnsFullBody(t *testing.T) {
+	t.Parallel()
+
+	ports := newFakePorts()
+	ports.raw.Body = bigStructuredDoc()
+	tool := &openTool{reader: ports, defaultWorld: "root"}
+
+	res := tool.Execute(context.Background(), call("open", `{"path":"/ops/deploy.md","force":true}`))
+	if res.IsError {
+		t.Fatalf("unexpected error: %s", res.Content)
+	}
+	if strings.Contains(res.Content, "mode: outline") {
+		t.Error("force should bypass outline mode")
+	}
+	if !strings.Contains(res.Content, "filler line") {
+		t.Error("force should return the body")
 	}
 }
