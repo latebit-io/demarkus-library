@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -579,5 +580,34 @@ func TestAppendNoBearerIsUnauthorized(t *testing.T) {
 	g := &Gateway{caller: &fakeCaller{}}
 	if _, err := g.Append(t.Context(), "root", "/x.md", "more"); !errors.Is(err, domain.ErrUnauthorized) {
 		t.Errorf("err = %v, want ErrUnauthorized", err)
+	}
+}
+
+// TestFetchForcesFullBody pins the force=true contract on mark_fetch: the
+// gateway's agent ergonomics (broker 0.5.0+) would otherwise return an
+// outline for >8KB documents (the floor lost graph.md's federation edges
+// this way) or a bodyless `status: unchanged` for a re-fetched document
+// (readers saw already-opened documents as unreachable). The library is a
+// programmatic renderer — every fetch wants the real body.
+func TestFetchForcesFullBody(t *testing.T) {
+	fc := &fakeCaller{text: "status: ok\n\nbody"}
+	g := &Gateway{caller: fc}
+	if _, err := g.Fetch(authedCtx(t), "soul", "/index.md"); err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if got := fc.gotArgs["force"]; got != true {
+		t.Errorf("force arg = %v, want true", got)
+	}
+}
+
+// TestFetchRejectsUnchangedStatus documents the failure mode force
+// prevents: a dedup short-circuit response is not a document, and the
+// parser must refuse it rather than render an empty body.
+func TestFetchRejectsUnchangedStatus(t *testing.T) {
+	fc := &fakeCaller{text: "status: unchanged\nversion: 5\n\nunchanged since v5 — pass force=true to re-read it"}
+	g := &Gateway{caller: fc}
+	_, err := g.Fetch(authedCtx(t), "soul", "/index.md")
+	if err == nil || !strings.Contains(err.Error(), "unchanged") {
+		t.Errorf("unchanged status must surface as an error naming it, got %v", err)
 	}
 }

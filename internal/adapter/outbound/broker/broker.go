@@ -85,9 +85,17 @@ func (g *Gateway) Close() {
 	}
 }
 
-// Fetch reads a document through mark_fetch.
+// Fetch reads a document through mark_fetch. force=true opts out of the
+// gateway's agent ergonomics — the outline gate for large bodies and the
+// per-session unchanged-dedup (broker 0.5.0+). Both exist to save a
+// token-constrained model's context; the library is a programmatic
+// renderer that always needs the real body. Without force, a >8KB
+// document parses as a heading tree (the floor lost graph.md's federation
+// edges exactly this way) and a re-fetched document returns
+// `status: unchanged` with no body, which parseToolResult rejects as
+// unreachable.
 func (g *Gateway) Fetch(ctx context.Context, world, path string) (domain.RawDocument, error) {
-	return g.read(ctx, "mark_fetch", world, path, map[string]any{"url": markURL(world, path)})
+	return g.read(ctx, "mark_fetch", world, path, map[string]any{"url": markURL(world, path), "force": true})
 }
 
 // List reads a directory listing (the stacks) through mark_list.
