@@ -342,6 +342,137 @@ func TestEditAffordanceGatedOnAuth(t *testing.T) {
 	}
 }
 
+func TestEditAffordancesCarryTrailContext(t *testing.T) {
+	// Edit/new/append minted from a trail pane carry the trail + pane index as
+	// return context, so the desk can land the reader back on the canvas.
+	svc := &fakeReading{doc: domain.Document{Title: "D", Path: "/plans/x.md"}}
+	body := get(authedApp(t, svc), "/t/root/d/index.md/~/root/d/plans/x.md").Body.String()
+	ret := "trail=" + url.QueryEscape("root/d/index.md/~/root/d/plans/x.md") + "&amp;tpane=1"
+	for _, want := range []string{
+		"/w/root/edit/plans/x.md?" + ret,
+		"/w/root/append/plans/x.md?" + ret,
+		"/w/root/new?dir=%2Fplans%2F&amp;" + ret,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("canvas affordance missing %q", want)
+		}
+	}
+}
+
+func TestEditFormEmbedsTrailContext(t *testing.T) {
+	svc := &fakeReading{draft: domain.EditDraft{Path: "/x.md", Version: 3}}
+	rest := "root/d/index.md/~/root/d/x.md"
+	rec := get(authedApp(t, svc), "/w/root/edit/x.md?trail="+url.QueryEscape(rest)+"&tpane=1")
+	body := rec.Body.String()
+	for _, want := range []string{
+		`name="trail" value="root/d/index.md/~/root/d/x.md"`,
+		`name="tpane" value="1"`,
+		`href="/t/root/d/index.md/~/root/d/x.md"`, // cancel returns to the canvas
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("edit form missing %q", want)
+		}
+	}
+}
+
+func TestEditFormDropsMalformedTrail(t *testing.T) {
+	svc := &fakeReading{draft: domain.EditDraft{Path: "/x.md", Version: 3}}
+	rec := get(authedApp(t, svc), "/w/root/edit/x.md?trail=junk&tpane=9")
+	body := rec.Body.String()
+	if strings.Contains(body, `name="trail"`) {
+		t.Errorf("malformed trail context must not be propagated")
+	}
+	if !strings.Contains(body, `href="/w/root/d/x.md"`) {
+		t.Errorf("cancel must fall back to the standalone document page")
+	}
+}
+
+func TestSaveEditReturnsToTrail(t *testing.T) {
+	svc := &fakeReading{doc: domain.Document{Path: "/x.md"}}
+	form := url.Values{
+		"version": {"3"}, "body": {"# X"},
+		"trail": {"root/d/index.md/~/root/d/x.md"}, "tpane": {"1"},
+	}
+	rec := postForm(authedApp(t, svc), "/w/root/edit/x.md", form)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want 303", rec.Code)
+	}
+	// The edited doc is already pane 1 → the click algebra focuses it (last
+	// pane ⇒ canonical URL, no focus param). The trail survives the save.
+	if loc := rec.Header().Get("Location"); loc != "/t/root/d/index.md/~/root/d/x.md" {
+		t.Errorf("redirect = %q, want the carried trail", loc)
+	}
+}
+
+func TestSaveEditReturnsToTrailFocusingEditedPane(t *testing.T) {
+	// Editing a non-last pane's doc: the redirect focuses that pane, keeping
+	// the panes to its right (an edit is not a navigation, nothing truncates).
+	svc := &fakeReading{doc: domain.Document{Path: "/index.md"}}
+	form := url.Values{
+		"version": {"3"}, "body": {"# X"},
+		"trail": {"root/d/index.md/~/root/d/x.md"}, "tpane": {"0"},
+	}
+	rec := postForm(authedApp(t, svc), "/w/root/edit/index.md", form)
+	if loc := rec.Header().Get("Location"); loc != "/t/root/d/index.md/~/root/d/x.md?focus=0" {
+		t.Errorf("redirect = %q, want the trail focused on pane 0", loc)
+	}
+}
+
+func TestSaveEditMalformedTrailFallsBackToDoc(t *testing.T) {
+	svc := &fakeReading{doc: domain.Document{Path: "/x.md"}}
+	form := url.Values{
+		"version": {"3"}, "body": {"# X"},
+		"trail": {"not/a/trail"}, "tpane": {"0"},
+	}
+	rec := postForm(authedApp(t, svc), "/w/root/edit/x.md", form)
+	if loc := rec.Header().Get("Location"); loc != "/w/root/d/x.md" {
+		t.Errorf("redirect = %q, want the standalone doc fallback", loc)
+	}
+}
+
+func TestCreateDocAppendsToTrail(t *testing.T) {
+	// Create carried from the canvas: the new doc joins the trail as a pane
+	// appended from the originating one — the same algebra as clicking a link.
+	svc := &fakeReading{doc: domain.Document{Path: "/plans/new.md"}}
+	form := url.Values{
+		"path": {"/plans/new.md"}, "body": {"# New"},
+		"trail": {"root/d/index.md"}, "tpane": {"0"},
+	}
+	rec := postForm(authedApp(t, svc), "/w/root/new", form)
+	if loc := rec.Header().Get("Location"); loc != "/t/root/d/index.md/~/root/d/plans/new.md" {
+		t.Errorf("redirect = %q, want the trail with the new doc appended", loc)
+	}
+}
+
+func TestAppendDocReturnsToTrail(t *testing.T) {
+	svc := &fakeReading{doc: domain.Document{Path: "/log.md"}}
+	form := url.Values{
+		"body":  {"\n- entry"},
+		"trail": {"root/d/log.md"}, "tpane": {"0"},
+	}
+	rec := postForm(authedApp(t, svc), "/w/root/append/log.md", form)
+	if loc := rec.Header().Get("Location"); loc != "/t/root/d/log.md" {
+		t.Errorf("redirect = %q, want the carried trail", loc)
+	}
+}
+
+func TestSaveEditConflictPreservesTrailContext(t *testing.T) {
+	// A conflict re-render must keep the hidden trail fields so the eventual
+	// successful save still returns to the canvas.
+	svc := &fakeReading{publishErr: domain.ErrConflict}
+	form := url.Values{
+		"version": {"2"}, "body": {"# mine"},
+		"trail": {"root/d/x.md"}, "tpane": {"0"},
+	}
+	rec := postForm(authedApp(t, svc), "/w/root/edit/x.md", form)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), `name="trail" value="root/d/x.md"`) {
+		t.Errorf("conflict re-render lost the trail context")
+	}
+}
+
 func TestNormalizeNewPath(t *testing.T) {
 	ok := map[string]string{
 		"/notes/idea.md": "/notes/idea.md",

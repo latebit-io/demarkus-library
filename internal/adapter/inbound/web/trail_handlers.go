@@ -417,11 +417,14 @@ func (h *ReadingHandler) paneView(ctx context.Context, t trail, i int, addr pane
 		// map is no longer docked as a trail pane.
 		vm.MapURL = "/w/" + url.PathEscape(addr.World) + "/u"
 		// Edit leaves the canvas into the dedicated editor page (a focused-pane
-		// mode, not a trail chunk); only behind the turnstile.
+		// mode, not a trail chunk); only behind the turnstile. The affordances
+		// carry the trail as return context so save/cancel land back here
+		// instead of stranding the reader on the standalone document page.
 		if authed {
-			vm.EditURL = "/w/" + url.PathEscape(addr.World) + "/edit" + addr.Value
-			vm.NewURL = "/w/" + url.PathEscape(addr.World) + "/new?dir=" + url.QueryEscape(dirOf(addr.Value))
-			vm.AppendURL = "/w/" + url.PathEscape(addr.World) + "/append" + addr.Value
+			ret := editReturnQuery(t, i)
+			vm.EditURL = "/w/" + url.PathEscape(addr.World) + "/edit" + addr.Value + "?" + ret
+			vm.NewURL = "/w/" + url.PathEscape(addr.World) + "/new?dir=" + url.QueryEscape(dirOf(addr.Value)) + "&" + ret
+			vm.AppendURL = "/w/" + url.PathEscape(addr.World) + "/append" + addr.Value + "?" + ret
 		}
 		vm.Backlinks = backlinkLinks(h.reading.Backlinks(addr.World, addr.Value), func(r domain.Ref) string {
 			next := trailAfterClick(t, i, paneAddr{Kind: paneDoc, World: r.World, Value: r.Path})
