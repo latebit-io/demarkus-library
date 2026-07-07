@@ -379,8 +379,10 @@ func TestEditFormDropsMalformedTrail(t *testing.T) {
 	svc := &fakeReading{draft: domain.EditDraft{Path: "/x.md", Version: 3}}
 	rec := get(authedApp(t, svc), "/w/root/edit/x.md?trail=junk&tpane=9")
 	body := rec.Body.String()
-	if strings.Contains(body, `name="trail"`) {
-		t.Errorf("malformed trail context must not be propagated")
+	for _, absent := range []string{`name="trail"`, `name="tpane"`} {
+		if strings.Contains(body, absent) {
+			t.Errorf("malformed trail context must not propagate %s", absent)
+		}
 	}
 	if !strings.Contains(body, `href="/w/root/d/x.md"`) {
 		t.Errorf("cancel must fall back to the standalone document page")
@@ -439,6 +441,9 @@ func TestCreateDocAppendsToTrail(t *testing.T) {
 		"trail": {"root/d/index.md"}, "tpane": {"0"},
 	}
 	rec := postForm(authedApp(t, svc), "/w/root/new", form)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want 303", rec.Code)
+	}
 	if loc := rec.Header().Get("Location"); loc != "/t/root/d/index.md/~/root/d/plans/new.md" {
 		t.Errorf("redirect = %q, want the trail with the new doc appended", loc)
 	}
@@ -451,6 +456,9 @@ func TestAppendDocReturnsToTrail(t *testing.T) {
 		"trail": {"root/d/log.md"}, "tpane": {"0"},
 	}
 	rec := postForm(authedApp(t, svc), "/w/root/append/log.md", form)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want 303", rec.Code)
+	}
 	if loc := rec.Header().Get("Location"); loc != "/t/root/d/log.md" {
 		t.Errorf("redirect = %q, want the carried trail", loc)
 	}
