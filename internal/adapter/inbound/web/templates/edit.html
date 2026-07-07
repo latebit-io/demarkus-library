@@ -1,7 +1,7 @@
 {{define "edit"}}<!doctype html>
 <html lang="en">
 {{template "head" .}}
-<body hx-boost="true">
+<body hx-boost="true" class="edit-page">
   {{template "nav" .}}
   <main id="main">
     <div class="edit-pane">
@@ -68,9 +68,13 @@
             <input type="text" name="importance" value="{{ .Importance }}"
                    inputmode="decimal" placeholder="0–1">
           </label>
+          {{ template "edit-actions" . }}
         </div>
         {{- else }}
-        <p class="edit-append-note">Appending to the end of this document — metadata and earlier content are unchanged.</p>
+        <div class="edit-meta">
+          <p class="edit-append-note">Appending to the end of this document — metadata and earlier content are unchanged.</p>
+          {{ template "edit-actions" . }}
+        </div>
         {{- end }}
 
         <div class="edit-split">
@@ -87,13 +91,15 @@
           <!-- Preview: the same renderer the reader sees. -->
           <article id="edit-preview" class="edit-preview doc-body"></article>
         </div>
-
-        <div class="edit-actions">
-          <button type="submit" class="edit-save">{{ if .Create }}create{{ else if .Append }}append{{ else }}save{{ end }}</button>
-          <a class="edit-cancel" hx-boost="false" href="{{ .CancelURL }}">cancel</a>
-        </div>
       </form>
     </div>
   </main>
 </body>
 </html>{{end}}
+
+{{- /* The actions live in the metadata row, beside the last field — the desk's
+       controls stay above the fold instead of below a viewport-tall split. */}}
+{{define "edit-actions"}}<div class="edit-actions">
+  <button type="submit" class="edit-save">{{ if .Create }}create{{ else if .Append }}append{{ else }}save{{ end }}</button>
+  <a class="edit-cancel" hx-boost="false" href="{{ .CancelURL }}">cancel</a>
+</div>{{end}}

@@ -2,6 +2,7 @@ package web
 
 import (
 	"errors"
+	"html"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -292,7 +293,14 @@ func (h *ReadingHandler) EditPreview(c *echo.Context) error {
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "preview failed")
 	}
-	return c.HTML(http.StatusOK, rendered.HTML)
+	// The renderer lifts a leading H1 out of the body into Title (the reader
+	// shows it in the pane head). The preview has no pane head, so put the
+	// heading back — otherwise the document's title silently vanishes.
+	body := rendered.HTML
+	if rendered.Title != "" {
+		body = "<h1>" + html.EscapeString(rendered.Title) + "</h1>\n" + body
+	}
+	return c.HTML(http.StatusOK, body)
 }
 
 // SaveEdit publishes the submitted edit, then redirects to the document.

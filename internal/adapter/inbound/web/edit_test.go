@@ -330,6 +330,25 @@ func TestEditPreviewRendersFragment(t *testing.T) {
 	}
 }
 
+func TestEditPreviewRestoresLiftedTitle(t *testing.T) {
+	// The renderer lifts a leading H1 into Title (shown in the reader's pane
+	// head); the preview has no head, so the fragment must put it back —
+	// escaped, since Title is plain text.
+	svc := &fakeReading{}
+	rec := postForm(authedApp(t, svc), "/w/root/preview",
+		url.Values{"body": {"# Tags & <Things>\n\nhello"}})
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "<h1>Tags &amp; &lt;Things&gt;</h1>") {
+		t.Errorf("lifted title missing from preview: %q", body)
+	}
+	if !strings.Contains(body, "<p>hello</p>") {
+		t.Errorf("preview body missing: %q", body)
+	}
+}
+
 func TestEditAffordanceGatedOnAuth(t *testing.T) {
 	svc := &fakeReading{doc: domain.Document{Title: "D", Path: "/adr/0007.md"}}
 	// Unauthenticated: no edit link.

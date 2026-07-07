@@ -172,7 +172,14 @@ func (f *fakeReading) EditDraft(_ context.Context, _, path string) (domain.EditD
 func (f *fakeReading) Preview(markdown string) (domain.Rendered, error) {
 	f.called = "Preview"
 	f.gotBody = markdown
-	return domain.Rendered{HTML: "<p>" + markdown + "</p>"}, nil
+	// Mimic the real renderer's contract: a leading H1 is lifted out of the
+	// body into Title (the preview handler is responsible for restoring it).
+	var title string
+	if rest, ok := strings.CutPrefix(markdown, "# "); ok {
+		title, markdown, _ = strings.Cut(rest, "\n")
+		markdown = strings.TrimLeft(markdown, "\n")
+	}
+	return domain.Rendered{Title: title, HTML: "<p>" + markdown + "</p>"}, nil
 }
 
 func (f *fakeReading) Publish(_ context.Context, _, path, body string, meta domain.PublishMeta, expectedVersion int) (domain.Document, *domain.MergeCandidate, error) {
