@@ -14,6 +14,10 @@ import (
 // The cataloging desk's web surface (Phase 3; plans/phase-3-cataloging-desk.md).
 // Editing is a focused-pane MODE reached from the margin, not a trail chunk —
 // an unsaved draft is client state with no place in a shareable reading trail.
+// The trail the reader left is not lost, though: the canvas' edit affordances
+// carry it as return context (`trail` + `tpane` params → hidden form fields),
+// and save/cancel land back on the canvas via the click algebra instead of
+// stranding the reader on the standalone document page.
 // The editor is htmx-pure (ADR 0003): a textarea whose input posts to a
 // server-rendered preview, metadata as dedicated form fields (never a body
 // frontmatter fence — the bug R1 papered over), and a plain POST save that
@@ -43,6 +47,50 @@ type editVM struct {
 	Append        bool   // append mode: body-only, POSTs to /append, no metadata
 	Error         string // write-error banner; empty ⇒ none
 	Notice        string // merge-candidate banner (not an error); empty ⇒ none
+	Trail         string // carried trail context (the /t/* remainder); empty ⇒ none
+	TrailPane     string // originating pane index within Trail
+	CancelURL     string // cancel target: back onto the trail, or the standalone page
+}
+
+// returnTrail parses the trail context carried through the edit flow (the
+// `trail` + `tpane` params the canvas mints on its edit affordances, echoed
+// back as hidden form fields). ok=false when absent or malformed — the flow
+// then falls back to the standalone-page behavior. The redirect is always
+// rebuilt from the parsed panes, never echoed raw, so a tampered param can't
+// turn the save into an open redirect.
+func returnTrail(trailParam, paneParam string) (trail, int, bool) {
+	if trailParam == "" {
+		return trail{}, 0, false
+	}
+	t, err := parseTrail(trailParam, "", "")
+	if err != nil {
+		return trail{}, 0, false
+	}
+	idx, err := strconv.Atoi(paneParam)
+	if err != nil || idx < 0 || idx >= len(t.Panes) {
+		return trail{}, 0, false
+	}
+	return t, idx, true
+}
+
+// trailParams validates the carried trail params and returns them for
+// re-embedding (hidden fields, cancel link); junk is dropped, not propagated.
+func trailParams(trailParam, paneParam string) (rest, pane string) {
+	if _, _, ok := returnTrail(trailParam, paneParam); !ok {
+		return "", ""
+	}
+	return trailParam, paneParam
+}
+
+// afterWriteURL is the post-save destination: back onto the carried trail with
+// the written document focused — appended when it is new, via the same click
+// algebra as any link — or the standalone document page when the edit began
+// off-canvas (or the carried context is junk).
+func afterWriteURL(c *echo.Context, world, path string) string {
+	if t, idx, ok := returnTrail(c.FormValue("trail"), c.FormValue("tpane")); ok {
+		return trailURL(trailAfterClick(t, idx, paneAddr{Kind: paneDoc, World: world, Value: path}))
+	}
+	return docRoute(world, path)
 }
 
 // EditForm serves the edit form pre-filled from the document's current source
@@ -68,6 +116,7 @@ func (h *ReadingHandler) EditForm(c *echo.Context) error {
 		Statuses:      editStatuses,
 		Authenticated: c.Get(authedKey) != nil, User: userEmail(c),
 	}
+	vm.Trail, vm.TrailPane = trailParams(c.QueryParam("trail"), c.QueryParam("tpane"))
 	return h.renderEdit(c, http.StatusOK, &vm)
 }
 
@@ -86,6 +135,7 @@ func (h *ReadingHandler) NewForm(c *echo.Context) error {
 		Authenticated: c.Get(authedKey) != nil, User: userEmail(c),
 		Create: true,
 	}
+	vm.Trail, vm.TrailPane = trailParams(c.QueryParam("trail"), c.QueryParam("tpane"))
 	return h.renderEdit(c, http.StatusOK, &vm)
 }
 
@@ -117,6 +167,7 @@ func (h *ReadingHandler) CreateDoc(c *echo.Context) error {
 		Authenticated: c.Get(authedKey) != nil, User: userEmail(c),
 		Create: true,
 	}
+	vm.Trail, vm.TrailPane = trailParams(c.FormValue("trail"), c.FormValue("tpane"))
 	if !ok {
 		vm.Error = "Enter a document path like /notes/idea.md — not a directory."
 		return h.renderEdit(c, http.StatusBadRequest, &vm)
@@ -130,7 +181,7 @@ func (h *ReadingHandler) CreateDoc(c *echo.Context) error {
 		vm.Error = createErrorMessage(err)
 		return h.renderEdit(c, editErrorStatus(err), &vm)
 	}
-	return c.Redirect(http.StatusSeeOther, docRoute(world, path))
+	return c.Redirect(http.StatusSeeOther, afterWriteURL(c, world, path))
 }
 
 // newPathPrefill turns a directory hint into a path prefill: a directory keeps
@@ -200,6 +251,7 @@ func (h *ReadingHandler) AppendForm(c *echo.Context) error {
 		Authenticated: c.Get(authedKey) != nil, User: userEmail(c),
 		Append: true,
 	}
+	vm.Trail, vm.TrailPane = trailParams(c.QueryParam("trail"), c.QueryParam("tpane"))
 	return h.renderEdit(c, http.StatusOK, &vm)
 }
 
@@ -217,6 +269,7 @@ func (h *ReadingHandler) AppendDoc(c *echo.Context) error {
 			Path: p, Authenticated: c.Get(authedKey) != nil, User: userEmail(c), Append: true,
 			Error: "Nothing to append — write some content first.",
 		}
+		vm.Trail, vm.TrailPane = trailParams(c.FormValue("trail"), c.FormValue("tpane"))
 		return h.renderEdit(c, http.StatusBadRequest, &vm)
 	}
 
@@ -226,9 +279,10 @@ func (h *ReadingHandler) AppendDoc(c *echo.Context) error {
 			Path: p, Body: body, Authenticated: c.Get(authedKey) != nil, User: userEmail(c), Append: true,
 			Error: editErrorMessage(err),
 		}
+		vm.Trail, vm.TrailPane = trailParams(c.FormValue("trail"), c.FormValue("tpane"))
 		return h.renderEdit(c, editErrorStatus(err), &vm)
 	}
-	return c.Redirect(http.StatusSeeOther, docRoute(world, p))
+	return c.Redirect(http.StatusSeeOther, afterWriteURL(c, world, p))
 }
 
 // EditPreview renders the edit buffer to sanitized HTML for the live preview —
@@ -267,8 +321,8 @@ func (h *ReadingHandler) SaveEdit(c *echo.Context) error {
 	_, merge, err := h.reading.Publish(c.Request().Context(), world, p, body, meta, version)
 	if err == nil && merge == nil {
 		// Real POST (the form opts out of hx-boost), so a 303 is a normal
-		// browser redirect back to the freshly written document.
-		return c.Redirect(http.StatusSeeOther, docRoute(world, p))
+		// browser redirect — back onto the carried trail, or the document.
+		return c.Redirect(http.StatusSeeOther, afterWriteURL(c, world, p))
 	}
 
 	vm := editVM{
@@ -285,6 +339,7 @@ func (h *ReadingHandler) SaveEdit(c *echo.Context) error {
 		Statuses:      editStatuses,
 		Authenticated: c.Get(authedKey) != nil, User: userEmail(c),
 	}
+	vm.Trail, vm.TrailPane = trailParams(c.FormValue("trail"), c.FormValue("tpane"))
 	if merge != nil {
 		// The document changed under the editor; the broker merged our edits
 		// into a candidate rather than failing. Re-render with the merged body
@@ -361,11 +416,25 @@ func editErrorStatus(err error) int {
 }
 
 // renderEdit is the single seam every edit-form render goes through: it stamps
-// the shared nav fields (the librarian door) so the nine construction sites
-// don't each repeat them.
+// the shared nav fields (the librarian door) and the cancel target so the nine
+// construction sites don't each repeat them.
 func (h *ReadingHandler) renderEdit(c *echo.Context, status int, vm *editVM) error {
 	if h.lib != nil {
 		vm.LibrarianURL = "/a"
 	}
+	vm.CancelURL = editCancelURL(vm)
 	return c.Render(status, "edit", vm)
+}
+
+// editCancelURL is the cancel link's target: back onto the carried trail with
+// the originating pane focused, or — with no trail context — the standalone
+// document page (the world map in create mode, which has no document yet).
+func editCancelURL(vm *editVM) string {
+	if t, idx, ok := returnTrail(vm.Trail, vm.TrailPane); ok {
+		return trailURL(trailFocused(t, idx))
+	}
+	if vm.Create {
+		return "/w/" + vm.WorldPath + "/u"
+	}
+	return docRoute(vm.World, vm.Path)
 }

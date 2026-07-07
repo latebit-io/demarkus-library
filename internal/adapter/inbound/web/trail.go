@@ -265,6 +265,14 @@ func trailOverlayURL(t trail, param string, idx int) string {
 	return u
 }
 
+// editReturnQuery encodes the trail context the canvas' edit affordances carry
+// (the `trail` + `tpane` query params): the pane path as a /t/* remainder plus
+// the originating pane index. returnTrail (edit.go) is the matching decoder.
+func editReturnQuery(t trail, idx int) string {
+	return "trail=" + url.QueryEscape(strings.TrimPrefix(trailBasePath(t), "/t/")) +
+		"&tpane=" + strconv.Itoa(idx)
+}
+
 // paneChunk encodes one pane address as its chunk (no leading slash).
 func paneChunk(p paneAddr) string {
 	switch p.Kind {

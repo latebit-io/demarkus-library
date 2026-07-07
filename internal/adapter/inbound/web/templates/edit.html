@@ -34,6 +34,12 @@
         {{- if and (not .Create) (not .Append) }}
         <input type="hidden" name="version" value="{{ .Version }}">
         {{- end }}
+        {{- if .Trail }}
+        <!-- Carried trail context: save/cancel return to the canvas, not the
+             standalone document page. -->
+        <input type="hidden" name="trail" value="{{ .Trail }}">
+        <input type="hidden" name="tpane" value="{{ .TrailPane }}">
+        {{- end }}
 
         {{- if not .Append }}
         <div class="edit-meta">
@@ -84,8 +90,7 @@
 
         <div class="edit-actions">
           <button type="submit" class="edit-save">{{ if .Create }}create{{ else if .Append }}append{{ else }}save{{ end }}</button>
-          <a class="edit-cancel" hx-boost="false"
-             href="/w/{{ .WorldPath }}/{{ if .Create }}u{{ else }}d{{ .Path }}{{ end }}">cancel</a>
+          <a class="edit-cancel" hx-boost="false" href="{{ .CancelURL }}">cancel</a>
         </div>
       </form>
     </div>
