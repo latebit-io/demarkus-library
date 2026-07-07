@@ -419,18 +419,21 @@
     .reader-backdrop { position: fixed; inset: 0; z-index: 50;
                   background: light-dark(#11111155, #00000099);
                   display: flex; justify-content: center;
-                  overflow-y: auto; padding: 3vh 1rem; }
+                  overflow-y: auto; padding: 2vh 2vw; }
     /* The scrim is a backdrop-filling link back to the bare trail: a click
        anywhere outside the panel closes the overlay. It sits behind the
        panel (DOM order), so panel clicks never reach it. */
     .reader-scrim { position: absolute; inset: 0; }
+    /* Near-fullscreen immersion: the panel fills the backdrop (a sliver of
+          dimmed trail keeps the context visible), and the content column
+          expands to fit it — the reader trades the 60ch measure for room. */
     .reader-panel { position: relative; height: max-content;
-                  width: calc(60ch + var(--gutter) + var(--margin-w));
+                  width: 100%; min-height: 96vh;
                   max-width: 100%; background: var(--paper); color: var(--ink);
                   border: 1px solid var(--faint); border-radius: 8px;
                   box-shadow: 0 8px 40px #00000055; padding: 2.5rem 2rem 3rem; }
     .reader-panel .pane-cols { display: grid;
-                  grid-template-columns: minmax(0, 60ch) var(--margin-w);
+                  grid-template-columns: minmax(0, 1fr) var(--margin-w);
                   column-gap: var(--gutter); }
     .reader-close { position: absolute; top: .7rem; right: 1rem; z-index: 1;
                   font-size: 1.1rem; line-height: 1; padding: .2rem .45rem;
