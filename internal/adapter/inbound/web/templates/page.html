@@ -349,7 +349,11 @@
     .graph-empty { color: var(--muted); font-style: italic; }
 
     /* ── Cataloging desk (Phase 3): the edit form. Metadata as dedicated
-          fields; textarea + live server preview, no JS editor. ────────── */
+          fields; textarea + live server preview, no JS editor. The desk
+          needs elbow room the reading column doesn't allow: like the
+          canvas, its body lifts the 60ch cap so the editor/preview split
+          is genuinely side by side (markdown left, rendered right). ──── */
+    body.edit-page { max-width: none; padding: 1.5rem 1.5rem 2rem; }
     .edit-pane { max-width: 1500px; margin: 0 auto; }
     .edit-error { background: light-dark(#fff0f0, #3a1e1e); border: 1px solid
                   light-dark(#d1242f, #f85149); color: light-dark(#82071e, #ff9492);
@@ -367,19 +371,43 @@
     .edit-meta input[name="tags"] { min-width: 20rem; }
     .edit-split { display: grid; grid-template-columns: 1fr 1fr; gap: 1.2rem;
                   align-items: start; }
+    /* Pin the panes: the preview reuses .doc-body for document styling, and
+          .doc-body's reading-pane rule (grid-column: 1) would otherwise drag
+          it under the editor instead of beside it. */
+    .edit-split .edit-body { grid-column: 1; grid-row: 1; }
+    .edit-split .edit-preview { grid-column: 2; grid-row: 1; }
     .edit-body { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
                  font-size: .82rem; line-height: 1.5; width: 100%; resize: vertical;
                  padding: .7rem; border: 1px solid var(--faint); border-radius: 4px;
                  background: var(--paper); color: var(--ink); tab-size: 2; }
+    /* The preview is a pane, not a tail: sticky beside the editor and
+          scrolling within itself, so a long document never pushes the
+          rendered view below the markdown. */
     .edit-preview { border: 1px solid var(--faint); border-radius: 4px;
-                    padding: .7rem 1rem; overflow-wrap: anywhere; min-height: 8rem; }
-    .edit-actions { margin: 1rem 0; display: flex; gap: 1rem; align-items: center; }
+                    padding: .7rem 1rem; overflow-wrap: anywhere; min-height: 8rem;
+                    position: sticky; top: 1rem;
+                    max-height: calc(100vh - 2rem); overflow-y: auto; }
+    /* The desk's scrollers whisper like the pane-scroll room's: thin, muted,
+          visible only under the pointer. */
+    .edit-body, .edit-preview { scrollbar-width: thin;
+                    scrollbar-color: transparent transparent; }
+    .edit-body:hover, .edit-preview:hover {
+                    scrollbar-color: light-dark(#11111138, #dddddd38) transparent; }
+    /* Actions sit in the metadata flex row, baseline-aligned with the
+          inputs beside them (the row's labels stack caption-over-field). */
+    .edit-actions { display: flex; gap: 1rem; align-items: center;
+                    align-self: flex-end; }
+    .edit-meta .edit-append-note { margin: 0; align-self: center; }
     .edit-save { font: inherit; padding: .4rem 1.2rem; cursor: pointer;
                  border: 1px solid var(--muted); border-radius: 4px;
                  background: var(--ink); color: var(--paper); }
     .edit-cancel { color: var(--muted); }
     .edit-link { font-weight: 600; }
-    @media (max-width: 900px) { .edit-split { grid-template-columns: 1fr; } }
+    @media (max-width: 900px) {
+      .edit-split { grid-template-columns: 1fr; }
+      .edit-split .edit-preview { grid-column: 1; grid-row: auto;
+                  position: static; max-height: none; }
+    }
 
     /* ── Reader mode (R4): a focus lens over the dimmed trail. URL state
           (?reader=i); SSR + CSS — the only JS is the Esc-close handler in
