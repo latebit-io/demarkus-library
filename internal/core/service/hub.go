@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
-	"github.com/latebit-io/demarkus/client/graphstore"
+	"github.com/latebit-io/demarkus-library/internal/core/port"
 )
 
 // The hub topology reader (plans "Floor enrichment", decision 11). A hub is
@@ -41,24 +41,22 @@ type hubTopology struct {
 // doc or any read/parse failure yields an empty topology — the floor degrades,
 // never errors, on the enrichment layer.
 func (s *ReadingService) readHub(ctx context.Context, hub string) hubTopology {
-	if hub == "" {
+	if hub == "" || s.graphParser == nil {
 		return hubTopology{}
 	}
 	raw, err := s.world.Fetch(ctx, hub, hubGraphPath)
 	if err != nil {
 		return hubTopology{}
 	}
-	return parseGraphExport(raw.Body)
+	return parseGraphExport(s.graphParser, raw.Body)
 }
 
-// parseGraphExport reads the mark_graph_export document through the demarkus
-// client's parser (legacy two-column and enriched six-column edge tables
-// both), keeping mark:// endpoints only. Enriched exports may carry several
-// rows per document pair (plain plus rel-typed); dedup preserves the floor's
-// one-edge-per-pair invariant.
-func parseGraphExport(body string) hubTopology {
+// parseGraphExport decodes body through the parser port and lifts the rows
+// into core refs: mark:// endpoints only, one edge per document pair
+// (enriched exports repeat a pair with rel-typed rows).
+func parseGraphExport(parser port.GraphExportParser, body string) hubTopology {
 	var t hubTopology
-	nodes, edges := graphstore.ParseExport(body)
+	nodes, edges := parser.ParseGraphExport(body)
 	for i := range nodes {
 		ref, ok := parseMarkRef(nodes[i].URL)
 		if !ok {
@@ -186,17 +184,17 @@ func hostKey(h string) string {
 // cluster-internal address never reaches here — hostName matches it first.)
 func portalLabel(host string) (string, bool) {
 	hk := hostKey(host)
-	h, port, err := net.SplitHostPort(hk)
+	h, hp, err := net.SplitHostPort(hk)
 	if err != nil {
-		h, port = hk, ""
+		h, hp = hk, ""
 	}
 	if isLocalHost(h) {
 		return "", false
 	}
-	if port == "" || port == defaultHostPort {
+	if hp == "" || hp == defaultHostPort {
 		return h, true
 	}
-	return net.JoinHostPort(h, port), true
+	return net.JoinHostPort(h, hp), true
 }
 
 // isLocalHost reports whether a host is loopback, link-local, unspecified,

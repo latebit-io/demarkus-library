@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/latebit-io/demarkus-library/internal/adapter/outbound/graphexport"
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
 )
 
@@ -32,7 +33,7 @@ const graphExport = `# Document Graph
 `
 
 func TestParseGraphExport(t *testing.T) {
-	g := parseGraphExport(graphExport)
+	g := parseGraphExport(graphexport.Parser{}, graphExport)
 
 	if len(g.nodes) != 2 {
 		t.Fatalf("nodes = %d, want 2 (external skipped): %+v", len(g.nodes), g.nodes)
@@ -79,10 +80,14 @@ const enrichedGraphExport = `# Document Graph
 // never become phantom nodes, and edges must still parse (the pre-fix parser
 // classified tables by column count and got both wrong).
 func TestParseGraphExportEnriched(t *testing.T) {
-	g := parseGraphExport(enrichedGraphExport)
+	g := parseGraphExport(graphexport.Parser{}, enrichedGraphExport)
 
-	if len(g.nodes) != 2 {
-		t.Fatalf("nodes = %d, want 2 (edge rows must not become nodes): %+v", len(g.nodes), g.nodes)
+	wantNodes := []hubNode{
+		{Ref: domain.Ref{World: "root.svc:6309", Path: "/index.md"}, Status: "ok"},
+		{Ref: domain.Ref{World: "world-a.svc:6309", Path: "/guide.md"}, Status: "ok"},
+	}
+	if !reflect.DeepEqual(g.nodes, wantNodes) {
+		t.Fatalf("nodes = %+v, want %+v (edge rows must not become nodes)", g.nodes, wantNodes)
 	}
 	want := []domain.Edge{
 		{From: domain.Ref{World: "root.svc:6309", Path: "/index.md"}, To: domain.Ref{World: "world-a.svc:6309", Path: "/guide.md"}, Type: domain.EdgeReference},
@@ -242,7 +247,7 @@ func TestFloorEnrichedWithHubEdgesAndPortals(t *testing.T) {
 		raw:       domain.RawDocument{Body: lookupTable}, // Lookup → satellites
 		fetchBody: map[string]string{hubGraphPath: graphExport},
 	}
-	svc := NewReadingService(gw, fakeRenderer{}, nil).WithHub("root")
+	svc := NewReadingService(gw, fakeRenderer{}, nil).WithHub("root", graphexport.Parser{})
 
 	floor, err := svc.Floor(t.Context())
 	if err != nil {
@@ -281,7 +286,7 @@ func TestFloorJoinsCrossWorldEdgeViaAddress(t *testing.T) {
 		raw:       domain.RawDocument{Body: lookupTable},
 		fetchBody: map[string]string{hubGraphPath: graph},
 	}
-	floor, err := NewReadingService(gw, fakeRenderer{}, nil).WithHub("root").Floor(t.Context())
+	floor, err := NewReadingService(gw, fakeRenderer{}, nil).WithHub("root", graphexport.Parser{}).Floor(t.Context())
 	if err != nil {
 		t.Fatalf("Floor: %v", err)
 	}

@@ -195,3 +195,24 @@ type DocumentCache interface {
 	Get(key string) (domain.Document, bool)
 	Put(key string, doc domain.Document)
 }
+
+// GraphExportNode and GraphExportEdge are raw rows of a parsed
+// mark_graph_export document; URL forms are as published. The core maps
+// them onto Refs and drops non-mark endpoints.
+type GraphExportNode struct {
+	URL    string
+	Status string
+}
+
+// GraphExportEdge is a directed raw edge row; see GraphExportNode.
+type GraphExportEdge struct {
+	From string
+	To   string
+}
+
+// GraphExportParser is an outbound (driven) port — decode a hub's published
+// /graph.md body. The export format is owned by the demarkus client and
+// stays behind this seam.
+type GraphExportParser interface {
+	ParseGraphExport(body string) ([]GraphExportNode, []GraphExportEdge)
+}

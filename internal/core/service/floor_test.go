@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/latebit-io/demarkus-library/internal/adapter/outbound/graphexport"
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
 )
 
@@ -114,7 +115,7 @@ func TestFloorEmptyWhenNoWorldsDoesNotLeakPortals(t *testing.T) {
 			"/graph.md": "## Edges\n\n| From | To |\n|------|----|\n" +
 				"| mark://world-a/index.md | mark://secret.example/index.md |\n",
 		},
-	}, fakeRenderer{}, nil).WithHub("root")
+	}, fakeRenderer{}, nil).WithHub("root", graphexport.Parser{})
 
 	floor, err := svc.Floor(t.Context())
 	if err != nil {

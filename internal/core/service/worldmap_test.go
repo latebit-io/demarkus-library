@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/latebit-io/demarkus-library/internal/adapter/outbound/graphexport"
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
 )
 
@@ -119,7 +120,7 @@ const worldMapHubGraph = `
 
 func TestWorldOrphans(t *testing.T) {
 	host2name := map[string]string{"world-a.svc:6309": "world-a"}
-	topo := parseGraphExport(worldMapHubGraph)
+	topo := parseGraphExport(graphexport.Parser{}, worldMapHubGraph)
 
 	got := worldOrphans("world-a", host2name, topo)
 	want := map[string]bool{"/index.md": true, "/plans/c.md": true}
@@ -178,7 +179,7 @@ func TestWorldMapMarksOrphansFromHubGraph(t *testing.T) {
 		raw:       domain.RawDocument{Body: worldMapCatalog},
 		fetchBody: map[string]string{hubGraphPath: worldMapHubGraph},
 	}
-	wm, err := NewReadingService(gw, fakeRenderer{}, nil).WithHub("root").WorldMap(t.Context(), "world-a")
+	wm, err := NewReadingService(gw, fakeRenderer{}, nil).WithHub("root", graphexport.Parser{}).WorldMap(t.Context(), "world-a")
 	if err != nil {
 		t.Fatalf("WorldMap: %v", err)
 	}
