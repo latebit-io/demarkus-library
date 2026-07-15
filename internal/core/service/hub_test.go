@@ -50,6 +50,49 @@ func TestParseGraphExport(t *testing.T) {
 	}
 }
 
+// An enriched (six-column edge) export, the shape agent 0.21.1+ publishes;
+// mirrors the demarkus monorepo's fedcrawl contract golden. The same doc pair
+// appears as a plain and a rel-typed row and must collapse to one floor edge.
+const enrichedGraphExport = `# Document Graph
+
+> Exported: GOLDEN
+> Nodes: 2
+> Edges: 3
+
+## Nodes
+
+| URL | Title | Status | Links |
+|-----|-------|--------|-------|
+| [mark://root.svc:6309/index.md](mark://root.svc:6309/index.md) | Root | ok | 2 |
+| [mark://world-a.svc:6309/guide.md](mark://world-a.svc:6309/guide.md) | Guide | ok | 1 |
+
+## Edges
+
+| From | To | Rel | Label | Anchor | Count |
+|------|----|-----|-------|--------|-------|
+| mark://root.svc:6309/index.md | mark://world-a.svc:6309/guide.md |  | Guide | services | 1 |
+| mark://root.svc:6309/index.md | mark://world-a.svc:6309/guide.md | supersedes |  |  | 1 |
+| mark://world-a.svc:6309/guide.md | mark://wiki.example.org/notes.md |  | notes |  | 2 |
+`
+
+// TestParseGraphExportEnriched pins the six-column format: edge rows must
+// never become phantom nodes, and edges must still parse (the pre-fix parser
+// classified tables by column count and got both wrong).
+func TestParseGraphExportEnriched(t *testing.T) {
+	g := parseGraphExport(enrichedGraphExport)
+
+	if len(g.nodes) != 2 {
+		t.Fatalf("nodes = %d, want 2 (edge rows must not become nodes): %+v", len(g.nodes), g.nodes)
+	}
+	want := []domain.Edge{
+		{From: domain.Ref{World: "root.svc:6309", Path: "/index.md"}, To: domain.Ref{World: "world-a.svc:6309", Path: "/guide.md"}, Type: domain.EdgeReference},
+		{From: domain.Ref{World: "world-a.svc:6309", Path: "/guide.md"}, To: domain.Ref{World: "wiki.example.org", Path: "/notes.md"}, Type: domain.EdgeReference},
+	}
+	if !reflect.DeepEqual(g.edges, want) {
+		t.Errorf("edges = %+v, want %+v (rel duplicate collapsed)", g.edges, want)
+	}
+}
+
 func TestParseMarkRef(t *testing.T) {
 	cases := map[string]domain.Ref{
 		"mark://h:6309/a/b.md": {World: "h:6309", Path: "/a/b.md"},

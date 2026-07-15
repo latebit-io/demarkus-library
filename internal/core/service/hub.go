@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
+	"github.com/latebit-io/demarkus/client/graphstore"
 )
 
 // The hub topology reader (plans "Floor enrichment", decision 11). A hub is
@@ -50,37 +51,34 @@ func (s *ReadingService) readHub(ctx context.Context, hub string) hubTopology {
 	return parseGraphExport(raw.Body)
 }
 
-// parseGraphExport reads the mark_graph_export document format: a "## Nodes"
-// table (| URL | Title | Status | Links |) and a "## Edges" table
-// (| From | To |), both with mark:// URLs. Rows that are not mark:// nodes
-// (external https links, header/separator rows) are skipped. The two tables
-// are told apart by their column count, so a light shape-parse is honest
-// regardless of section order.
+// parseGraphExport reads the mark_graph_export document through the demarkus
+// client's parser (legacy two-column and enriched six-column edge tables
+// both), keeping mark:// endpoints only. Enriched exports may carry several
+// rows per document pair (plain plus rel-typed); dedup preserves the floor's
+// one-edge-per-pair invariant.
 func parseGraphExport(body string) hubTopology {
 	var t hubTopology
-	for line := range strings.SplitSeq(body, "\n") {
-		line = strings.TrimSpace(line)
-		if !strings.HasPrefix(line, "|") {
+	nodes, edges := graphstore.ParseExport(body)
+	for i := range nodes {
+		ref, ok := parseMarkRef(nodes[i].URL)
+		if !ok {
 			continue
 		}
-		cells := strings.Split(strings.Trim(line, "|"), "|")
-		for i := range cells {
-			cells[i] = strings.TrimSpace(cells[i])
+		t.nodes = append(t.nodes, hubNode{Ref: ref, Status: nodes[i].Status})
+	}
+	seen := map[domain.Edge]struct{}{}
+	for i := range edges {
+		from, okF := parseMarkRef(edges[i].From)
+		to, okT := parseMarkRef(edges[i].To)
+		if !okF || !okT {
+			continue
 		}
-		switch {
-		case len(cells) >= 4: // Nodes: | URL | Title | Status | Links |
-			ref, ok := parseMarkRef(unlinkMD(cells[0]))
-			if !ok {
-				continue
-			}
-			t.nodes = append(t.nodes, hubNode{Ref: ref, Status: cells[2]})
-		case len(cells) == 2: // Edges: | From | To |
-			from, okF := parseMarkRef(cells[0])
-			to, okT := parseMarkRef(cells[1])
-			if okF && okT {
-				t.edges = append(t.edges, domain.Edge{From: from, To: to, Type: domain.EdgeReference})
-			}
+		e := domain.Edge{From: from, To: to, Type: domain.EdgeReference}
+		if _, dup := seen[e]; dup {
+			continue
 		}
+		seen[e] = struct{}{}
+		t.edges = append(t.edges, e)
 	}
 	return t
 }
@@ -103,20 +101,6 @@ func parseMarkRef(s string) (domain.Ref, bool) {
 		path = "/" + path
 	}
 	return domain.Ref{World: strings.ToLower(host), Path: path}, true
-}
-
-// unlinkMD unwraps a markdown link "[text](url)" to its url, leaving plain
-// text untouched — the export's Nodes table wraps each URL as a link.
-func unlinkMD(s string) string {
-	if !strings.HasPrefix(s, "[") {
-		return s
-	}
-	if i := strings.Index(s, "]("); i >= 0 {
-		if j := strings.LastIndex(s, ")"); j > i+1 {
-			return s[i+2 : j]
-		}
-	}
-	return s
 }
 
 // hostName resolves a topology Ref's world to an authorized world name. The
