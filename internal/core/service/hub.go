@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
-	"github.com/latebit-io/demarkus-library/internal/core/port"
 )
 
 // The hub topology reader (plans "Floor enrichment", decision 11). A hub is
@@ -23,16 +22,10 @@ import (
 // mark_worlds + per-world lookup with edges from the R3 observed-links map.
 const hubGraphPath = "/graph.md"
 
-// hubNode is one node from the graph export's Nodes table.
-type hubNode struct {
-	Ref    domain.Ref
-	Status string
-}
-
 // hubTopology is the parsed graph export: the universe's nodes and edges, keyed
 // by host (the export addresses everything as mark://host/path).
 type hubTopology struct {
-	nodes []hubNode
+	nodes []domain.GraphNode
 	edges []domain.Edge
 }
 
@@ -48,57 +41,8 @@ func (s *ReadingService) readHub(ctx context.Context, hub string) hubTopology {
 	if err != nil {
 		return hubTopology{}
 	}
-	return parseGraphExport(s.graphParser, raw.Body)
-}
-
-// parseGraphExport decodes body through the parser port and lifts the rows
-// into core refs: mark:// endpoints only, one edge per document pair
-// (enriched exports repeat a pair with rel-typed rows).
-func parseGraphExport(parser port.GraphExportParser, body string) hubTopology {
-	var t hubTopology
-	nodes, edges := parser.ParseGraphExport(body)
-	for i := range nodes {
-		ref, ok := parseMarkRef(nodes[i].URL)
-		if !ok {
-			continue
-		}
-		t.nodes = append(t.nodes, hubNode{Ref: ref, Status: nodes[i].Status})
-	}
-	seen := map[domain.Edge]struct{}{}
-	for i := range edges {
-		from, okF := parseMarkRef(edges[i].From)
-		to, okT := parseMarkRef(edges[i].To)
-		if !okF || !okT {
-			continue
-		}
-		e := domain.Edge{From: from, To: to, Type: domain.EdgeReference}
-		if _, dup := seen[e]; dup {
-			continue
-		}
-		seen[e] = struct{}{}
-		t.edges = append(t.edges, e)
-	}
-	return t
-}
-
-// parseMarkRef turns a "mark://host[:port]/path" string into a Ref (World =
-// host, Path = "/..."). Non-mark URLs (external https, the table header) return
-// ok=false. A bare host or trailing slash normalizes to path "/".
-func parseMarkRef(s string) (domain.Ref, bool) {
-	rest, ok := strings.CutPrefix(strings.TrimSpace(s), "mark://")
-	if !ok || rest == "" {
-		return domain.Ref{}, false
-	}
-	host, path, found := strings.Cut(rest, "/")
-	if host == "" {
-		return domain.Ref{}, false
-	}
-	if !found || path == "" {
-		path = "/"
-	} else {
-		path = "/" + path
-	}
-	return domain.Ref{World: strings.ToLower(host), Path: path}, true
+	nodes, edges := s.graphParser.ParseGraphExport(raw.Body)
+	return hubTopology{nodes: nodes, edges: edges}
 }
 
 // hostName resolves a topology Ref's world to an authorized world name. The

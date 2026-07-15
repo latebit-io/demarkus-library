@@ -108,6 +108,13 @@ type Ref struct {
 	Path  string
 }
 
+// GraphNode is one document node of a hub's published graph export: a Ref
+// plus the crawl status the export recorded for it.
+type GraphNode struct {
+	Ref    Ref
+	Status string
+}
+
 // Neighborhood is the graph pane's data (ADR 0005 decision 4): one document
 // and its observed edges — Out are documents Center links to, In are
 // documents that link to Center. Derived from the render-time observed-links

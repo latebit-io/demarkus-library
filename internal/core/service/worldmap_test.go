@@ -120,7 +120,8 @@ const worldMapHubGraph = `
 
 func TestWorldOrphans(t *testing.T) {
 	host2name := map[string]string{"world-a.svc:6309": "world-a"}
-	topo := parseGraphExport(graphexport.Parser{}, worldMapHubGraph)
+	nodes, edges := graphexport.Parser{}.ParseGraphExport(worldMapHubGraph)
+	topo := hubTopology{nodes: nodes, edges: edges}
 
 	got := worldOrphans("world-a", host2name, topo)
 	want := map[string]bool{"/index.md": true, "/plans/c.md": true}

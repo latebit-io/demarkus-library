@@ -8,8 +8,8 @@ import (
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
 )
 
-// A trimmed mark_graph_export document: a Nodes table and an Edges table, with
-// an external (https) row and a separator row that must both be ignored.
+// A trimmed mark_graph_export document (legacy two-column edges), used by the
+// floor tests as the hub world's published /graph.md.
 const graphExport = `# Document Graph
 
 > Nodes: 4
@@ -31,91 +31,6 @@ const graphExport = `# Document Graph
 | mark://world-a.svc:6309/guide.md | mark://wiki.example.org/notes.md |
 | https://github.com/x | mark://root.svc:6309/index.md |
 `
-
-func TestParseGraphExport(t *testing.T) {
-	g := parseGraphExport(graphexport.Parser{}, graphExport)
-
-	if len(g.nodes) != 2 {
-		t.Fatalf("nodes = %d, want 2 (external skipped): %+v", len(g.nodes), g.nodes)
-	}
-	if g.nodes[0].Ref != (domain.Ref{World: "root.svc:6309", Path: "/index.md"}) || g.nodes[0].Status != "ok" {
-		t.Errorf("nodes[0] = %+v", g.nodes[0])
-	}
-	// Two mark://→mark:// edges; the https→mark row is dropped.
-	want := []domain.Edge{
-		{From: domain.Ref{World: "root.svc:6309", Path: "/index.md"}, To: domain.Ref{World: "world-a.svc:6309", Path: "/guide.md"}, Type: domain.EdgeReference},
-		{From: domain.Ref{World: "world-a.svc:6309", Path: "/guide.md"}, To: domain.Ref{World: "wiki.example.org", Path: "/notes.md"}, Type: domain.EdgeReference},
-	}
-	if !reflect.DeepEqual(g.edges, want) {
-		t.Errorf("edges = %+v, want %+v", g.edges, want)
-	}
-}
-
-// An enriched (six-column edge) export, the shape agent 0.21.1+ publishes;
-// mirrors the demarkus monorepo's fedcrawl contract golden. The same doc pair
-// appears as a plain and a rel-typed row and must collapse to one floor edge.
-const enrichedGraphExport = `# Document Graph
-
-> Exported: GOLDEN
-> Nodes: 2
-> Edges: 3
-
-## Nodes
-
-| URL | Title | Status | Links |
-|-----|-------|--------|-------|
-| [mark://root.svc:6309/index.md](mark://root.svc:6309/index.md) | Root | ok | 2 |
-| [mark://world-a.svc:6309/guide.md](mark://world-a.svc:6309/guide.md) | Guide | ok | 1 |
-
-## Edges
-
-| From | To | Rel | Label | Anchor | Count |
-|------|----|-----|-------|--------|-------|
-| mark://root.svc:6309/index.md | mark://world-a.svc:6309/guide.md |  | Guide | services | 1 |
-| mark://root.svc:6309/index.md | mark://world-a.svc:6309/guide.md | supersedes |  |  | 1 |
-| mark://world-a.svc:6309/guide.md | mark://wiki.example.org/notes.md |  | notes |  | 2 |
-`
-
-// TestParseGraphExportEnriched pins the six-column format: edge rows must
-// never become phantom nodes, and edges must still parse (the pre-fix parser
-// classified tables by column count and got both wrong).
-func TestParseGraphExportEnriched(t *testing.T) {
-	g := parseGraphExport(graphexport.Parser{}, enrichedGraphExport)
-
-	wantNodes := []hubNode{
-		{Ref: domain.Ref{World: "root.svc:6309", Path: "/index.md"}, Status: "ok"},
-		{Ref: domain.Ref{World: "world-a.svc:6309", Path: "/guide.md"}, Status: "ok"},
-	}
-	if !reflect.DeepEqual(g.nodes, wantNodes) {
-		t.Fatalf("nodes = %+v, want %+v (edge rows must not become nodes)", g.nodes, wantNodes)
-	}
-	want := []domain.Edge{
-		{From: domain.Ref{World: "root.svc:6309", Path: "/index.md"}, To: domain.Ref{World: "world-a.svc:6309", Path: "/guide.md"}, Type: domain.EdgeReference},
-		{From: domain.Ref{World: "world-a.svc:6309", Path: "/guide.md"}, To: domain.Ref{World: "wiki.example.org", Path: "/notes.md"}, Type: domain.EdgeReference},
-	}
-	if !reflect.DeepEqual(g.edges, want) {
-		t.Errorf("edges = %+v, want %+v (rel duplicate collapsed)", g.edges, want)
-	}
-}
-
-func TestParseMarkRef(t *testing.T) {
-	cases := map[string]domain.Ref{
-		"mark://h:6309/a/b.md": {World: "h:6309", Path: "/a/b.md"},
-		"mark://h:6309/":       {World: "h:6309", Path: "/"},
-		"mark://h:6309":        {World: "h:6309", Path: "/"},
-		"mark://Host/X.md":     {World: "host", Path: "/X.md"}, // host lowercased, path kept
-	}
-	for in, want := range cases {
-		if got, ok := parseMarkRef(in); !ok || got != want {
-			t.Errorf("parseMarkRef(%q) = %+v ok=%v, want %+v", in, got, ok, want)
-		}
-	}
-	for _, bad := range []string{"https://x.com/a", "", "mark://", "  | From "} {
-		if _, ok := parseMarkRef(bad); ok {
-			t.Errorf("parseMarkRef(%q) accepted", bad)
-		}
-	}
-}
 
 func TestWorldEdgesJoinsHostsAndFindsPortals(t *testing.T) {
 	// host→name from mark_worlds; root.svc and world-a.svc are authorized,
