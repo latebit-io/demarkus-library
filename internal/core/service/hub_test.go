@@ -7,66 +7,28 @@ import (
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
 )
 
-// A trimmed mark_graph_export document: a Nodes table and an Edges table, with
-// an external (https) row and a separator row that must both be ignored.
-const graphExport = `# Document Graph
-
-> Nodes: 4
-> Edges: 3
-
-## Nodes
-
-| URL | Title | Status | Links |
-|-----|-------|--------|-------|
-| [https://github.com/x](https://github.com/x) |  | external | 0 |
-| [mark://root.svc:6309/index.md](mark://root.svc:6309/index.md) | Root | ok | 2 |
-| [mark://world-a.svc:6309/guide.md](mark://world-a.svc:6309/guide.md) | Guide | ok | 1 |
-
-## Edges
-
-| From | To |
-|------|----|
-| mark://root.svc:6309/index.md | mark://world-a.svc:6309/guide.md |
-| mark://world-a.svc:6309/guide.md | mark://wiki.example.org/notes.md |
-| https://github.com/x | mark://root.svc:6309/index.md |
-`
-
-func TestParseGraphExport(t *testing.T) {
-	g := parseGraphExport(graphExport)
-
-	if len(g.nodes) != 2 {
-		t.Fatalf("nodes = %d, want 2 (external skipped): %+v", len(g.nodes), g.nodes)
-	}
-	if g.nodes[0].Ref != (domain.Ref{World: "root.svc:6309", Path: "/index.md"}) || g.nodes[0].Status != "ok" {
-		t.Errorf("nodes[0] = %+v", g.nodes[0])
-	}
-	// Two mark://→mark:// edges; the https→mark row is dropped.
-	want := []domain.Edge{
-		{From: domain.Ref{World: "root.svc:6309", Path: "/index.md"}, To: domain.Ref{World: "world-a.svc:6309", Path: "/guide.md"}, Type: domain.EdgeReference},
-		{From: domain.Ref{World: "world-a.svc:6309", Path: "/guide.md"}, To: domain.Ref{World: "wiki.example.org", Path: "/notes.md"}, Type: domain.EdgeReference},
-	}
-	if !reflect.DeepEqual(g.edges, want) {
-		t.Errorf("edges = %+v, want %+v", g.edges, want)
-	}
+// stubGraphParser returns a fixed domain topology, keeping core tests
+// port-only; export decoding is covered by the graphexport adapter tests.
+type stubGraphParser struct {
+	nodes []domain.GraphNode
+	edges []domain.Edge
 }
 
-func TestParseMarkRef(t *testing.T) {
-	cases := map[string]domain.Ref{
-		"mark://h:6309/a/b.md": {World: "h:6309", Path: "/a/b.md"},
-		"mark://h:6309/":       {World: "h:6309", Path: "/"},
-		"mark://h:6309":        {World: "h:6309", Path: "/"},
-		"mark://Host/X.md":     {World: "host", Path: "/X.md"}, // host lowercased, path kept
-	}
-	for in, want := range cases {
-		if got, ok := parseMarkRef(in); !ok || got != want {
-			t.Errorf("parseMarkRef(%q) = %+v ok=%v, want %+v", in, got, ok, want)
-		}
-	}
-	for _, bad := range []string{"https://x.com/a", "", "mark://", "  | From "} {
-		if _, ok := parseMarkRef(bad); ok {
-			t.Errorf("parseMarkRef(%q) accepted", bad)
-		}
-	}
+func (p stubGraphParser) ParseGraphExport(string) ([]domain.GraphNode, []domain.Edge) {
+	return p.nodes, p.edges
+}
+
+// hubStubTopology mirrors a hub graph export: two authorized-world docs plus
+// a cross-host edge to an external wiki (the portal the floor tests expect).
+var hubStubTopology = stubGraphParser{
+	nodes: []domain.GraphNode{
+		{Ref: domain.Ref{World: "root.svc:6309", Path: "/index.md"}, Status: "ok"},
+		{Ref: domain.Ref{World: "world-a.svc:6309", Path: "/guide.md"}, Status: "ok"},
+	},
+	edges: []domain.Edge{
+		{From: domain.Ref{World: "root.svc:6309", Path: "/index.md"}, To: domain.Ref{World: "world-a.svc:6309", Path: "/guide.md"}, Type: domain.EdgeReference},
+		{From: domain.Ref{World: "world-a.svc:6309", Path: "/guide.md"}, To: domain.Ref{World: "wiki.example.org", Path: "/notes.md"}, Type: domain.EdgeReference},
+	},
 }
 
 func TestWorldEdgesJoinsHostsAndFindsPortals(t *testing.T) {
@@ -197,9 +159,9 @@ func TestFloorEnrichedWithHubEdgesAndPortals(t *testing.T) {
 			{Name: "world-a", URL: "mark://world-a.svc:6309"},
 		},
 		raw:       domain.RawDocument{Body: lookupTable}, // Lookup → satellites
-		fetchBody: map[string]string{hubGraphPath: graphExport},
+		fetchBody: map[string]string{hubGraphPath: "stub"},
 	}
-	svc := NewReadingService(gw, fakeRenderer{}, nil).WithHub("root")
+	svc := NewReadingService(gw, fakeRenderer{}, nil).WithHub("root", hubStubTopology)
 
 	floor, err := svc.Floor(t.Context())
 	if err != nil {
@@ -228,17 +190,20 @@ func TestFloorJoinsCrossWorldEdgeViaAddress(t *testing.T) {
 	// which is how the hub graph keys their nodes. A cross-world edge between
 	// two authorized worlds must then join cluster-to-cluster (name→name) with
 	// NO portal — the host↔name join the address column exists to enable.
-	graph := "# Document Graph\n\n## Edges\n\n| From | To |\n|------|----|\n" +
-		"| mark://world-a.world-a.svc:6309/index.md | mark://root.root.svc:6309/index.md |\n"
+	stub := stubGraphParser{edges: []domain.Edge{{
+		From: domain.Ref{World: "world-a.world-a.svc:6309", Path: "/index.md"},
+		To:   domain.Ref{World: "root.root.svc:6309", Path: "/index.md"},
+		Type: domain.EdgeReference,
+	}}}
 	gw := fakeGateway{
 		worlds: []domain.WorldInfo{
 			{Name: "root", Address: "mark://root.root.svc:6309"},
 			{Name: "world-a", Address: "mark://world-a.world-a.svc:6309"},
 		},
 		raw:       domain.RawDocument{Body: lookupTable},
-		fetchBody: map[string]string{hubGraphPath: graph},
+		fetchBody: map[string]string{hubGraphPath: "stub"},
 	}
-	floor, err := NewReadingService(gw, fakeRenderer{}, nil).WithHub("root").Floor(t.Context())
+	floor, err := NewReadingService(gw, fakeRenderer{}, nil).WithHub("root", stub).Floor(t.Context())
 	if err != nil {
 		t.Fatalf("Floor: %v", err)
 	}

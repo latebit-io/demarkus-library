@@ -22,16 +22,10 @@ import (
 // mark_worlds + per-world lookup with edges from the R3 observed-links map.
 const hubGraphPath = "/graph.md"
 
-// hubNode is one node from the graph export's Nodes table.
-type hubNode struct {
-	Ref    domain.Ref
-	Status string
-}
-
 // hubTopology is the parsed graph export: the universe's nodes and edges, keyed
 // by host (the export addresses everything as mark://host/path).
 type hubTopology struct {
-	nodes []hubNode
+	nodes []domain.GraphNode
 	edges []domain.Edge
 }
 
@@ -40,83 +34,15 @@ type hubTopology struct {
 // doc or any read/parse failure yields an empty topology — the floor degrades,
 // never errors, on the enrichment layer.
 func (s *ReadingService) readHub(ctx context.Context, hub string) hubTopology {
-	if hub == "" {
+	if hub == "" || s.graphParser == nil {
 		return hubTopology{}
 	}
 	raw, err := s.world.Fetch(ctx, hub, hubGraphPath)
 	if err != nil {
 		return hubTopology{}
 	}
-	return parseGraphExport(raw.Body)
-}
-
-// parseGraphExport reads the mark_graph_export document format: a "## Nodes"
-// table (| URL | Title | Status | Links |) and a "## Edges" table
-// (| From | To |), both with mark:// URLs. Rows that are not mark:// nodes
-// (external https links, header/separator rows) are skipped. The two tables
-// are told apart by their column count, so a light shape-parse is honest
-// regardless of section order.
-func parseGraphExport(body string) hubTopology {
-	var t hubTopology
-	for line := range strings.SplitSeq(body, "\n") {
-		line = strings.TrimSpace(line)
-		if !strings.HasPrefix(line, "|") {
-			continue
-		}
-		cells := strings.Split(strings.Trim(line, "|"), "|")
-		for i := range cells {
-			cells[i] = strings.TrimSpace(cells[i])
-		}
-		switch {
-		case len(cells) >= 4: // Nodes: | URL | Title | Status | Links |
-			ref, ok := parseMarkRef(unlinkMD(cells[0]))
-			if !ok {
-				continue
-			}
-			t.nodes = append(t.nodes, hubNode{Ref: ref, Status: cells[2]})
-		case len(cells) == 2: // Edges: | From | To |
-			from, okF := parseMarkRef(cells[0])
-			to, okT := parseMarkRef(cells[1])
-			if okF && okT {
-				t.edges = append(t.edges, domain.Edge{From: from, To: to, Type: domain.EdgeReference})
-			}
-		}
-	}
-	return t
-}
-
-// parseMarkRef turns a "mark://host[:port]/path" string into a Ref (World =
-// host, Path = "/..."). Non-mark URLs (external https, the table header) return
-// ok=false. A bare host or trailing slash normalizes to path "/".
-func parseMarkRef(s string) (domain.Ref, bool) {
-	rest, ok := strings.CutPrefix(strings.TrimSpace(s), "mark://")
-	if !ok || rest == "" {
-		return domain.Ref{}, false
-	}
-	host, path, found := strings.Cut(rest, "/")
-	if host == "" {
-		return domain.Ref{}, false
-	}
-	if !found || path == "" {
-		path = "/"
-	} else {
-		path = "/" + path
-	}
-	return domain.Ref{World: strings.ToLower(host), Path: path}, true
-}
-
-// unlinkMD unwraps a markdown link "[text](url)" to its url, leaving plain
-// text untouched — the export's Nodes table wraps each URL as a link.
-func unlinkMD(s string) string {
-	if !strings.HasPrefix(s, "[") {
-		return s
-	}
-	if i := strings.Index(s, "]("); i >= 0 {
-		if j := strings.LastIndex(s, ")"); j > i+1 {
-			return s[i+2 : j]
-		}
-	}
-	return s
+	nodes, edges := s.graphParser.ParseGraphExport(raw.Body)
+	return hubTopology{nodes: nodes, edges: edges}
 }
 
 // hostName resolves a topology Ref's world to an authorized world name. The
@@ -202,17 +128,17 @@ func hostKey(h string) string {
 // cluster-internal address never reaches here — hostName matches it first.)
 func portalLabel(host string) (string, bool) {
 	hk := hostKey(host)
-	h, port, err := net.SplitHostPort(hk)
+	h, hp, err := net.SplitHostPort(hk)
 	if err != nil {
-		h, port = hk, ""
+		h, hp = hk, ""
 	}
 	if isLocalHost(h) {
 		return "", false
 	}
-	if port == "" || port == defaultHostPort {
+	if hp == "" || hp == defaultHostPort {
 		return h, true
 	}
-	return net.JoinHostPort(h, port), true
+	return net.JoinHostPort(h, hp), true
 }
 
 // isLocalHost reports whether a host is loopback, link-local, unspecified,

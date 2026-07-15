@@ -24,6 +24,9 @@ type ReadingService struct {
 	worldMaps worldMapCache
 	graph     linkGraph
 	hub       string // topology-source world (DEMARKUS_HUB); "" disables hub enrichment
+	// graphParser decodes the hub's published /graph.md; nil (like hub "")
+	// leaves the floor on its mark_worlds + observed-links baseline.
+	graphParser port.GraphExportParser
 }
 
 // compile-time check that ReadingService satisfies the inbound port.
@@ -35,11 +38,13 @@ func NewReadingService(world port.WorldGateway, renderer port.Renderer, cache po
 }
 
 // WithHub sets the topology-source world for floor enrichment (DEMARKUS_HUB)
-// and returns the service for chaining at the composition root. Empty leaves
-// the floor on its mark_worlds + observed-links baseline. Kept off the
+// and the parser for its published graph export, returning the service for
+// chaining at the composition root. An empty hub or nil parser leaves the
+// floor on its mark_worlds + observed-links baseline. Kept off the
 // constructor so existing callers (and tests) are untouched.
-func (s *ReadingService) WithHub(hub string) *ReadingService {
+func (s *ReadingService) WithHub(hub string, parser port.GraphExportParser) *ReadingService {
 	s.hub = hub
+	s.graphParser = parser
 	return s
 }
 

@@ -39,6 +39,7 @@ import (
 	"github.com/latebit-io/demarkus-library/internal/adapter/outbound/broker"
 	"github.com/latebit-io/demarkus-library/internal/adapter/outbound/cache"
 	"github.com/latebit-io/demarkus-library/internal/adapter/outbound/federated"
+	"github.com/latebit-io/demarkus-library/internal/adapter/outbound/graphexport"
 	"github.com/latebit-io/demarkus-library/internal/adapter/outbound/markdown"
 	"github.com/latebit-io/demarkus-library/internal/adapter/outbound/oauth"
 	"github.com/latebit-io/demarkus-library/internal/adapter/outbound/world"
@@ -186,7 +187,7 @@ func main() {
 	// Application core (the hexagon) + the reading room, same in both modes.
 	// The rendered-document cache backs the trail engine's 1-read-per-click
 	// budget (ADR 0005 decision 9).
-	reading := service.NewReadingService(gateway, renderer, cache.NewMemory(0)).WithHub(config.Hub)
+	reading := service.NewReadingService(gateway, renderer, cache.NewMemory(0)).WithHub(config.Hub, graphexport.Parser{})
 	// Phase 4 AI librarian (plans/phase-4-ai-librarian.md): nib-backed agent
 	// over the core's read-only ports, joining the canvas as pane kind `a`.
 	// Feature-dark unless nib's llmconfig resolves an LLM provider (global

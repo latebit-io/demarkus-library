@@ -195,3 +195,11 @@ type DocumentCache interface {
 	Get(key string) (domain.Document, bool)
 	Put(key string, doc domain.Document)
 }
+
+// GraphExportParser is an outbound (driven) port — decode a hub's published
+// /graph.md body into domain graph terms: mark:// endpoints only, hosts
+// lowercased, one reference edge per document pair. The export format is
+// owned by the demarkus client and stays behind this seam.
+type GraphExportParser interface {
+	ParseGraphExport(body string) ([]domain.GraphNode, []domain.Edge)
+}
