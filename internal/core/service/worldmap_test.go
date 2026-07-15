@@ -284,16 +284,18 @@ func TestWorldMapDegradesOnReadError(t *testing.T) {
 	}
 }
 
-// A hub rel edge collapsing with its plain observed twin keeps the predicate.
+// A hub rel edge (host-keyed, remapped via host2name) collapsing with its
+// plain observed twin (already world-name form) keeps the predicate.
 func TestIntraWorldEdgesKeepsRel(t *testing.T) {
 	labeled := map[string]bool{"/a.md": true, "/b.md": true}
+	host2name := map[string]string{"w.w.svc:6309": "w"}
 	all := []domain.Edge{
 		{From: domain.Ref{World: "w", Path: "/a.md"}, To: domain.Ref{World: "w", Path: "/b.md"}, Type: domain.EdgeReference},
-		{From: domain.Ref{World: "w", Path: "/a.md"}, To: domain.Ref{World: "w", Path: "/b.md"}, Type: domain.EdgeReference, Rel: "supersedes"},
+		{From: domain.Ref{World: "w.w.svc:6309", Path: "/a.md"}, To: domain.Ref{World: "w.w.svc:6309", Path: "/b.md"}, Type: domain.EdgeReference, Rel: "supersedes"},
 	}
-	out := intraWorldEdges("w", nil, all, labeled)
+	out := intraWorldEdges("w", host2name, all, labeled)
 	want := []domain.Edge{{From: domain.Ref{World: "w", Path: "/a.md"}, To: domain.Ref{World: "w", Path: "/b.md"}, Type: domain.EdgeReference, Rel: "supersedes"}}
 	if !reflect.DeepEqual(out, want) {
-		t.Errorf("edges = %+v, want %+v (predicate must survive the pair collapse)", out, want)
+		t.Errorf("edges = %+v, want %+v (predicate must survive remap and pair collapse)", out, want)
 	}
 }
