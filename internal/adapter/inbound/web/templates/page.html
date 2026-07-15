@@ -327,6 +327,9 @@
     svg.graph { max-width: 100%; height: auto; }
     svg.graph text { fill: var(--muted); font-family: system-ui, sans-serif; }
     .graph-edge { stroke: var(--faint); stroke-width: 1.5; }
+    /* A typed relation (rel-<predicate>) draws dashed; its predicate is the
+       <title> tooltip on the line. */
+    .graph-edge.edge-rel { stroke-dasharray: 5 3; }
     .edge-arrow { fill: var(--muted); }
     /* Node hover (islands.js) lights up the incident edges and the nodes they
        connect, so the relationship reads. */

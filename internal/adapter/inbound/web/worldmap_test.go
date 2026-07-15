@@ -186,3 +186,19 @@ func TestTrailWorldMapErrorHandling(t *testing.T) {
 		t.Errorf("unfocused world-map error must tombstone: %d", rec.Code)
 	}
 }
+
+// A rel-typed edge draws dashed (edge-rel) with its predicate as the tooltip;
+// plain edges stay untouched.
+func TestWorldMapSVGRelEdge(t *testing.T) {
+	wm := testWorldMap()
+	wm.Edges[0].Rel = "supersedes"
+	svg := string(worldMapSVG(wm, func(p string) string { return p }, ""))
+	for _, want := range []string{
+		`class="graph-edge edge-rel"`,
+		`<title>supersedes</title>`,
+	} {
+		if !strings.Contains(svg, want) {
+			t.Errorf("world-map svg missing %q\n---\n%s", want, svg)
+		}
+	}
+}
