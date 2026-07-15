@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/latebit-io/demarkus-library/internal/adapter/outbound/graphexport"
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
 )
 
@@ -110,12 +109,13 @@ func TestFloorEmptyWhenNoWorldsDoesNotLeakPortals(t *testing.T) {
 	// names + internal addresses. The hub graph carries an edge; the guard
 	// must suppress topology enrichment when there are no visible worlds.
 	svc := NewReadingService(fakeGateway{
-		worlds: nil, // mark_worlds returns no worlds for this identity
-		fetchBody: map[string]string{
-			"/graph.md": "## Edges\n\n| From | To |\n|------|----|\n" +
-				"| mark://world-a/index.md | mark://secret.example/index.md |\n",
-		},
-	}, fakeRenderer{}, nil).WithHub("root", graphexport.Parser{})
+		worlds:    nil, // mark_worlds returns no worlds for this identity
+		fetchBody: map[string]string{"/graph.md": "stub"},
+	}, fakeRenderer{}, nil).WithHub("root", stubGraphParser{edges: []domain.Edge{{
+		From: domain.Ref{World: "world-a", Path: "/index.md"},
+		To:   domain.Ref{World: "secret.example", Path: "/index.md"},
+		Type: domain.EdgeReference,
+	}}})
 
 	floor, err := svc.Floor(t.Context())
 	if err != nil {

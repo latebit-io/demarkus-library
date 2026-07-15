@@ -4,33 +4,32 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/latebit-io/demarkus-library/internal/adapter/outbound/graphexport"
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
 )
 
-// A trimmed mark_graph_export document (legacy two-column edges), used by the
-// floor tests as the hub world's published /graph.md.
-const graphExport = `# Document Graph
+// stubGraphParser returns a fixed domain topology, keeping core tests
+// port-only; export decoding is covered by the graphexport adapter tests.
+type stubGraphParser struct {
+	nodes []domain.GraphNode
+	edges []domain.Edge
+}
 
-> Nodes: 4
-> Edges: 3
+func (p stubGraphParser) ParseGraphExport(string) ([]domain.GraphNode, []domain.Edge) {
+	return p.nodes, p.edges
+}
 
-## Nodes
-
-| URL | Title | Status | Links |
-|-----|-------|--------|-------|
-| [https://github.com/x](https://github.com/x) |  | external | 0 |
-| [mark://root.svc:6309/index.md](mark://root.svc:6309/index.md) | Root | ok | 2 |
-| [mark://world-a.svc:6309/guide.md](mark://world-a.svc:6309/guide.md) | Guide | ok | 1 |
-
-## Edges
-
-| From | To |
-|------|----|
-| mark://root.svc:6309/index.md | mark://world-a.svc:6309/guide.md |
-| mark://world-a.svc:6309/guide.md | mark://wiki.example.org/notes.md |
-| https://github.com/x | mark://root.svc:6309/index.md |
-`
+// hubStubTopology mirrors a hub graph export: two authorized-world docs plus
+// a cross-host edge to an external wiki (the portal the floor tests expect).
+var hubStubTopology = stubGraphParser{
+	nodes: []domain.GraphNode{
+		{Ref: domain.Ref{World: "root.svc:6309", Path: "/index.md"}, Status: "ok"},
+		{Ref: domain.Ref{World: "world-a.svc:6309", Path: "/guide.md"}, Status: "ok"},
+	},
+	edges: []domain.Edge{
+		{From: domain.Ref{World: "root.svc:6309", Path: "/index.md"}, To: domain.Ref{World: "world-a.svc:6309", Path: "/guide.md"}, Type: domain.EdgeReference},
+		{From: domain.Ref{World: "world-a.svc:6309", Path: "/guide.md"}, To: domain.Ref{World: "wiki.example.org", Path: "/notes.md"}, Type: domain.EdgeReference},
+	},
+}
 
 func TestWorldEdgesJoinsHostsAndFindsPortals(t *testing.T) {
 	// host→name from mark_worlds; root.svc and world-a.svc are authorized,
@@ -160,9 +159,9 @@ func TestFloorEnrichedWithHubEdgesAndPortals(t *testing.T) {
 			{Name: "world-a", URL: "mark://world-a.svc:6309"},
 		},
 		raw:       domain.RawDocument{Body: lookupTable}, // Lookup → satellites
-		fetchBody: map[string]string{hubGraphPath: graphExport},
+		fetchBody: map[string]string{hubGraphPath: "stub"},
 	}
-	svc := NewReadingService(gw, fakeRenderer{}, nil).WithHub("root", graphexport.Parser{})
+	svc := NewReadingService(gw, fakeRenderer{}, nil).WithHub("root", hubStubTopology)
 
 	floor, err := svc.Floor(t.Context())
 	if err != nil {
@@ -191,17 +190,20 @@ func TestFloorJoinsCrossWorldEdgeViaAddress(t *testing.T) {
 	// which is how the hub graph keys their nodes. A cross-world edge between
 	// two authorized worlds must then join cluster-to-cluster (name→name) with
 	// NO portal — the host↔name join the address column exists to enable.
-	graph := "# Document Graph\n\n## Edges\n\n| From | To |\n|------|----|\n" +
-		"| mark://world-a.world-a.svc:6309/index.md | mark://root.root.svc:6309/index.md |\n"
+	stub := stubGraphParser{edges: []domain.Edge{{
+		From: domain.Ref{World: "world-a.world-a.svc:6309", Path: "/index.md"},
+		To:   domain.Ref{World: "root.root.svc:6309", Path: "/index.md"},
+		Type: domain.EdgeReference,
+	}}}
 	gw := fakeGateway{
 		worlds: []domain.WorldInfo{
 			{Name: "root", Address: "mark://root.root.svc:6309"},
 			{Name: "world-a", Address: "mark://world-a.world-a.svc:6309"},
 		},
 		raw:       domain.RawDocument{Body: lookupTable},
-		fetchBody: map[string]string{hubGraphPath: graph},
+		fetchBody: map[string]string{hubGraphPath: "stub"},
 	}
-	floor, err := NewReadingService(gw, fakeRenderer{}, nil).WithHub("root", graphexport.Parser{}).Floor(t.Context())
+	floor, err := NewReadingService(gw, fakeRenderer{}, nil).WithHub("root", stub).Floor(t.Context())
 	if err != nil {
 		t.Fatalf("Floor: %v", err)
 	}

@@ -6,7 +6,6 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/latebit-io/demarkus-library/internal/adapter/outbound/graphexport"
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
 )
 
@@ -95,33 +94,27 @@ func TestIntraWorldEdgesJoinAndFilter(t *testing.T) {
 	}
 }
 
-// A hub graph export over the same paths as worldMapCatalog: every doc is a
+// A hub topology over the same paths as worldMapCatalog: every doc is a
 // node, but only a→b (intra-world) and adr/0001→root/index (cross-world) are
 // reference edges. So index.md and plans/c.md are reference-orphans; a, b, and
 // adr/0001 (linked off-world) are not.
-const worldMapHubGraph = `
-## Nodes
-
-| URL | Title | Status | Links |
-|-----|-------|--------|-------|
-| [Home](mark://world-a.svc:6309/index.md)    | Home   | accepted | 0 |
-| [Plan A](mark://world-a.svc:6309/plans/a.md) | Plan A | draft    | 1 |
-| [Plan B](mark://world-a.svc:6309/plans/b.md) | Plan B | draft    | 0 |
-| [Plan C](mark://world-a.svc:6309/plans/c.md) | Plan C | draft    | 0 |
-| [ADR 1](mark://world-a.svc:6309/adr/0001.md) | ADR 1  | accepted | 1 |
-
-## Edges
-
-| From | To |
-|------|-----|
-| mark://world-a.svc:6309/plans/a.md  | mark://world-a.svc:6309/plans/b.md |
-| mark://world-a.svc:6309/adr/0001.md | mark://root.svc:6309/index.md      |
-`
+var worldMapHubTopo = stubGraphParser{
+	nodes: []domain.GraphNode{
+		{Ref: domain.Ref{World: "world-a.svc:6309", Path: "/index.md"}, Status: "accepted"},
+		{Ref: domain.Ref{World: "world-a.svc:6309", Path: "/plans/a.md"}, Status: "draft"},
+		{Ref: domain.Ref{World: "world-a.svc:6309", Path: "/plans/b.md"}, Status: "draft"},
+		{Ref: domain.Ref{World: "world-a.svc:6309", Path: "/plans/c.md"}, Status: "draft"},
+		{Ref: domain.Ref{World: "world-a.svc:6309", Path: "/adr/0001.md"}, Status: "accepted"},
+	},
+	edges: []domain.Edge{
+		{From: domain.Ref{World: "world-a.svc:6309", Path: "/plans/a.md"}, To: domain.Ref{World: "world-a.svc:6309", Path: "/plans/b.md"}, Type: domain.EdgeReference},
+		{From: domain.Ref{World: "world-a.svc:6309", Path: "/adr/0001.md"}, To: domain.Ref{World: "root.svc:6309", Path: "/index.md"}, Type: domain.EdgeReference},
+	},
+}
 
 func TestWorldOrphans(t *testing.T) {
 	host2name := map[string]string{"world-a.svc:6309": "world-a"}
-	nodes, edges := graphexport.Parser{}.ParseGraphExport(worldMapHubGraph)
-	topo := hubTopology{nodes: nodes, edges: edges}
+	topo := hubTopology(worldMapHubTopo)
 
 	got := worldOrphans("world-a", host2name, topo)
 	want := map[string]bool{"/index.md": true, "/plans/c.md": true}
@@ -178,9 +171,9 @@ func TestWorldMapMarksOrphansFromHubGraph(t *testing.T) {
 	gw := fakeGateway{
 		worlds:    []domain.WorldInfo{{Name: "world-a", URL: "mark://world-a.svc:6309"}},
 		raw:       domain.RawDocument{Body: worldMapCatalog},
-		fetchBody: map[string]string{hubGraphPath: worldMapHubGraph},
+		fetchBody: map[string]string{hubGraphPath: "stub"},
 	}
-	wm, err := NewReadingService(gw, fakeRenderer{}, nil).WithHub("root", graphexport.Parser{}).WorldMap(t.Context(), "world-a")
+	wm, err := NewReadingService(gw, fakeRenderer{}, nil).WithHub("root", worldMapHubTopo).WorldMap(t.Context(), "world-a")
 	if err != nil {
 		t.Fatalf("WorldMap: %v", err)
 	}
