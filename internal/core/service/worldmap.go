@@ -228,7 +228,10 @@ func topDir(path string) string {
 // own name. Hub edges are keyed by host, observed edges by world name; host2name
 // joins the former. Deduped and sorted for a stable, cacheable render.
 func intraWorldEdges(world string, host2name map[string]string, all []domain.Edge, labeled map[string]bool) []domain.Edge {
-	seen := map[domain.Edge]struct{}{}
+	// Dedup by remapped edge sans Rel; a pair keeps the first declared
+	// predicate it sees (a hub rel edge collapsing with its plain observed
+	// twin must not lose the relation).
+	at := map[domain.Edge]int{}
 	var out []domain.Edge
 	for _, e := range all {
 		if !worldMember(e.From.World, world, host2name) || !worldMember(e.To.World, world, host2name) {
@@ -242,10 +245,14 @@ func intraWorldEdges(world string, host2name map[string]string, all []domain.Edg
 			To:   domain.Ref{World: world, Path: e.To.Path},
 			Type: e.Type,
 		}
-		if _, dup := seen[ce]; dup {
+		if i, dup := at[ce]; dup {
+			if out[i].Rel == "" {
+				out[i].Rel = e.Rel
+			}
 			continue
 		}
-		seen[ce] = struct{}{}
+		at[ce] = len(out)
+		ce.Rel = e.Rel
 		out = append(out, ce)
 	}
 	sort.Slice(out, func(i, j int) bool {

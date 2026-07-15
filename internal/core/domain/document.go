@@ -152,12 +152,15 @@ const (
 // The floor renders these between world clusters (and to portal nodes); they
 // come from the durable hub graph export unioned with the R3 observed-links map.
 // Type lets the graph overlay draw references and drop/fade containment without
-// recomputing. Edge stays comparable (Type is a string), so it remains a map
-// key for the dedup sets in worldEdges/intraWorldEdges.
+// recomputing. Rel is the optional declared predicate of a typed relation
+// (rel-<predicate> publisher metadata, e.g. "supersedes"); "" for a plain body
+// link. Edge stays comparable, so it remains a map key for the dedup sets in
+// worldEdges/intraWorldEdges.
 type Edge struct {
 	From Ref
 	To   Ref
 	Type EdgeType
+	Rel  string
 }
 
 // WorldInfo is one world of the universe: a mark_worlds row in broker mode,

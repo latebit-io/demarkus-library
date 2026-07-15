@@ -295,7 +295,7 @@ func worldMapSVG(wm domain.WorldMap, docURL func(string) string, newURL string) 
 		if !okF || !okT {
 			continue
 		}
-		directedEdge(&b, from.x, from.y, from.r, to.x, to.y, to.r, e.From.Path, e.To.Path)
+		directedEdge(&b, from.x, from.y, from.r, to.x, to.y, to.r, e.From.Path, e.To.Path, e.Rel)
 	}
 	for _, d := range linked {
 		pn := placed[d.Path]

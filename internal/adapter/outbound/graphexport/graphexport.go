@@ -16,8 +16,9 @@ import (
 type Parser struct{}
 
 // ParseGraphExport decodes body into domain nodes and reference edges:
-// mark:// endpoints only, and one edge per document pair (enriched exports
-// repeat a pair with rel-typed rows).
+// mark:// endpoints only, and one edge per document pair. Enriched exports
+// repeat a pair as a plain plus rel-typed rows; the pair keeps its first
+// declared predicate so the relation survives the collapse.
 func (Parser) ParseGraphExport(body string) ([]domain.GraphNode, []domain.Edge) {
 	rawNodes, rawEdges := graphstore.ParseExport(body)
 	var nodes []domain.GraphNode
@@ -29,19 +30,23 @@ func (Parser) ParseGraphExport(body string) ([]domain.GraphNode, []domain.Edge) 
 		nodes = append(nodes, domain.GraphNode{Ref: ref, Status: rawNodes[i].Status})
 	}
 	var edges []domain.Edge
-	seen := map[domain.Edge]struct{}{}
+	type pair struct{ from, to domain.Ref }
+	at := map[pair]int{}
 	for i := range rawEdges {
 		from, okF := parseMarkRef(rawEdges[i].From)
 		to, okT := parseMarkRef(rawEdges[i].To)
 		if !okF || !okT {
 			continue
 		}
-		e := domain.Edge{From: from, To: to, Type: domain.EdgeReference}
-		if _, dup := seen[e]; dup {
+		p := pair{from, to}
+		if j, dup := at[p]; dup {
+			if edges[j].Rel == "" {
+				edges[j].Rel = rawEdges[i].Rel
+			}
 			continue
 		}
-		seen[e] = struct{}{}
-		edges = append(edges, e)
+		at[p] = len(edges)
+		edges = append(edges, domain.Edge{From: from, To: to, Type: domain.EdgeReference, Rel: rawEdges[i].Rel})
 	}
 	return nodes, edges
 }

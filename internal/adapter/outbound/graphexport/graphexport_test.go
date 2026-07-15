@@ -60,6 +60,13 @@ var wantEdges = []domain.Edge{
 	{From: domain.Ref{World: "world-a.svc:6309", Path: "/guide.md"}, To: domain.Ref{World: "wiki.example.org", Path: "/notes.md"}, Type: domain.EdgeReference},
 }
 
+// The enriched fixture's plain and rel-typed rows for the same pair collapse
+// to one edge that keeps the predicate.
+var wantEnrichedEdges = []domain.Edge{
+	{From: domain.Ref{World: "root.svc:6309", Path: "/index.md"}, To: domain.Ref{World: "world-a.svc:6309", Path: "/guide.md"}, Type: domain.EdgeReference, Rel: "supersedes"},
+	{From: domain.Ref{World: "world-a.svc:6309", Path: "/guide.md"}, To: domain.Ref{World: "wiki.example.org", Path: "/notes.md"}, Type: domain.EdgeReference},
+}
+
 func TestParseGraphExportLegacy(t *testing.T) {
 	nodes, edges := Parser{}.ParseGraphExport(legacyExport)
 	if !reflect.DeepEqual(nodes, wantNodes) {
@@ -79,8 +86,8 @@ func TestParseGraphExportEnriched(t *testing.T) {
 	if !reflect.DeepEqual(nodes, wantNodes) {
 		t.Errorf("nodes = %+v, want %+v (edge rows must not become nodes)", nodes, wantNodes)
 	}
-	if !reflect.DeepEqual(edges, wantEdges) {
-		t.Errorf("edges = %+v, want %+v (rel duplicate collapsed)", edges, wantEdges)
+	if !reflect.DeepEqual(edges, wantEnrichedEdges) {
+		t.Errorf("edges = %+v, want %+v (pair collapsed, predicate kept)", edges, wantEnrichedEdges)
 	}
 }
 
