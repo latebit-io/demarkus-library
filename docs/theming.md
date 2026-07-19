@@ -83,7 +83,7 @@ Under systemd, a drop-in keeps the branding beside the unit:
 ```ini
 # /etc/systemd/system/demarkus-library.service.d/branding.conf
 [Service]
-Environment=DEMARKUS_BRAND=Acme Knowledge
+Environment="DEMARKUS_BRAND=Acme Knowledge"
 Environment=DEMARKUS_THEME_CSS=/etc/demarkus-library/site.css
 Environment=DEMARKUS_LOGO=/etc/demarkus-library/logo.svg
 ```

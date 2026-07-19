@@ -1,10 +1,13 @@
 package web
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/labstack/echo/v5"
 )
@@ -39,9 +42,7 @@ func ThemeRoutes(e *echo.Echo, brandName, logoPath, cssPath string) (Branding, e
 		if ctype == "" {
 			ctype = http.DetectContentType(blob)
 		}
-		e.GET(ThemeLogoPath, func(c *echo.Context) error {
-			return c.Blob(http.StatusOK, ctype, blob)
-		})
+		e.GET(ThemeLogoPath, blobHandler(ctype, blob))
 		b.LogoURL = ThemeLogoPath
 	}
 	if cssPath != "" {
@@ -49,10 +50,27 @@ func ThemeRoutes(e *echo.Echo, brandName, logoPath, cssPath string) (Branding, e
 		if err != nil {
 			return b, err
 		}
-		e.GET(ThemeCSSPath, func(c *echo.Context) error {
-			return c.Blob(http.StatusOK, "text/css; charset=utf-8", blob)
-		})
+		e.GET(ThemeCSSPath, blobHandler("text/css; charset=utf-8", blob))
 		b.ThemeCSSURL = ThemeCSSPath
 	}
 	return b, nil
+}
+
+// blobHandler serves a startup-loaded asset under a revalidation caching
+// model: an ETag over the content with `no-cache` (cache, but ask first), so
+// repeat navigations cost a 304 instead of the body — and a rebrand shows on
+// the reader's next request after the restart, which a long max-age on the
+// stable /theme/* URLs would defer.
+func blobHandler(ctype string, blob []byte) func(*echo.Context) error {
+	sum := sha256.Sum256(blob)
+	etag := `"` + hex.EncodeToString(sum[:8]) + `"`
+	return func(c *echo.Context) error {
+		h := c.Response().Header()
+		h.Set("ETag", etag)
+		h.Set("Cache-Control", "no-cache")
+		if strings.Contains(c.Request().Header.Get("If-None-Match"), etag) {
+			return c.NoContent(http.StatusNotModified)
+		}
+		return c.Blob(http.StatusOK, ctype, blob)
+	}
 }

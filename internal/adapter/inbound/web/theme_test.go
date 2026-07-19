@@ -2,6 +2,7 @@ package web
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -77,6 +78,31 @@ func TestThemeRoutesServeAssets(t *testing.T) {
 	}
 	if ct := rec.Header().Get("Content-Type"); !strings.Contains(ct, "svg") {
 		t.Errorf("logo Content-Type = %q", ct)
+	}
+}
+
+func TestThemeAssetsRevalidateViaETag(t *testing.T) {
+	svc := &fakeReading{doc: domain.Document{Title: "X", Path: "/x.md", HTML: "<p>x</p>"}}
+	app := brandedApp(t, svc)
+
+	rec := get(app, ThemeCSSPath)
+	etag := rec.Header().Get("ETag")
+	if etag == "" {
+		t.Fatal("theme css missing ETag")
+	}
+	if cc := rec.Header().Get("Cache-Control"); cc != "no-cache" {
+		t.Errorf("Cache-Control = %q, want \"no-cache\"", cc)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, ThemeCSSPath, http.NoBody)
+	req.Header.Set("If-None-Match", etag)
+	rec2 := httptest.NewRecorder()
+	app.ServeHTTP(rec2, req)
+	if rec2.Code != http.StatusNotModified {
+		t.Errorf("conditional GET: status %d, want 304", rec2.Code)
+	}
+	if rec2.Body.Len() != 0 {
+		t.Errorf("304 carried a body (%d bytes)", rec2.Body.Len())
 	}
 }
 
