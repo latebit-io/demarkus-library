@@ -49,6 +49,27 @@ library:
   # world (e.g. "root"); in quic mode it defaults to the home world.
   hub: ""
 
+  # Branding / theming — present the library as your own room. name
+  # replaces the "demarkus Library" wordmark in titles, nav, and the
+  # login card (DEMARKUS_BRAND). The logo and override stylesheet come
+  # from an operator-managed ConfigMap mounted read-only into the pod:
+  #
+  #   kubectl create configmap library-branding \
+  #     --from-file=site.css --from-file=logo.svg
+  #
+  # configMap names it; themeCSSKey / logoKey name the entries to wire
+  # (DEMARKUS_THEME_CSS / DEMARKUS_LOGO) — an empty key skips that
+  # asset. The stylesheet loads after the built-in styles; overriding
+  # the :root design tokens (--paper, --ink, --font-prose, the signal
+  # colors — see static/library.css) is the intended surface. Asset
+  # changes are operator-driven: update the ConfigMap and bounce the
+  # deployment (assets are read at startup).
+  branding:
+    name: ""
+    configMap: ""
+    themeCSSKey: site.css
+    logoKey: ""
+
   # The AI librarian (Phase 4): feature-dark unless an LLM provider key is
   # wired. keyEnv names the provider-selecting env var — nib's llmconfig
   # picks the builtin profile whose key is set (ANTHROPIC_API_KEY,

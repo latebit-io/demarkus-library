@@ -243,3 +243,75 @@ tests:
     asserts:
       - failedTemplate:
           errorMessagePattern: library.transport must be "broker" or "quic"
+
+  - it: branding is absent by default (stock room)
+    template: deployment.yaml
+    asserts:
+      - notExists:
+          path: spec.template.spec.containers[0].env[?(@.name == "DEMARKUS_BRAND")]
+      - notExists:
+          path: spec.template.spec.containers[0].env[?(@.name == "DEMARKUS_THEME_CSS")]
+      - notExists:
+          path: spec.template.spec.containers[0].env[?(@.name == "DEMARKUS_LOGO")]
+      - notExists:
+          path: spec.template.spec.volumes
+      - notExists:
+          path: spec.template.spec.containers[0].volumeMounts
+
+  - it: branding name renders as plain env without any ConfigMap
+    template: deployment.yaml
+    set:
+      library.branding.name: Acme Knowledge
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DEMARKUS_BRAND
+            value: Acme Knowledge
+      - notExists:
+          path: spec.template.spec.volumes
+
+  - it: branding ConfigMap mounts and wires theme + logo paths
+    template: deployment.yaml
+    set:
+      library.branding.name: Acme Knowledge
+      library.branding.configMap: library-branding
+      library.branding.logoKey: logo.svg
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DEMARKUS_THEME_CSS
+            value: /etc/demarkus-library/branding/site.css
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DEMARKUS_LOGO
+            value: /etc/demarkus-library/branding/logo.svg
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            name: branding
+            mountPath: /etc/demarkus-library/branding
+            readOnly: true
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: branding
+            configMap:
+              name: library-branding
+
+  - it: an empty themeCSSKey skips the stylesheet but keeps the mount for the logo
+    template: deployment.yaml
+    set:
+      library.branding.configMap: library-branding
+      library.branding.themeCSSKey: ""
+      library.branding.logoKey: logo.png
+    asserts:
+      - notExists:
+          path: spec.template.spec.containers[0].env[?(@.name == "DEMARKUS_THEME_CSS")]
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DEMARKUS_LOGO
+            value: /etc/demarkus-library/branding/logo.png

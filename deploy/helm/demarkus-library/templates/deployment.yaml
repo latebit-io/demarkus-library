@@ -113,6 +113,25 @@ spec:
               value: {{ . | quote }}
             {{- end }}
             {{- end }}
+            {{- /* Branding (the operator identity layer): the display name
+                   is plain env; logo + override stylesheet ride in from the
+                   operator-managed ConfigMap mounted at the branding path
+                   below. Keys are opt-in — an empty key leaves that asset
+                   (and its env var) out entirely. */}}
+            {{- with trim .Values.library.branding.name }}
+            - name: DEMARKUS_BRAND
+              value: {{ . | quote }}
+            {{- end }}
+            {{- if trim .Values.library.branding.configMap }}
+            {{- with trim .Values.library.branding.themeCSSKey }}
+            - name: DEMARKUS_THEME_CSS
+              value: {{ printf "/etc/demarkus-library/branding/%s" . | quote }}
+            {{- end }}
+            {{- with trim .Values.library.branding.logoKey }}
+            - name: DEMARKUS_LOGO
+              value: {{ printf "/etc/demarkus-library/branding/%s" . | quote }}
+            {{- end }}
+            {{- end }}
             {{- /* The AI librarian (Phase 4) enables when an LLM provider key
                    reaches the pod: nib's llmconfig auto-selects the builtin
                    provider profile whose key env var is set (ANTHROPIC_API_KEY,
@@ -156,6 +175,18 @@ spec:
           {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+          {{- if trim .Values.library.branding.configMap }}
+          volumeMounts:
+            - name: branding
+              mountPath: /etc/demarkus-library/branding
+              readOnly: true
+          {{- end }}
+      {{- if trim .Values.library.branding.configMap }}
+      volumes:
+        - name: branding
+          configMap:
+            name: {{ .Values.library.branding.configMap | quote }}
+      {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
