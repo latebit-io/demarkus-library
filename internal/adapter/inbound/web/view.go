@@ -19,9 +19,25 @@ var templatesFS embed.FS
 // the token (see csrf.go).
 const csrfContextKey = "csrf"
 
+// Branding is the operator's identity layer over the room's chrome: the
+// display name replaces the "demarkus Library" wordmark in titles, nav, and
+// the login card; LogoURL and ThemeCSSURL point at the /theme/ assets
+// (ThemeRoutes), empty ⇒ the affordance is simply absent. Templates read it
+// via the brand/logoURL/themeCSS funcs so no view model carries it.
+type Branding struct {
+	Name        string
+	LogoURL     string
+	ThemeCSSURL string
+}
+
+// DefaultBranding is the stock room: the demarkus wordmark, no logo, no
+// override stylesheet.
+func DefaultBranding() Branding { return Branding{Name: "demarkus Library"} }
+
 // View implements echo.Renderer over the embedded templates.
 type View struct {
 	templates *template.Template
+	branding  Branding
 }
 
 // NewView parses the embedded templates. Returns an error so wiring can fail
@@ -29,15 +45,30 @@ type View struct {
 func NewView() (*View, error) {
 	// csrf is a per-request function the renderer overrides on a clone; a
 	// no-op placeholder must exist at parse time so templates referencing
-	// {{ csrf }} compile. The base template is only ever cloned, never
-	// executed, which keeps the per-request Funcs override on the clone valid.
+	// {{ csrf }} compile (likewise the branding funcs, bound per-render from
+	// v.branding). The base template is only ever cloned, never executed,
+	// which keeps the per-request Funcs override on the clone valid.
 	t, err := template.New("library").
-		Funcs(template.FuncMap{"csrf": func() string { return "" }}).
+		Funcs(template.FuncMap{
+			"csrf":     func() string { return "" },
+			"brand":    func() string { return "" },
+			"logoURL":  func() string { return "" },
+			"themeCSS": func() string { return "" },
+		}).
 		ParseFS(templatesFS, "templates/*.html")
 	if err != nil {
 		return nil, err
 	}
-	return &View{templates: t}, nil
+	return &View{templates: t, branding: DefaultBranding()}, nil
+}
+
+// WithBranding returns the view rendering under the given branding.
+func (v *View) WithBranding(b Branding) *View {
+	if b.Name == "" {
+		b.Name = DefaultBranding().Name
+	}
+	v.branding = b
+	return v
 }
 
 // Render satisfies echo.Renderer (v5 signature: context first, then writer). It
@@ -49,6 +80,12 @@ func (v *View) Render(c *echo.Context, w io.Writer, name string, data any) error
 		return err
 	}
 	token, _ := c.Get(csrfContextKey).(string)
-	cl.Funcs(template.FuncMap{"csrf": func() string { return token }})
+	b := v.branding
+	cl.Funcs(template.FuncMap{
+		"csrf":     func() string { return token },
+		"brand":    func() string { return b.Name },
+		"logoURL":  func() string { return b.LogoURL },
+		"themeCSS": func() string { return b.ThemeCSSURL },
+	})
 	return cl.ExecuteTemplate(w, name, data)
 }

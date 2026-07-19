@@ -3,49 +3,50 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Sign in — demarkus Library</title>
+  <title>Sign in — {{ brand }}</title>
+  <!-- The room's stylesheet: tokens (paper/ink, fonts, signal colors) and the
+       shared registers, so the turnstile and the library feel like one place
+       (and rebrand together under the same operator theme). -->
+  <link rel="stylesheet" href="/static/library.css">
   <style>
-    /* Match the reading room's Tufte palette (page.html): off-white/off-black
-       paper+ink, Charter serif, light-dark() adaptive — so the turnstile and the
-       library feel like one place. */
-    :root {
-      color-scheme: light dark;
-      --paper: light-dark(#fffff8, #151515);
-      --ink: light-dark(#111111, #dddddd);
-      --faint: light-dark(#11111120, #dddddd28);
-      --muted: light-dark(#11111199, #dddddd99);
-    }
+    /* Turnstile-only layout: a centered card over the graph backdrop. The
+       reading room's body geometry (reading-column max-width, page padding)
+       is overridden; paper/ink/type ride in from library.css. */
     * { box-sizing: border-box; }
     html, body { height: 100%; }
-    body { margin: 0; min-height: 100%;
+    body { margin: 0; padding: 0; max-width: none; min-height: 100%;
            display: flex; align-items: center; justify-content: center;
-           background: var(--paper); color: var(--ink); text-align: center;
-           font: 17px/1.55 Charter, 'Bitstream Charter', 'Sitka Text', Cambria, Georgia, serif; }
+           text-align: center; }
     /* Faint full-page knowledge graph, sits behind the card — ink at low opacity
        so it reads on light and dark alike. */
-    .graph { position: fixed; inset: 0; width: 100%; height: 100%;
+    .login-graph { position: fixed; inset: 0; width: 100%; height: 100%;
              z-index: 0; pointer-events: none;
              opacity: .12; color: var(--ink); }
-    .graph .edges line { stroke: currentColor; stroke-width: .7; }
-    .graph .node { fill: currentColor; }
+    .login-graph .edges line { stroke: currentColor; stroke-width: .7; }
+    .login-graph .node { fill: currentColor; }
     .card { position: relative; z-index: 1;
             max-width: 26rem; padding: 4rem 1.25rem;
             background: radial-gradient(60% 60% at 50% 50%, var(--paper) 55%, transparent);
             border-radius: 1rem; }
-    h1 { font-size: 1.7rem; font-weight: 500; line-height: 1.2; }
     p { color: var(--muted); }
-    p.error { color: light-dark(#cf222e, #f85149); }
+    p.error { color: var(--danger); }
+    .card img.brand-logo { max-height: 3.2rem; max-width: 14rem; margin-bottom: .6rem; }
     button { font: inherit; padding: .5rem 1.4rem; border-radius: 6px;
              border: 1px solid var(--muted); background: transparent; color: inherit;
              cursor: pointer; transition: background .15s; }
     button:hover { background: var(--faint); }
   </style>
+  {{- with themeCSS }}
+  <!-- Operator theme (DEMARKUS_THEME_CSS) — last, so the turnstile rebrands
+       with the same stylesheet as the room. -->
+  <link rel="stylesheet" href="{{ . }}">
+  {{- end }}
 </head>
 <!-- No htmx on this page: the turnstile is a plain form so signing in works
      identically with or without JS (ADR 0003). -->
 <body>
   <!-- Faint full-page knowledge graph backdrop. Decorative only. -->
-  <svg class="graph" viewBox="0 0 1200 750" preserveAspectRatio="xMidYMid slice"
+  <svg class="login-graph" viewBox="0 0 1200 750" preserveAspectRatio="xMidYMid slice"
        aria-hidden="true" focusable="false">
     <g class="edges">
       <line x1="47" y1="31" x2="217" y2="24" opacity="1.00"/>
@@ -204,7 +205,8 @@
     </g>
   </svg>
   <main class="card">
-    <h1>demarkus Library</h1>
+    {{ with logoURL }}<img class="brand-logo" src="{{ . }}" alt="">{{ end }}
+    <h1>{{ brand }}</h1>
     <p>Sign in with your organization to enter the reading room.</p>
     {{ if .Error }}<p class="error">{{ .Error }}</p>{{ end }}
     <form method="post" action="/login/start">

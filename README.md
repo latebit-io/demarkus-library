@@ -105,6 +105,23 @@ Configuration (environment):
 | `DEMARKUS_PANE_SCROLL` | `true` | pane-scroll room (ADR 0007); `false` = legacy page-scroll room |
 | `DEMARKUS_LLM_KEYSTORE` | `true` | let the librarian read nib's on-disk key store; `false` = env-only |
 | `DEMARKUS_TLS_CERT` / `DEMARKUS_TLS_KEY` | _(empty)_ | serve HTTPS directly (local dev; the cluster ingress terminates TLS) |
+| `DEMARKUS_BRAND` | `demarkus Library` | display name in titles, nav, and the login card |
+| `DEMARKUS_LOGO` | _(empty)_ | path to a logo image, shown beside the brand name (served at `/theme/logo`) |
+| `DEMARKUS_THEME_CSS` | _(empty)_ | path to an override stylesheet, loaded after the built-in styles (served at `/theme/site.css`) |
+
+Theming: the built-in styles live in one stylesheet
+(`internal/adapter/inbound/web/static/library.css`, served at
+`/static/library.css`) and route every color and font through CSS custom
+properties on `:root` — `--paper`, `--ink`, `--muted`, `--faint` (surfaces),
+`--font-prose`, `--font-ui`, `--font-mono` (type), `--ok`, `--warn`,
+`--danger`, `--info`, `--accent` (signal colors), `--margin-w`, `--gutter`
+(layout). A `DEMARKUS_THEME_CSS` stylesheet that overrides only those tokens
+rebrands the whole room (both light and dark via `light-dark()`); it loads
+last, so any further rule wins the cascade too.
+
+[docs/theming.md](docs/theming.md) is the full guide — the token reference,
+example themes, and per-deployment instructions (binary/systemd, Docker, and
+the Helm chart's `library.branding` ConfigMap wiring).
 
 Direct-QUIC mode (`quic`):
 

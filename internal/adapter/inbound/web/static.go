@@ -7,8 +7,11 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
-// staticFS holds vendored front-end assets (htmx 2.0.10, htmx-ext-sse 2.2.4)
-// and generated ones (chroma.css). We self-host rather than pull from a CDN:
+// staticFS holds vendored front-end assets (htmx 2.0.10, htmx-ext-sse 2.2.4),
+// generated ones (chroma.css), and the room's own stylesheet (library.css —
+// the design tokens and every register, shared by page.html and the login
+// turnstile; the operator theme at /theme/site.css loads after it). We
+// self-host rather than pull from a CDN:
 // single Go binary, no external dependency at runtime, version pinned in the
 // repo. See ADR 0003 (the htmx philosophy).
 //

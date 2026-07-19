@@ -117,7 +117,15 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	app.Renderer = view
+	// Branding (the theme layer): operator name/logo/override-stylesheet from
+	// the environment. Asset files were stat-checked at config load; a read
+	// failure here (permissions, race) still stops startup loudly.
+	branding, err := web.ThemeRoutes(app, config.Brand, config.Logo, config.ThemeCSS)
+	if err != nil {
+		logger.Error("branding assets unreadable", "err", err)
+		os.Exit(1)
+	}
+	app.Renderer = view.WithBranding(branding)
 
 	web.StaticRoutes(app)
 	web.HealthRoutes(app, web.NewHealthHandler())
