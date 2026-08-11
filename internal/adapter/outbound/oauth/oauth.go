@@ -140,6 +140,12 @@ func (c *Client) endpoints(ctx context.Context) (endpoints, error) {
 		return endpoints{}, err
 	}
 
+	// An https broker must never hand credential-bearing calls to an http
+	// issuer (RFC 8414 wants https identifiers; http stays legal only for
+	// plain-http dev deployments, where base itself is http).
+	if err := rejectDowngrade(base, issuer); err != nil {
+		return endpoints{}, err
+	}
 	// RFC 8414 §3.1: the well-known path goes between the origin and any
 	// issuer path.
 	origin, path, err := parseOrigin("authorization server", issuer)
@@ -163,7 +169,10 @@ func (c *Client) endpoints(ctx context.Context) (endpoints, error) {
 		eps.Issuer = issuer
 	}
 	// Revocation lives at the (final) issuer's origin root, never under an
-	// issuer path.
+	// issuer path. Legacy docs pick the issuer host, so re-check downgrade.
+	if err := rejectDowngrade(base, eps.Issuer); err != nil {
+		return endpoints{}, err
+	}
 	revokeOrigin, _, err := parseOrigin("issuer", eps.Issuer)
 	if err != nil {
 		return endpoints{}, err
@@ -173,14 +182,26 @@ func (c *Client) endpoints(ctx context.Context) (endpoints, error) {
 	return eps, nil
 }
 
-// parseOrigin validates an absolute URL and splits it into origin
-// (scheme://host) and trailing-slash-trimmed path.
+// parseOrigin validates an absolute http(s) URL without query or fragment
+// and splits it into origin (scheme://host) and trailing-slash-trimmed path.
 func parseOrigin(what, raw string) (origin, path string, err error) {
 	u, err := url.Parse(raw)
-	if err != nil || u.Scheme == "" || u.Host == "" {
+	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
 		return "", "", fmt.Errorf("oauth: invalid %s URL %q", what, raw)
 	}
+	if u.RawQuery != "" || u.Fragment != "" {
+		return "", "", fmt.Errorf("oauth: %s URL %q must not carry a query or fragment", what, raw)
+	}
 	return u.Scheme + "://" + u.Host, strings.TrimRight(u.Path, "/"), nil
+}
+
+// rejectDowngrade blocks an http issuer advertised by an https broker —
+// metadata, tokens, and revocation would silently leave TLS.
+func rejectDowngrade(base, target string) error {
+	if strings.HasPrefix(base, "https://") && !strings.HasPrefix(strings.TrimSpace(target), "https://") {
+		return fmt.Errorf("oauth: authorization server %q downgrades the https broker %q to plain http", target, base)
+	}
+	return nil
 }
 
 // getJSON fetches one discovery document into v; non-200 is an error.

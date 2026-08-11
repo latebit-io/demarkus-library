@@ -423,3 +423,37 @@ func TestDiscoveryIssuerMismatchRejected(t *testing.T) {
 		t.Errorf("err = %v, want issuer-mismatch rejection", err)
 	}
 }
+
+func TestDiscoveryHTTPDowngradeRejected(t *testing.T) {
+	// An https gateway advertising an http authorization server would move
+	// metadata, tokens, and revocation off TLS. Rejected. (Plain-http
+	// BrokerURL stays legal for dev deployments — see the http fixtures.)
+	mux := http.NewServeMux()
+	gateway := httptest.NewTLSServer(mux)
+	t.Cleanup(gateway.Close)
+	mux.HandleFunc("GET /.well-known/oauth-protected-resource", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"authorization_servers": []string{"http://broker.internal"},
+		})
+	})
+
+	c := NewClient(Config{BrokerURL: gateway.URL, ClientID: testClientID,
+		ClientSecret: testSecret, RedirectURI: testRedirect}, gateway.Client())
+	if _, err := c.AuthCodeURL(context.Background(), "st", "ch"); err == nil {
+		t.Fatal("AuthCodeURL accepted an http issuer from an https broker")
+	} else if !strings.Contains(err.Error(), "downgrades") {
+		t.Errorf("err = %v, want downgrade rejection", err)
+	}
+}
+
+func TestDiscoveryIssuerQueryRejected(t *testing.T) {
+	// Query/fragment on an issuer identifier corrupts every string-appended
+	// URL derived from it.
+	issuer := newPRMGateway(t, "http://broker.internal?x=1")
+	c := newTestClient(issuer.URL)
+	if _, err := c.AuthCodeURL(context.Background(), "st", "ch"); err == nil {
+		t.Fatal("AuthCodeURL accepted an issuer with a query component")
+	} else if !strings.Contains(err.Error(), "query or fragment") {
+		t.Errorf("err = %v, want query/fragment rejection", err)
+	}
+}
