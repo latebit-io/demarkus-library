@@ -41,12 +41,16 @@ const discoveryTTL = 5 * time.Minute
 // origin. Not advertised in the discovery document, so the path is fixed here.
 const revokePath = "/token/revoke"
 
-// prmPath is RFC 9728 Protected Resource Metadata on the gateway origin; its
-// authorization_servers[0] names the issuer origin that serves RFC 8414.
+// prmPath is RFC 9728 PRM on the gateway origin (its authorization_servers[0]
+// names the issuer); asPath is RFC 8414 metadata on the issuer origin.
 const (
 	prmPath = "/.well-known/oauth-protected-resource"
 	asPath  = "/.well-known/oauth-authorization-server"
 )
+
+// errDiscoveryNotFound marks a well-known route answering 404 — the one
+// discovery failure that legitimately triggers the legacy fallback.
+var errDiscoveryNotFound = errors.New("oauth: discovery document not found")
 
 // Config identifies this deployment as one registered confidential web client
 // at the broker (the operator-curated webClients registry entry).
@@ -75,12 +79,14 @@ type TokenSet struct {
 	Expiry time.Time
 }
 
-// endpoints is the slice of the discovery document this client uses. Issuer
-// is the authorization-server origin; revocation posts there.
+// endpoints is the slice of the discovery document this client uses.
+// revokeURL is derived at discovery time (issuer origin + revokePath) so
+// Revoke carries no parse or validation plumbing of its own.
 type endpoints struct {
 	Issuer                string `json:"issuer"`
 	AuthorizationEndpoint string `json:"authorization_endpoint"`
 	TokenEndpoint         string `json:"token_endpoint"`
+	revokeURL             string `json:"-"`
 }
 
 // Client speaks to one broker as one registered web client. Safe for
@@ -105,13 +111,11 @@ func NewClient(cfg Config, httpClient *http.Client) *Client {
 }
 
 // endpoints returns the broker's advertised endpoints, fetching discovery at
-// most once per discoveryTTL. The lock is held across the fetch so concurrent
-// callers on a cold cache produce one request, not a stampede.
-//
-// Discovery follows RFC 9728: PRM on the gateway origin names the issuer in
-// authorization_servers[0], and RFC 8414 metadata is fetched from that
-// origin. Brokers older than 0.14.9 have no PRM route on the gateway but
-// serve the RFC 8414 doc there directly, so a PRM miss falls back to that.
+// most once per discoveryTTL (lock held across the fetch: one request, no
+// stampede). Discovery follows RFC 9728 — PRM on the gateway origin names the
+// issuer in authorization_servers[0], RFC 8414 metadata comes from there.
+// Brokers < 0.14.9 have no PRM route but serve the RFC 8414 doc on the
+// gateway directly, so a PRM 404 (only) falls back to that.
 func (c *Client) endpoints(ctx context.Context) (endpoints, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -120,25 +124,63 @@ func (c *Client) endpoints(ctx context.Context) (endpoints, error) {
 	}
 
 	base := strings.TrimRight(c.cfg.BrokerURL, "/")
-	asBase := base
+	issuer := base
+	chained := false
 	var prm struct {
 		AuthorizationServers []string `json:"authorization_servers"`
 	}
-	if err := c.getJSON(ctx, base+prmPath, &prm); err == nil && len(prm.AuthorizationServers) > 0 {
-		asBase = strings.TrimRight(prm.AuthorizationServers[0], "/")
+	switch err := c.getJSON(ctx, base+prmPath, &prm); {
+	case err == nil:
+		if len(prm.AuthorizationServers) == 0 {
+			return endpoints{}, errors.New("oauth: protected-resource metadata missing authorization_servers")
+		}
+		issuer = strings.TrimRight(prm.AuthorizationServers[0], "/")
+		chained = true
+	case !errors.Is(err, errDiscoveryNotFound):
+		return endpoints{}, err
+	}
+
+	// RFC 8414 §3.1: the well-known path goes between the origin and any
+	// issuer path.
+	origin, path, err := parseOrigin("authorization server", issuer)
+	if err != nil {
+		return endpoints{}, err
 	}
 	var eps endpoints
-	if err := c.getJSON(ctx, asBase+asPath, &eps); err != nil {
+	if err := c.getJSON(ctx, origin+asPath+path, &eps); err != nil {
 		return endpoints{}, err
 	}
 	if eps.AuthorizationEndpoint == "" || eps.TokenEndpoint == "" {
 		return endpoints{}, errors.New("oauth: discovery document missing endpoints")
 	}
-	if eps.Issuer == "" {
-		eps.Issuer = asBase
+	// RFC 8414 §3.3: chained metadata must echo the advertised issuer, or a
+	// hostile doc could redirect credential-bearing calls. The legacy
+	// fallback doc legitimately names a different issuer host.
+	if chained && eps.Issuer != "" && strings.TrimRight(eps.Issuer, "/") != issuer {
+		return endpoints{}, fmt.Errorf("oauth: discovery issuer %q does not match advertised authorization server %q", eps.Issuer, issuer)
 	}
+	if eps.Issuer == "" {
+		eps.Issuer = issuer
+	}
+	// Revocation lives at the (final) issuer's origin root, never under an
+	// issuer path.
+	revokeOrigin, _, err := parseOrigin("issuer", eps.Issuer)
+	if err != nil {
+		return endpoints{}, err
+	}
+	eps.revokeURL = revokeOrigin + revokePath
 	c.cached, c.fetchedAt = eps, c.now()
 	return eps, nil
+}
+
+// parseOrigin validates an absolute URL and splits it into origin
+// (scheme://host) and trailing-slash-trimmed path.
+func parseOrigin(what, raw string) (origin, path string, err error) {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return "", "", fmt.Errorf("oauth: invalid %s URL %q", what, raw)
+	}
+	return u.Scheme + "://" + u.Host, strings.TrimRight(u.Path, "/"), nil
 }
 
 // getJSON fetches one discovery document into v; non-200 is an error.
@@ -152,6 +194,9 @@ func (c *Client) getJSON(ctx context.Context, u string, v any) error {
 		return fmt.Errorf("oauth: fetch discovery: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode == http.StatusNotFound {
+		return fmt.Errorf("%w: %s", errDiscoveryNotFound, u)
+	}
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("oauth: discovery returned %s", resp.Status)
 	}
@@ -214,7 +259,7 @@ func (c *Client) Revoke(ctx context.Context, refreshToken string) error {
 	}
 	form := url.Values{"token": {refreshToken}}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		strings.TrimRight(eps.Issuer, "/")+revokePath,
+		eps.revokeURL,
 		strings.NewReader(form.Encode()))
 	if err != nil {
 		return fmt.Errorf("oauth: build revoke request: %w", err)
