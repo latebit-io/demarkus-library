@@ -37,9 +37,16 @@ var ErrInvalidClient = errors.New("oauth: client authentication rejected by brok
 // broker's own 5-minute Cache-Control on the discovery document.
 const discoveryTTL = 5 * time.Minute
 
-// revokePath is the broker's RFC 7009 revocation endpoint. Not advertised in
-// the discovery document, so the path is fixed here.
+// revokePath is the broker's RFC 7009 revocation endpoint on the issuer
+// origin. Not advertised in the discovery document, so the path is fixed here.
 const revokePath = "/token/revoke"
+
+// prmPath is RFC 9728 Protected Resource Metadata on the gateway origin; its
+// authorization_servers[0] names the issuer origin that serves RFC 8414.
+const (
+	prmPath = "/.well-known/oauth-protected-resource"
+	asPath  = "/.well-known/oauth-authorization-server"
+)
 
 // Config identifies this deployment as one registered confidential web client
 // at the broker (the operator-curated webClients registry entry).
@@ -68,8 +75,10 @@ type TokenSet struct {
 	Expiry time.Time
 }
 
-// endpoints is the slice of the discovery document this client uses.
+// endpoints is the slice of the discovery document this client uses. Issuer
+// is the authorization-server origin; revocation posts there.
 type endpoints struct {
+	Issuer                string `json:"issuer"`
 	AuthorizationEndpoint string `json:"authorization_endpoint"`
 	TokenEndpoint         string `json:"token_endpoint"`
 }
@@ -95,9 +104,14 @@ func NewClient(cfg Config, httpClient *http.Client) *Client {
 	return &Client{cfg: cfg, http: httpClient, now: time.Now}
 }
 
-// endpoints returns the broker's advertised endpoints, fetching the discovery
-// document at most once per discoveryTTL. The lock is held across the fetch
-// so concurrent callers on a cold cache produce one request, not a stampede.
+// endpoints returns the broker's advertised endpoints, fetching discovery at
+// most once per discoveryTTL. The lock is held across the fetch so concurrent
+// callers on a cold cache produce one request, not a stampede.
+//
+// Discovery follows RFC 9728: PRM on the gateway origin names the issuer in
+// authorization_servers[0], and RFC 8414 metadata is fetched from that
+// origin. Brokers older than 0.14.9 have no PRM route on the gateway but
+// serve the RFC 8414 doc there directly, so a PRM miss falls back to that.
 func (c *Client) endpoints(ctx context.Context) (endpoints, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -105,28 +119,46 @@ func (c *Client) endpoints(ctx context.Context) (endpoints, error) {
 		return c.cached, nil
 	}
 
-	u := strings.TrimRight(c.cfg.BrokerURL, "/") + "/.well-known/oauth-authorization-server"
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, http.NoBody)
-	if err != nil {
-		return endpoints{}, fmt.Errorf("oauth: build discovery request: %w", err)
+	base := strings.TrimRight(c.cfg.BrokerURL, "/")
+	asBase := base
+	var prm struct {
+		AuthorizationServers []string `json:"authorization_servers"`
 	}
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return endpoints{}, fmt.Errorf("oauth: fetch discovery: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return endpoints{}, fmt.Errorf("oauth: discovery returned %s", resp.Status)
+	if err := c.getJSON(ctx, base+prmPath, &prm); err == nil && len(prm.AuthorizationServers) > 0 {
+		asBase = strings.TrimRight(prm.AuthorizationServers[0], "/")
 	}
 	var eps endpoints
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&eps); err != nil {
-		return endpoints{}, fmt.Errorf("oauth: decode discovery: %w", err)
+	if err := c.getJSON(ctx, asBase+asPath, &eps); err != nil {
+		return endpoints{}, err
 	}
 	if eps.AuthorizationEndpoint == "" || eps.TokenEndpoint == "" {
 		return endpoints{}, errors.New("oauth: discovery document missing endpoints")
 	}
+	if eps.Issuer == "" {
+		eps.Issuer = asBase
+	}
 	c.cached, c.fetchedAt = eps, c.now()
 	return eps, nil
+}
+
+// getJSON fetches one discovery document into v; non-200 is an error.
+func (c *Client) getJSON(ctx context.Context, u string, v any) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, http.NoBody)
+	if err != nil {
+		return fmt.Errorf("oauth: build discovery request: %w", err)
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("oauth: fetch discovery: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("oauth: discovery returned %s", resp.Status)
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(v); err != nil {
+		return fmt.Errorf("oauth: decode discovery: %w", err)
+	}
+	return nil
 }
 
 // AuthCodeURL builds the /oauth/authorize redirect for one login attempt.
@@ -173,11 +205,16 @@ func (c *Client) Refresh(ctx context.Context, refreshToken string) (TokenSet, er
 }
 
 // Revoke drops a refresh token at the broker (RFC 7009, idempotent — an
-// already-dead token is success). Called on logout.
+// already-dead token is success). Called on logout. Posts to the issuer
+// origin: /token/revoke does not exist on the gateway host.
 func (c *Client) Revoke(ctx context.Context, refreshToken string) error {
+	eps, err := c.endpoints(ctx)
+	if err != nil {
+		return err
+	}
 	form := url.Values{"token": {refreshToken}}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		strings.TrimRight(c.cfg.BrokerURL, "/")+revokePath,
+		strings.TrimRight(eps.Issuer, "/")+revokePath,
 		strings.NewReader(form.Encode()))
 	if err != nil {
 		return fmt.Errorf("oauth: build revoke request: %w", err)
