@@ -446,14 +446,23 @@ func TestDiscoveryHTTPDowngradeRejected(t *testing.T) {
 	}
 }
 
-func TestDiscoveryIssuerQueryRejected(t *testing.T) {
+func TestDiscoveryIssuerQueryFragmentRejected(t *testing.T) {
 	// Query/fragment on an issuer identifier corrupts every string-appended
 	// URL derived from it.
-	issuer := newPRMGateway(t, "http://broker.internal?x=1")
-	c := newTestClient(issuer.URL)
-	if _, err := c.AuthCodeURL(context.Background(), "st", "ch"); err == nil {
-		t.Fatal("AuthCodeURL accepted an issuer with a query component")
-	} else if !strings.Contains(err.Error(), "query or fragment") {
-		t.Errorf("err = %v, want query/fragment rejection", err)
+	for _, tc := range []struct {
+		name, issuerID string
+	}{
+		{"query", "http://broker.internal?x=1"},
+		{"fragment", "http://broker.internal#frag"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			gateway := newPRMGateway(t, tc.issuerID)
+			c := newTestClient(gateway.URL)
+			if _, err := c.AuthCodeURL(context.Background(), "st", "ch"); err == nil {
+				t.Fatalf("AuthCodeURL accepted issuer %q", tc.issuerID)
+			} else if !strings.Contains(err.Error(), "query or fragment") {
+				t.Errorf("err = %v, want query/fragment rejection", err)
+			}
+		})
 	}
 }
