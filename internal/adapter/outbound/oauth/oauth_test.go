@@ -42,13 +42,17 @@ func newBrokerStub(t *testing.T) *brokerStub {
 	t.Helper()
 	b := &brokerStub{}
 	mux := http.NewServeMux()
+	// Single-host stub: gateway and issuer share one origin, like a broker
+	// deployment without split-host ingress.
+	mux.HandleFunc("GET /.well-known/oauth-protected-resource", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"resource":              b.srv.URL + "/mcp",
+			"authorization_servers": []string{b.srv.URL},
+		})
+	})
 	mux.HandleFunc("GET /.well-known/oauth-authorization-server", func(w http.ResponseWriter, _ *http.Request) {
 		b.discoveryHits.Add(1)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"issuer":                 b.srv.URL,
-			"authorization_endpoint": b.srv.URL + "/oauth/authorize",
-			"token_endpoint":         b.srv.URL + "/device/token",
-		})
+		_ = json.NewEncoder(w).Encode(asDoc(b.srv.URL))
 	})
 	mux.HandleFunc("POST /device/token", func(w http.ResponseWriter, r *http.Request) {
 		if err := r.ParseForm(); err != nil {
@@ -84,6 +88,35 @@ func (b *brokerStub) client() *Client {
 		RedirectURI:  testRedirect,
 		Scopes:       []string{"mark.read"},
 	}, nil)
+}
+
+// asDoc is the minimal RFC 8414 document for an issuer identifier.
+func asDoc(issuerID string) map[string]any {
+	return map[string]any{
+		"issuer":                 issuerID,
+		"authorization_endpoint": issuerID + "/oauth/authorize",
+		"token_endpoint":         issuerID + "/device/token",
+	}
+}
+
+// newPRMGateway serves only RFC 9728 PRM pointing at issuerID — the gateway
+// half of a split-host broker.
+func newPRMGateway(t *testing.T, issuerID string) *httptest.Server {
+	t.Helper()
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /.well-known/oauth-protected-resource", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"authorization_servers": []string{issuerID},
+		})
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func newTestClient(brokerURL string) *Client {
+	return NewClient(Config{BrokerURL: brokerURL, ClientID: testClientID,
+		ClientSecret: testSecret, RedirectURI: testRedirect}, nil)
 }
 
 func okToken(idToken, refresh string, expiresIn int) tokenResponse {
@@ -276,5 +309,160 @@ func TestPKCE(t *testing.T) {
 	s1, s2 := GenerateState(), GenerateState()
 	if s1 == s2 {
 		t.Error("two states identical — randomness broken")
+	}
+}
+
+func TestDiscoverySplitHost(t *testing.T) {
+	// Gateway origin serves only PRM (broker >= 0.14.9); RFC 8414, the
+	// token endpoint, and revocation live on a separate issuer origin.
+	issuerMux := http.NewServeMux()
+	issuer := httptest.NewServer(issuerMux)
+	t.Cleanup(issuer.Close)
+	var revokeForm url.Values
+	issuerMux.HandleFunc("GET /.well-known/oauth-authorization-server", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(asDoc(issuer.URL))
+	})
+	issuerMux.HandleFunc("POST /token/revoke", func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		revokeForm = r.PostForm
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	gateway := newPRMGateway(t, issuer.URL)
+	c := newTestClient(gateway.URL)
+
+	u, err := c.AuthCodeURL(context.Background(), "st", "ch")
+	if err != nil {
+		t.Fatalf("AuthCodeURL: %v", err)
+	}
+	if !strings.HasPrefix(u, issuer.URL+"/oauth/authorize?") {
+		t.Errorf("authorize URL = %q, want issuer origin", u)
+	}
+	if err := c.Revoke(context.Background(), "refresh-1"); err != nil {
+		t.Fatalf("Revoke: %v", err)
+	}
+	if got := revokeForm.Get("token"); got != "refresh-1" {
+		t.Errorf("revoke landed with token = %q, want refresh-1 at the issuer", got)
+	}
+}
+
+func TestDiscoveryLegacyFallback(t *testing.T) {
+	// Broker < 0.14.9: no PRM on the gateway, RFC 8414 served there
+	// directly. The client must fall back to the old single-origin path.
+	mux := http.NewServeMux()
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	mux.HandleFunc("GET /.well-known/oauth-authorization-server", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(asDoc(srv.URL))
+	})
+
+	c := newTestClient(srv.URL)
+	u, err := c.AuthCodeURL(context.Background(), "st", "ch")
+	if err != nil {
+		t.Fatalf("AuthCodeURL (legacy fallback): %v", err)
+	}
+	if !strings.HasPrefix(u, srv.URL+"/oauth/authorize?") {
+		t.Errorf("authorize URL = %q", u)
+	}
+}
+
+func TestDiscoveryPathBearingIssuer(t *testing.T) {
+	// RFC 8414 §3.1: for issuer https://host/pfx the metadata URL is
+	// https://host/.well-known/oauth-authorization-server/pfx — the
+	// well-known path sits between origin and issuer path. Revocation
+	// posts to the issuer ORIGIN, never the issuer path.
+	issuerMux := http.NewServeMux()
+	issuer := httptest.NewServer(issuerMux)
+	t.Cleanup(issuer.Close)
+	issuerID := issuer.URL + "/pfx"
+	var metaPathHit, revokePathHit string
+	issuerMux.HandleFunc("GET /.well-known/oauth-authorization-server/pfx", func(w http.ResponseWriter, r *http.Request) {
+		metaPathHit = r.URL.Path
+		_ = json.NewEncoder(w).Encode(asDoc(issuerID))
+	})
+	issuerMux.HandleFunc("POST /token/revoke", func(w http.ResponseWriter, r *http.Request) {
+		revokePathHit = r.URL.Path
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	gateway := newPRMGateway(t, issuerID)
+	c := newTestClient(gateway.URL)
+
+	if _, err := c.AuthCodeURL(context.Background(), "st", "ch"); err != nil {
+		t.Fatalf("AuthCodeURL: %v", err)
+	}
+	if metaPathHit != "/.well-known/oauth-authorization-server/pfx" {
+		t.Errorf("metadata fetched at %q, want well-known between origin and issuer path", metaPathHit)
+	}
+	if err := c.Revoke(context.Background(), "r1"); err != nil {
+		t.Fatalf("Revoke: %v", err)
+	}
+	if revokePathHit != "/token/revoke" {
+		t.Errorf("revoke hit %q, want /token/revoke at the issuer origin (no /pfx)", revokePathHit)
+	}
+}
+
+func TestDiscoveryIssuerMismatchRejected(t *testing.T) {
+	// RFC 8414 §3.3: on the PRM chain, a metadata doc whose issuer does
+	// not echo the advertised authorization server is rejected — it could
+	// redirect credential-bearing calls.
+	issuerMux := http.NewServeMux()
+	issuer := httptest.NewServer(issuerMux)
+	t.Cleanup(issuer.Close)
+	issuerMux.HandleFunc("GET /.well-known/oauth-authorization-server", func(w http.ResponseWriter, _ *http.Request) {
+		doc := asDoc(issuer.URL)
+		doc["issuer"] = "https://evil.example.com"
+		_ = json.NewEncoder(w).Encode(doc)
+	})
+
+	gateway := newPRMGateway(t, issuer.URL)
+	c := newTestClient(gateway.URL)
+	if _, err := c.AuthCodeURL(context.Background(), "st", "ch"); err == nil {
+		t.Fatal("AuthCodeURL succeeded with mismatched issuer, want rejection")
+	} else if !strings.Contains(err.Error(), "does not match") {
+		t.Errorf("err = %v, want issuer-mismatch rejection", err)
+	}
+}
+
+func TestDiscoveryHTTPDowngradeRejected(t *testing.T) {
+	// An https gateway advertising an http authorization server would move
+	// metadata, tokens, and revocation off TLS. Rejected. (Plain-http
+	// BrokerURL stays legal for dev deployments — see the http fixtures.)
+	mux := http.NewServeMux()
+	gateway := httptest.NewTLSServer(mux)
+	t.Cleanup(gateway.Close)
+	mux.HandleFunc("GET /.well-known/oauth-protected-resource", func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"authorization_servers": []string{"http://broker.internal"},
+		})
+	})
+
+	c := NewClient(Config{BrokerURL: gateway.URL, ClientID: testClientID,
+		ClientSecret: testSecret, RedirectURI: testRedirect}, gateway.Client())
+	if _, err := c.AuthCodeURL(context.Background(), "st", "ch"); err == nil {
+		t.Fatal("AuthCodeURL accepted an http issuer from an https broker")
+	} else if !strings.Contains(err.Error(), "downgrades") {
+		t.Errorf("err = %v, want downgrade rejection", err)
+	}
+}
+
+func TestDiscoveryIssuerQueryFragmentRejected(t *testing.T) {
+	// Query/fragment on an issuer identifier corrupts every string-appended
+	// URL derived from it.
+	for _, tc := range []struct {
+		name, issuerID string
+	}{
+		{"query", "http://broker.internal?x=1"},
+		{"fragment", "http://broker.internal#frag"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			gateway := newPRMGateway(t, tc.issuerID)
+			c := newTestClient(gateway.URL)
+			if _, err := c.AuthCodeURL(context.Background(), "st", "ch"); err == nil {
+				t.Fatalf("AuthCodeURL accepted issuer %q", tc.issuerID)
+			} else if !strings.Contains(err.Error(), "query or fragment") {
+				t.Errorf("err = %v, want query/fragment rejection", err)
+			}
+		})
 	}
 }
