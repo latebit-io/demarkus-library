@@ -281,9 +281,10 @@ func (h *ReadingHandler) present(c *echo.Context, doc domain.Document, err error
 		content = h.richIndex(c.Request().Context(), opts.world, content)
 	}
 	content = previewize(content)
-	if opts.doc {
+	if opts.doc && !domain.IsVersionPath(doc.Path) {
 		// Feed the observed-links map (R3): only real documents are edge
-		// sources — listings and catalog views are not.
+		// sources — listings, catalog views, and pinned editions are not. A
+		// version still renders in full; it just never becomes a backlink.
 		h.reading.RecordLinks(opts.world, doc.Path, edges)
 	}
 	vm := page{

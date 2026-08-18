@@ -458,3 +458,62 @@ func TestPageHasNoSearchBox(t *testing.T) {
 		t.Errorf("no input elements expected on the page chrome: search box was removed")
 	}
 }
+
+// A pinned edition renders in full but must never enter the observed-links
+// map: its links are the document's links at an earlier moment, so recording
+// them listed every edition a reader opened as its own "referenced by" entry.
+func TestVersionViewRendersButRecordsNoLinks(t *testing.T) {
+	doc := domain.Document{
+		Title:   "The Reading Room",
+		Source:  "soul.demarkus.io:6309",
+		Path:    "/demarkus-library/plans/reading-room.md/v17",
+		HTML:    `<p>see <a href="/demarkus-library/adr/0005-reading-room-spatial-trail.md">ADR 5</a></p>`,
+		Status:  "draft",
+		Version: "17",
+	}
+	svc := &fakeReading{doc: doc}
+	body := get(readingApp(t, svc), "/t/soul.demarkus.io/d/demarkus-library/plans/reading-room.md/v17").Body.String()
+
+	if !strings.Contains(body, "The Reading Room") {
+		t.Error("an edition must still render its document")
+	}
+	if len(svc.recorded) != 0 {
+		t.Errorf("edition recorded observed links: %v", svc.recorded)
+	}
+}
+
+// The document itself is still an edge source; the fix must not silence it.
+func TestDocViewStillRecordsLinks(t *testing.T) {
+	doc := domain.Document{
+		Title:  "The Reading Room",
+		Source: "soul.demarkus.io:6309",
+		Path:   "/demarkus-library/plans/reading-room.md",
+		HTML:   `<p>see <a href="/demarkus-library/adr/0005-reading-room-spatial-trail.md">ADR 5</a></p>`,
+	}
+	svc := &fakeReading{doc: doc}
+	get(readingApp(t, svc), "/t/soul.demarkus.io/d/demarkus-library/plans/reading-room.md")
+
+	if _, ok := svc.recorded["/demarkus-library/plans/reading-room.md"]; !ok {
+		t.Errorf("document must still record its outbound links: %v", svc.recorded)
+	}
+}
+
+// The standalone doc route redirects an edition to the canvas, so the trail
+// renderer is where recording is decided. The guard in the standalone path
+// stays for canvas-off deployments; this pins the redirect so a future change
+// that stops redirecting cannot silently reintroduce edition edges untested.
+func TestVersionViewOnStandaloneRouteRedirectsToCanvas(t *testing.T) {
+	svc := &fakeReading{doc: domain.Document{
+		Title: "The Reading Room",
+		Path:  "/demarkus-library/plans/reading-room.md/v17",
+		HTML:  "<p>body</p>",
+	}}
+	rec := get(readingApp(t, svc), "/w/soul.demarkus.io/d/demarkus-library/plans/reading-room.md/v17")
+
+	if rec.Code != 303 {
+		t.Fatalf("status = %d, want 303 (canvas redirect); if this route now renders, assert svc.recorded is empty instead", rec.Code)
+	}
+	if len(svc.recorded) != 0 {
+		t.Errorf("a redirect must not record links: %v", svc.recorded)
+	}
+}
