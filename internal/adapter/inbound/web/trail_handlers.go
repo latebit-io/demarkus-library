@@ -327,6 +327,14 @@ func (h *ReadingHandler) readPane(ctx context.Context, addr paneAddr, live bool)
 // keeps plain trail links (a record click is a navigation, not more lens).
 // Either way the pane carries the full margin, records no edges (the canvas
 // build already did), and offers no open-overlay affordances (it IS one).
+// isEdgeSource reports whether a rendered pane may feed the observed-links map
+// (R3). Only real document panes qualify: listings, tag pages, and pinned
+// editions are not edge sources, and overlays reuse panes already recorded.
+func isEdgeSource(overlay string, addr paneAddr, path string) bool {
+	return overlay == "" && addr.Kind == paneDoc &&
+		!domain.IsListingPath(addr.Value) && !domain.IsVersionPath(path)
+}
+
 func (h *ReadingHandler) paneView(ctx context.Context, t trail, i int, addr paneAddr, doc domain.Document, authed bool, overlay string) paneVM {
 	focused := i == t.Focus
 	reader := overlay == overlayReader
@@ -370,12 +378,7 @@ func (h *ReadingHandler) paneView(ctx context.Context, t trail, i int, addr pane
 	}
 
 	content, edges := rewriteLinks(doc.HTML, addr.World, doc.Path)
-	if overlay == "" && addr.Kind == paneDoc && !domain.IsListingPath(addr.Value) {
-		// Feed the observed-links map (R3) from real document panes only —
-		// listings and tag pages are not edge sources. This runs for the
-		// focused pane and its body-only parent, so a doc's edges are recorded
-		// just before its graph/backlinks pane (to the right) reads them. The
-		// overlays reuse already-rendered panes, so skip them (recorded once).
+	if isEdgeSource(overlay, addr, doc.Path) {
 		h.reading.RecordLinks(addr.World, doc.Path, edges)
 	}
 	if addr.Kind == paneTag {
