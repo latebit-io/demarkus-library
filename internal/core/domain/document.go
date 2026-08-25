@@ -3,7 +3,11 @@
 // demarkus client, no html/template).
 package domain
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+	"strings"
+)
 
 // ErrNotFound means a world has no document at the requested path (demarkus
 // status not-found or archived).
@@ -22,6 +26,22 @@ var ErrConflict = errors.New("document changed since it was opened")
 // direct QUIC world reached without a write token (Phase 3). Broker-mode worlds
 // write through mark_publish; this keeps the read-only degradation honest.
 var ErrWriteUnsupported = errors.New("writing not supported for this world")
+
+// PartialLookupError carries usable cross-world matches while preventing failed
+// worlds from being mistaken for authoritative absence.
+type PartialLookupError struct {
+	Failed       int
+	Worlds       int
+	FailedWorlds []string
+}
+
+func (e *PartialLookupError) Error() string {
+	message := fmt.Sprintf("lookup incomplete: %d of %d worlds failed", e.Failed, e.Worlds)
+	if len(e.FailedWorlds) > 0 {
+		message += " (" + strings.Join(e.FailedWorlds, ", ") + ")"
+	}
+	return message
+}
 
 // MergeCandidate is the broker's answer to an edit whose expected_version is
 // stale (on_conflict="merge"): the document changed underneath the editor, so
@@ -254,8 +274,7 @@ type Floor struct {
 // the minimum the server fuzzy-matches on title + path and renders into the
 // results fragment. World lets universe-scope results show where each doc lives;
 // Status badges the row. It carries no body — name-mode is a known-item
-// switcher, not full-text search. The protocol has no search verb (and won't),
-// so content/full-text search is out of scope by design, not deferred (ADR 0006).
+// switcher, not full-text search. Current catalog results carry no body content.
 type IndexEntry struct {
 	Title  string
 	Path   string

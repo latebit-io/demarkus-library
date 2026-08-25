@@ -21,6 +21,7 @@
 {{end}}
 
 {{define "palette-results"}}
+{{- if .Warning}}<div class="palette-empty">{{ .Warning }}</div>{{ end}}
 {{- if .Rows}}
 <ul class="palette-list" role="listbox">
   {{- range .Rows}}
@@ -31,7 +32,7 @@
   </a></li>
   {{- end}}
 </ul>
-{{- else}}
+{{- else if not .Warning}}
 <div class="palette-empty">{{ if .Query }}No matches.{{ else }}Nothing recent — type to search.{{ end }}</div>
 {{- end}}
 {{end}}

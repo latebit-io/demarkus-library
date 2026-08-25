@@ -179,6 +179,21 @@ func (g *Gateway) Lookup(ctx context.Context, world, scope, query, filter string
 	return g.read(ctx, "mark_lookup", world, scope, args)
 }
 
+// LookupAll queries the same scope across every world readable by the bearer.
+func (g *Gateway) LookupAll(ctx context.Context, scope, query, filter string, limit int) (domain.RawDocument, error) {
+	args := map[string]any{
+		"scope": scope,
+		"query": query,
+	}
+	if filter != "" {
+		args["filter"] = filter
+	}
+	if limit > 0 {
+		args["limit"] = limit
+	}
+	return g.read(ctx, "mark_lookup_all", "", scope, args, "partial")
+}
+
 // Publish writes a document through mark_publish — the cataloging desk's write
 // path (Phase 3). Metadata travels in the tool's metadata object (never a body
 // fence; ADR 0005 decision 11). on_conflict is "fail" so an expected_version
@@ -331,7 +346,7 @@ func parsePublishedVersion(text string) int {
 }
 
 // read runs one tool call and maps the outcome into the domain.
-func (g *Gateway) read(ctx context.Context, tool, world, path string, args map[string]any) (domain.RawDocument, error) {
+func (g *Gateway) read(ctx context.Context, tool, world, path string, args map[string]any, additionalStatuses ...string) (domain.RawDocument, error) {
 	token := bearer.FromContext(ctx)
 	if token == "" {
 		// No identity on the request: in broker mode every read sits
@@ -354,7 +369,7 @@ func (g *Gateway) read(ctx context.Context, tool, world, path string, args map[s
 	if isToolError {
 		return domain.RawDocument{}, mapToolError(text)
 	}
-	return parseToolResult(world, path, text)
+	return parseToolResult(world, path, text, additionalStatuses...)
 }
 
 // markURL builds the mark://<world><path> tool argument. path always starts
@@ -376,7 +391,7 @@ func mapToolError(text string) error {
 // a "status: <s>" first line, "key: value" metadata lines, then a blank line
 // and the body. Status maps to domain errors exactly like the QUIC world
 // adapter — this is the one place broker payloads cross into the domain.
-func parseToolResult(world, path, text string) (domain.RawDocument, error) {
+func parseToolResult(world, path, text string, additionalStatuses ...string) (domain.RawDocument, error) {
 	head, body, _ := strings.Cut(text, "\n\n")
 
 	status := ""
@@ -393,12 +408,18 @@ func parseToolResult(world, path, text string) (domain.RawDocument, error) {
 		meta[key] = value
 	}
 
-	switch status {
-	case protocol.StatusOK:
-		// fall through
-	case protocol.StatusNotFound, protocol.StatusArchived:
+	accepted := status == protocol.StatusOK
+	for _, candidate := range additionalStatuses {
+		accepted = accepted || status == candidate
+	}
+	switch {
+	case accepted:
+		if status != protocol.StatusOK {
+			meta["status"] = status
+		}
+	case status == protocol.StatusNotFound || status == protocol.StatusArchived:
 		return domain.RawDocument{}, domain.ErrNotFound
-	case protocol.StatusUnauthorized, protocol.StatusNotPermitted:
+	case status == protocol.StatusUnauthorized || status == protocol.StatusNotPermitted:
 		return domain.RawDocument{}, domain.ErrUnauthorized
 	default:
 		return domain.RawDocument{}, errors.New("broker returned status: " + status)

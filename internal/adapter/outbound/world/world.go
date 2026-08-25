@@ -75,6 +75,14 @@ func (g *Gateway) Lookup(_ context.Context, world, scope, query, filter string, 
 	return g.toRawDocument(res, host, scope, err)
 }
 
+// LookupAll is the direct gateway's one-world universe.
+func (g *Gateway) LookupAll(ctx context.Context, scope, query, filter string, limit int) (domain.RawDocument, error) {
+	if g.home == "" {
+		return domain.RawDocument{}, domain.ErrNotFound
+	}
+	return g.Lookup(ctx, g.home, scope, query, filter, limit)
+}
+
 // Worlds returns the single-world universe: the home world, when this
 // gateway has one. A homeless gateway (broker-mode federation duty) has no
 // universe of its own — empty, not an error. The non-brokered universe is

@@ -69,6 +69,22 @@ func TestFetchPropagatesTransportError(t *testing.T) {
 	}
 }
 
+func TestLookupAllUsesHomeWorld(t *testing.T) {
+	g := newGateway(protocol.StatusOK, "| Path | Importance | Title | Tags |", nil)
+	raw, err := g.LookupAll(t.Context(), "/", "*", "", 1000)
+	if err != nil {
+		t.Fatalf("LookupAll: %v", err)
+	}
+	if raw.Source != "soul.demarkus.io:6309" || raw.Path != "/" {
+		t.Errorf("raw = %+v", raw)
+	}
+
+	homeless := NewGateway(fakeClient{}, "", "")
+	if _, err := homeless.LookupAll(t.Context(), "/", "*", "", 1000); !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("homeless LookupAll error = %v, want ErrNotFound", err)
+	}
+}
+
 func TestNormalizeHost(t *testing.T) {
 	cases := []struct{ in, want string }{
 		{"soul.demarkus.io", "soul.demarkus.io:6309"}, // bare host → default port

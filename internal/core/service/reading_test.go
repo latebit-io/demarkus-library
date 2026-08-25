@@ -58,6 +58,16 @@ func (f fakeGateway) Lookup(_ context.Context, _, _, _, filter string, limit int
 	}
 	return f.raw, f.err
 }
+func (f fakeGateway) LookupAll(_ context.Context, _, _, filter string, limit int) (domain.RawDocument, error) {
+	f.record("LookupAll")
+	if f.filter != nil {
+		*f.filter = filter
+	}
+	if f.limit != nil {
+		*f.limit = limit
+	}
+	return f.raw, f.err
+}
 func (f fakeGateway) Worlds(context.Context) ([]domain.WorldInfo, error) {
 	f.record("Worlds")
 	return f.worlds, f.worldsErr

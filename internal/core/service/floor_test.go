@@ -46,6 +46,21 @@ func TestParseCatalogTable(t *testing.T) {
 	}
 }
 
+func TestParseCatalogRowsQualifiedAndEscaped(t *testing.T) {
+	body := `| Path | Importance | Title | Tags |
+|---|---|---|---|
+| mark://root/notes/a.md | 0.80 | A \| B | guide,status:accepted |
+| /unqualified.md | 0.70 | Invalid | guide |
+| https://root/invalid.md | 0.60 | Invalid | guide |`
+	rows := parseCatalogRows(body, "", true, 10)
+	if len(rows) != 1 {
+		t.Fatalf("rows = %d, want 1 (%+v)", len(rows), rows)
+	}
+	if rows[0].World != "root" || rows[0].Path != "/notes/a.md" || rows[0].Title != "A | B" || rows[0].Status != "accepted" {
+		t.Errorf("row = %+v", rows[0])
+	}
+}
+
 func TestFloorAssemblesWorlds(t *testing.T) {
 	svc := NewReadingService(fakeGateway{
 		worlds: []domain.WorldInfo{{Name: "team-a", URL: "mark://a"}, {Name: "team-b"}},

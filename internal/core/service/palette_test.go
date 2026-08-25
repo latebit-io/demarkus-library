@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
@@ -40,15 +41,17 @@ func TestNameIndexRequestsHighLimit(t *testing.T) {
 	if _, err := NewReadingService(gw, fakeRenderer{}, nil).NameIndex(t.Context(), "world", "world-a"); err != nil {
 		t.Fatalf("NameIndex: %v", err)
 	}
-	if gotLimit != nameIndexMaxPerWorld {
-		t.Errorf("Lookup limit = %d, want %d", gotLimit, nameIndexMaxPerWorld)
+	if gotLimit != nameIndexMax {
+		t.Errorf("Lookup limit = %d, want %d", gotLimit, nameIndexMax)
 	}
 }
 
-func TestNameIndexUniverseAggregates(t *testing.T) {
+func TestNameIndexUniverseUsesLookupAll(t *testing.T) {
+	var called string
 	gw := fakeGateway{
-		worlds: []domain.WorldInfo{{Name: "world-a"}, {Name: "world-b"}},
-		raw:    domain.RawDocument{Body: worldMapCatalog},
+		called: &called,
+		raw: domain.RawDocument{Body: qualifyCatalog(worldMapCatalog, "world-a") + "\n" +
+			qualifyCatalog(worldMapCatalog, "world-b")},
 	}
 	got, err := NewReadingService(gw, fakeRenderer{}, nil).NameIndex(t.Context(), "universe", "")
 	if err != nil {
@@ -64,18 +67,24 @@ func TestNameIndexUniverseAggregates(t *testing.T) {
 	if !seen["world-a"] || !seen["world-b"] {
 		t.Errorf("universe scope missing a world: %+v", seen)
 	}
+	if called != "LookupAll" {
+		t.Errorf("called = %q, want LookupAll", called)
+	}
 }
 
-func TestNameIndexUniverseDegradesWithoutWorldList(t *testing.T) {
-	// No world list (enrichment failure) ⇒ fall back to the reader's world, not
-	// an empty index.
-	gw := fakeGateway{worldsErr: errTest, raw: domain.RawDocument{Body: worldMapCatalog}}
-	got, err := NewReadingService(gw, fakeRenderer{}, nil).NameIndex(t.Context(), "universe", "world-a")
+func TestNameIndexUniverseSupportsDirectOneWorldResult(t *testing.T) {
+	gw := fakeGateway{raw: domain.RawDocument{Source: "world-a:6309", Body: worldMapCatalog}}
+	got, err := NewReadingService(gw, fakeRenderer{}, nil).NameIndex(t.Context(), "universe", "")
 	if err != nil {
-		t.Fatalf("NameIndex should degrade, not error: %v", err)
+		t.Fatalf("NameIndex: %v", err)
 	}
 	if len(got) != 5 {
-		t.Fatalf("entries = %d, want 5 (single-world fallback)", len(got))
+		t.Fatalf("entries = %d, want 5", len(got))
+	}
+	for _, entry := range got {
+		if entry.World != "world-a:6309" {
+			t.Errorf("world = %q, want world-a:6309", entry.World)
+		}
 	}
 }
 
@@ -89,16 +98,22 @@ func TestNameIndexWorldScopePropagatesReadError(t *testing.T) {
 	}
 }
 
-func TestNameIndexUniverseScopeDegradesPerWorld(t *testing.T) {
-	// Universe scope is best-effort across worlds: a world whose catalog won't
-	// read drops out rather than failing the whole index.
-	gw := fakeGateway{worlds: []domain.WorldInfo{{Name: "world-a"}}, err: errTest}
-	got, err := NewReadingService(gw, fakeRenderer{}, nil).NameIndex(t.Context(), "universe", "world-a")
-	if err != nil {
-		t.Fatalf("universe scope should degrade per world, got %v", err)
-	}
-	if len(got) != 0 {
-		t.Fatalf("entries = %d, want 0 (only world unreadable)", len(got))
+func TestNameIndexUniverseAcceptsPartialResult(t *testing.T) {
+	gw := fakeGateway{raw: domain.RawDocument{
+		Body: qualifyCatalog(worldMapCatalog, "world-a") + `
+
+## World failures
+
+| World | Error |
+|-------|-------|
+| world-b | dial timeout |`,
+		Metadata: map[string]string{"status": "partial", "failed": "1", "worlds": "2"},
+	}}
+	got, err := NewReadingService(gw, fakeRenderer{}, nil).NameIndex(t.Context(), "universe", "")
+	var partial *domain.PartialLookupError
+	if !errors.As(err, &partial) || partial.Failed != 1 || partial.Worlds != 2 ||
+		len(partial.FailedWorlds) != 1 || partial.FailedWorlds[0] != "world-b" || len(got) != 5 {
+		t.Fatalf("NameIndex partial = (%d entries, %v), want 5 entries and 1/2 partial", len(got), err)
 	}
 }
 
@@ -111,12 +126,22 @@ func TestNameIndexPropagatesCancellation(t *testing.T) {
 	}
 }
 
-func TestNameIndexUniversePropagatesWorldsCancellation(t *testing.T) {
-	// Cancellation during the Worlds phase (universe scope) propagates rather
-	// than degrading to the single world.
-	gw := fakeGateway{worldsErr: context.Canceled, raw: domain.RawDocument{Body: worldMapCatalog}}
-	_, err := NewReadingService(gw, fakeRenderer{}, nil).NameIndex(t.Context(), "universe", "world-a")
+func TestNameIndexUniversePropagatesLookupAllError(t *testing.T) {
+	_, err := NewReadingService(fakeGateway{err: errTest}, fakeRenderer{}, nil).
+		NameIndex(t.Context(), "universe", "")
+	if !errors.Is(err, errTest) {
+		t.Fatalf("err = %v, want %v", err, errTest)
+	}
+}
+
+func TestNameIndexUniversePropagatesCancellation(t *testing.T) {
+	gw := fakeGateway{err: context.Canceled}
+	_, err := NewReadingService(gw, fakeRenderer{}, nil).NameIndex(t.Context(), "universe", "")
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want context.Canceled", err)
 	}
+}
+
+func qualifyCatalog(body, world string) string {
+	return strings.ReplaceAll(body, "| /", "| mark://"+world+"/")
 }
