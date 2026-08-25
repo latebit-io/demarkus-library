@@ -268,6 +268,22 @@ func TestPaletteHtmxRendersHTMLFragmentWithTrailLinks(t *testing.T) {
 	}
 }
 
+func TestPaletteRendersPartialLookupWarning(t *testing.T) {
+	svc := &fakeReading{
+		nameIndex:    []domain.IndexEntry{{Title: "Mission", Path: "/mission.md", World: "root"}},
+		nameIndexErr: &domain.PartialLookupError{Failed: 1, Worlds: 3},
+	}
+	req := httptest.NewRequest(http.MethodGet, "/palette?q=mission&scope=universe", http.NoBody)
+	req.Header.Set("HX-Request", "true")
+	rec := httptest.NewRecorder()
+	readingApp(t, svc).ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "lookup incomplete: 1 of 3 worlds failed") ||
+		!strings.Contains(rec.Body.String(), "Mission") {
+		t.Errorf("partial palette = (%d, %q)", rec.Code, rec.Body.String())
+	}
+}
+
 func TestPaletteNonHtmxDegradesToSearch(t *testing.T) {
 	// No JS / direct hit: the palette is an enhancement, so it redirects to the
 	// durable server-rendered /search surface.

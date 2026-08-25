@@ -85,6 +85,18 @@ func (g *Gateway) Lookup(ctx context.Context, w, scope, query, filter string, li
 	return gw.Lookup(ctx, w, scope, query, filter, limit)
 }
 
+// LookupAll uses the broker universe when available, otherwise the direct
+// gateway's one-world universe.
+func (g *Gateway) LookupAll(ctx context.Context, scope, query, filter string, limit int) (domain.RawDocument, error) {
+	if g.cfg.Names != nil {
+		return g.cfg.Names.LookupAll(ctx, scope, query, filter, limit)
+	}
+	if g.cfg.Hosts != nil {
+		return g.cfg.Hosts.LookupAll(ctx, scope, query, filter, limit)
+	}
+	return domain.RawDocument{}, domain.ErrNotFound
+}
+
 // Publish routes the write to the world's transport (Phase 3): knowledge-system
 // names go to the broker (mark_publish), bare hosts to the QUIC side (which
 // degrades to ErrWriteUnsupported — read-only).

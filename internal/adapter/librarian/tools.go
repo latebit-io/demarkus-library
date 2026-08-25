@@ -9,11 +9,13 @@ package librarian
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
 	"unicode/utf8"
 
+	"github.com/latebit-io/demarkus-library/internal/core/domain"
 	"github.com/latebit-io/demarkus-library/internal/core/port"
 	"github.com/latebit-io/demarkus/client/mdoutline"
 	nibagent "github.com/latebit-io/nib/agent"
@@ -121,7 +123,8 @@ func (t *findTool) Execute(ctx context.Context, call llm.ToolCall) nibagent.Tool
 		scope = "world"
 	}
 	entries, err := t.reader.NameIndex(ctx, scope, in.World)
-	if err != nil {
+	var partial *domain.PartialLookupError
+	if err != nil && !errors.As(err, &partial) {
 		return errResult(err)
 	}
 	q := strings.ToLower(in.Query)
@@ -143,7 +146,13 @@ func (t *findTool) Execute(ctx context.Context, call llm.ToolCall) nibagent.Tool
 		b.WriteByte('\n')
 	}
 	if matches == 0 {
+		if partial != nil {
+			return nibagent.ToolResult{Content: partial.Error() + ". No matches in available worlds."}
+		}
 		return nibagent.ToolResult{Content: fmt.Sprintf("No titles or paths match %q.", in.Query)}
+	}
+	if partial != nil {
+		fmt.Fprintf(&b, "%s.\n", partial.Error())
 	}
 	return nibagent.ToolResult{Content: b.String()}
 }

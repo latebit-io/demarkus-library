@@ -7,6 +7,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
+	"github.com/latebit-io/demarkus-library/internal/core/domain"
 	nibagent "github.com/latebit-io/nib/agent"
 	"github.com/latebit-io/nib/ai/llm"
 )
@@ -43,6 +44,25 @@ func TestFindTool_RequiresQuery(t *testing.T) {
 	tool := &findTool{reader: newFakePorts()}
 	if res := tool.Execute(context.Background(), call("find", `{}`)); !res.IsError {
 		t.Errorf("missing query accepted: %+v", res)
+	}
+}
+
+func TestFindTool_DisclosesPartialLookup(t *testing.T) {
+	t.Parallel()
+
+	ports := newFakePorts()
+	ports.entriesErr = &domain.PartialLookupError{Failed: 1, Worlds: 3}
+	res := (&findTool{reader: ports}).Execute(context.Background(), call("find", `{"query":"deploy"}`))
+	if res.IsError || !strings.Contains(res.Content, "Deploy runbook") ||
+		!strings.Contains(res.Content, "lookup incomplete: 1 of 3 worlds failed") {
+		t.Errorf("partial result not retained and disclosed: %+v", res)
+	}
+
+	ports.entries = nil
+	res = (&findTool{reader: ports}).Execute(context.Background(), call("find", `{"query":"deploy"}`))
+	if res.IsError || strings.Contains(res.Content, "No titles or paths match") ||
+		!strings.Contains(res.Content, "No matches in available worlds") {
+		t.Errorf("partial-empty result reported authoritatively: %+v", res)
 	}
 }
 

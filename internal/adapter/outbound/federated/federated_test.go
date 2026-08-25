@@ -27,6 +27,9 @@ func (f *fakeGW) Versions(_ context.Context, _, _ string) (domain.RawDocument, e
 func (f *fakeGW) Lookup(_ context.Context, _, _, _, _ string, _ int) (domain.RawDocument, error) {
 	return domain.RawDocument{Source: f.name}, nil
 }
+func (f *fakeGW) LookupAll(_ context.Context, _, _, _ string, _ int) (domain.RawDocument, error) {
+	return domain.RawDocument{Source: f.name}, nil
+}
 
 func (f *fakeGW) Worlds(context.Context) ([]domain.WorldInfo, error) {
 	return []domain.WorldInfo{{Name: f.name}}, nil
@@ -127,6 +130,20 @@ func TestAppendRouting(t *testing.T) {
 				t.Errorf("routed via %q, want %q", via, tc.wantVia)
 			}
 		})
+	}
+}
+
+func TestLookupAllPrefersBrokerUniverse(t *testing.T) {
+	names := &fakeGW{name: "names"}
+	hosts := &fakeGW{name: "hosts"}
+
+	raw, err := New(Config{Names: names, Hosts: hosts}).LookupAll(t.Context(), "/", "*", "", 1000)
+	if err != nil || raw.Source != "names" {
+		t.Fatalf("broker LookupAll = (%+v, %v)", raw, err)
+	}
+	raw, err = New(Config{Hosts: hosts}).LookupAll(t.Context(), "/", "*", "", 1000)
+	if err != nil || raw.Source != "hosts" {
+		t.Fatalf("direct LookupAll = (%+v, %v)", raw, err)
 	}
 }
 

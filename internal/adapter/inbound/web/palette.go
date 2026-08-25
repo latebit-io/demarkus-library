@@ -1,6 +1,7 @@
 package web
 
 import (
+	"errors"
 	"net/http"
 	"net/url"
 	"sort"
@@ -31,8 +32,9 @@ type paletteRow struct {
 }
 
 type paletteVM struct {
-	Query string
-	Rows  []paletteRow
+	Query   string
+	Rows    []paletteRow
+	Warning string
 }
 
 // Palette renders the name-mode results fragment for the htmx active search. A
@@ -60,12 +62,16 @@ func (h *ReadingHandler) Palette(c *echo.Context) error {
 			world = paletteWorld(c, t, h.defaultWorld)
 		}
 		entries, err := h.reading.NameIndex(c.Request().Context(), c.QueryParam("scope"), world)
-		if err != nil {
+		var partial *domain.PartialLookupError
+		if err != nil && !errors.As(err, &partial) {
 			// Surface real failures (re-login, unreachable world) instead of
 			// rendering an outage as "no matches".
 			return presentError(c, err, world, "/palette")
 		}
 		rows = matchRows(t, q, entries)
+		if partial != nil {
+			return c.Render(http.StatusOK, "palette-results", paletteVM{Query: q, Rows: rows, Warning: partial.Error()})
+		}
 	}
 	return c.Render(http.StatusOK, "palette-results", paletteVM{Query: q, Rows: rows})
 }

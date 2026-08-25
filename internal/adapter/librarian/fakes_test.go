@@ -14,10 +14,11 @@ type fakePorts struct {
 	mu   sync.Mutex
 	raws []string // "world:path" per Raw call
 
-	floor   domain.Floor
-	entries []domain.IndexEntry
-	raw     domain.RawDocument
-	hood    domain.Neighborhood
+	floor      domain.Floor
+	entries    []domain.IndexEntry
+	entriesErr error
+	raw        domain.RawDocument
+	hood       domain.Neighborhood
 }
 
 func newFakePorts() *fakePorts {
@@ -78,7 +79,7 @@ func (f *fakePorts) Raw(_ context.Context, world, path string) (domain.RawDocume
 	return f.raw, nil
 }
 func (f *fakePorts) NameIndex(context.Context, string, string) ([]domain.IndexEntry, error) {
-	return f.entries, nil
+	return f.entries, f.entriesErr
 }
 func (f *fakePorts) ReadCached(context.Context, string, string) (domain.Document, error) {
 	return domain.Document{}, nil

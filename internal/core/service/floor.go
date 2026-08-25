@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -200,20 +201,52 @@ func (s *ReadingService) FloorCached(ctx context.Context) (domain.Floor, error) 
 // escapes cell content), so a light parse is honest: header/separator rows
 // drop by shape, malformed rows drop silently, and the status: tag axis
 // resolves each doc's badge exactly like the document margin does.
+type catalogRow struct {
+	domain.FloorDoc
+	World string
+}
+
 func parseCatalogTable(body string, limit int) []domain.FloorDoc {
-	var out []domain.FloorDoc
+	rows := parseCatalogRows(body, "", false, limit)
+	if rows == nil {
+		return nil
+	}
+	out := make([]domain.FloorDoc, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, row.FloorDoc)
+	}
+	return out
+}
+
+// parseCatalogRows accepts ordinary LOOKUP paths and mark:// URLs emitted by
+// mark_lookup_all. fallbackWorld identifies ordinary paths in direct mode.
+func parseCatalogRows(body, fallbackWorld string, qualifiedOnly bool, limit int) []catalogRow {
+	var out []catalogRow
 	for line := range strings.SplitSeq(body, "\n") {
 		line = strings.TrimSpace(line)
 		if !strings.HasPrefix(line, "|") {
 			continue
 		}
-		cells := strings.Split(strings.Trim(line, "|"), "|")
+		cells := splitCatalogRow(line)
 		if len(cells) < 4 {
 			continue
 		}
 		path := unescapeMD(strings.TrimSpace(cells[0]))
-		if path == "" || path == "Path" || strings.HasPrefix(path, "-") || !strings.HasPrefix(path, "/") {
+		if path == "" || path == "Path" || strings.HasPrefix(path, "-") {
 			continue
+		}
+		world := fallbackWorld
+		if strings.HasPrefix(path, "/") {
+			if qualifiedOnly {
+				continue
+			}
+		} else {
+			u, err := url.Parse(path)
+			if err != nil || u.Scheme != "mark" || u.Host == "" || u.User != nil ||
+				u.RawQuery != "" || u.Fragment != "" || !strings.HasPrefix(u.Path, "/") {
+				continue
+			}
+			world, path = u.Host, u.Path
 		}
 		importance, _ := strconv.ParseFloat(strings.TrimSpace(cells[1]), 64)
 		title := unescapeMD(strings.TrimSpace(cells[2]))
@@ -221,17 +254,67 @@ func parseCatalogTable(body string, limit int) []domain.FloorDoc {
 			title = strings.TrimSuffix(path[strings.LastIndex(path, "/")+1:], ".md")
 		}
 		tags := splitTags(unescapeMD(strings.TrimSpace(cells[3])))
-		out = append(out, domain.FloorDoc{
-			Path:       path,
-			Title:      title,
-			Importance: importance,
-			Status:     resolveStatus(tags, nil),
+		out = append(out, catalogRow{
+			FloorDoc: domain.FloorDoc{
+				Path:       path,
+				Title:      title,
+				Importance: importance,
+				Status:     resolveStatus(tags, nil),
+			},
+			World: world,
 		})
 		if len(out) >= limit {
 			break
 		}
 	}
 	return out
+}
+
+func splitCatalogRow(line string) []string {
+	line = strings.TrimSpace(line)
+	line = strings.TrimPrefix(line, "|")
+	line = strings.TrimSuffix(line, "|")
+	var cells []string
+	start, backslashes := 0, 0
+	for i := range len(line) {
+		switch line[i] {
+		case '\\':
+			backslashes++
+		case '|':
+			if backslashes%2 == 0 {
+				cells = append(cells, line[start:i])
+				start = i + 1
+			}
+			backslashes = 0
+		default:
+			backslashes = 0
+		}
+	}
+	return append(cells, line[start:])
+}
+
+func parseLookupFailureWorlds(body string) []string {
+	_, failures, ok := strings.Cut(body, "## World failures")
+	if !ok {
+		return nil
+	}
+	var worlds []string
+	for line := range strings.SplitSeq(failures, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "|") {
+			continue
+		}
+		cells := splitCatalogRow(line)
+		if len(cells) < 2 {
+			continue
+		}
+		world := unescapeMD(strings.TrimSpace(cells[0]))
+		if world == "" || world == "World" || strings.HasPrefix(world, "-") {
+			continue
+		}
+		worlds = append(worlds, world)
+	}
+	return worlds
 }
 
 // unescapeMD reverses the lookup table's markdown escaping (backslash

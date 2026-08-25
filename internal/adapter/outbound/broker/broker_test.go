@@ -139,6 +139,39 @@ func TestVerbsAndArgs(t *testing.T) {
 	}
 }
 
+func TestLookupAllBuildsArgsAndAcceptsPartial(t *testing.T) {
+	fc := &fakeCaller{text: "status: partial\nworlds: 3\nfailed: 1\n\n| Path | Importance | Title | Tags |\n|---|---|---|---|\n| mark://root/index.md | 0.90 | Root | hub |"}
+	g := &Gateway{caller: fc}
+
+	raw, err := g.LookupAll(authedCtx(t), "/docs/", "architecture", "tag=guide", 250)
+	if err != nil {
+		t.Fatalf("LookupAll: %v", err)
+	}
+	if fc.gotTool != "mark_lookup_all" {
+		t.Errorf("tool = %q, want mark_lookup_all", fc.gotTool)
+	}
+	if fc.gotArgs["scope"] != "/docs/" || fc.gotArgs["query"] != "architecture" ||
+		fc.gotArgs["filter"] != "tag=guide" || fc.gotArgs["limit"] != 250 {
+		t.Errorf("args = %#v", fc.gotArgs)
+	}
+	if _, ok := fc.gotArgs["url"]; ok {
+		t.Errorf("LookupAll sent world URL: %#v", fc.gotArgs)
+	}
+	if raw.Metadata["status"] != "partial" || raw.Metadata["failed"] != "1" {
+		t.Errorf("metadata = %#v", raw.Metadata)
+	}
+	if !strings.Contains(raw.Body, "mark://root/index.md") {
+		t.Errorf("body = %q", raw.Body)
+	}
+}
+
+func TestPartialStatusRejectedOutsideLookupAll(t *testing.T) {
+	g := &Gateway{caller: &fakeCaller{text: "status: partial\n\nbody"}}
+	if _, err := g.Fetch(authedCtx(t), "root", "/index.md"); err == nil {
+		t.Fatal("Fetch accepted partial status")
+	}
+}
+
 func TestStatusMapping(t *testing.T) {
 	cases := []struct {
 		status string

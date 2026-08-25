@@ -155,6 +155,9 @@ type WorldGateway interface {
 	// world map, palette index) pass an explicit cap so the catalog isn't
 	// silently truncated to that default.
 	Lookup(ctx context.Context, world, scope, query, filter string, limit int) (domain.RawDocument, error)
+	// LookupAll queries every readable world under the same server-relative
+	// scope. Result paths are qualified mark:// URLs in broker mode.
+	LookupAll(ctx context.Context, scope, query, filter string, limit int) (domain.RawDocument, error)
 	// Worlds enumerates the universe this gateway can reach: the broker's
 	// mark_worlds (authorization-filtered) or the single home world over
 	// QUIC. The non-brokered universe is extensional — one world — so an
