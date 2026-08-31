@@ -18,12 +18,13 @@ import (
 // Same MCP-readable channel as the floor (mark_lookup "*") — the projection
 // adds layout, never information (ADR 0005 decision 11).
 const (
-	// worldMapMaxDocs caps the catalog parse — a world map is a navigation
-	// aid, not the whole stacks (the listing panes hold the long tail).
+	// worldMapMaxDocs caps the catalog parse; within it the map is 1:1 with
+	// the catalog — a doc that exists but is absent from the map reads as a
+	// bug, so every parsed doc renders as a labeled node.
 	worldMapMaxDocs = 500
-	// worldMapClusterDocs caps labeled nodes per directory cluster; the rest
-	// collapse into the "+N more" aggregate bubble.
-	worldMapClusterDocs = 12
+	// worldMapClusterDocs matches the parse cap: no per-cluster truncation.
+	// The "+N more" aggregate now appears only past worldMapMaxDocs.
+	worldMapClusterDocs = worldMapMaxDocs
 )
 
 // worldMapTTL bounds how long a cached world map serves an unfocused pane
