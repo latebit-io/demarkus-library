@@ -1,9 +1,10 @@
 package web
 
 import (
-	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -85,20 +86,19 @@ func TestFloorSVGNodesAndLinks(t *testing.T) {
 	for _, want := range []string{
 		`class="floor-world"`,
 		// World node click → the world's stacks (root listing → rich index).
-		`href="/t/u/~/team-a/d/"`,
-		// Doc node click → the document pane.
-		`href="/t/u/~/team-a/d/index.md"`,
-		`class="floor-doc status-accepted"`,
+		`href="/t/u/~/team-a/d/"`, `data-node="w:team-a"`,
 		// Unreachable world renders dimmed, present.
-		`class="floor-system gone"`,
+		`class="floor-world gone"`,
 		`old-world`,
-		// Long titles trim in the label; full title rides the tooltip.
-		"ADR 0005 — a very l…",
-		"ADR 0005 — a very long title that needs trimming — /adr/0005.md",
+		`worlds · 0 portals`,
 	} {
 		if !strings.Contains(svg, want) {
 			t.Errorf("floor svg missing %q", want)
 		}
+	}
+	// Worlds only: no document satellites on the universe (ADR 0006 §5).
+	if strings.Contains(svg, "floor-doc ") || strings.Contains(svg, "/index.md") {
+		t.Errorf("universe must not draw documents: %s", svg)
 	}
 }
 
@@ -110,67 +110,81 @@ func TestFloorSVGEdgesAndPortals(t *testing.T) {
 			{World: domain.WorldInfo{Name: "wiki.example.org", URL: "mark://wiki.example.org"}, Portal: true},
 		},
 		Edges: []domain.Edge{
-			{From: domain.Ref{World: "root"}, To: domain.Ref{World: "world-a"}},
-			{From: domain.Ref{World: "world-a"}, To: domain.Ref{World: "wiki.example.org"}},
+			{From: domain.Ref{World: "root"}, To: domain.Ref{World: "world-a"}, Count: 7},
+			{From: domain.Ref{World: "world-a"}, To: domain.Ref{World: "wiki.example.org"}, Count: 1},
 		},
 	}
 	svg := string(floorSVG(floor, trail{Panes: []paneAddr{{Kind: paneFloor}}, Focus: 0}, 0))
 
 	for _, want := range []string{
-		`class="floor-edge"`,        // world-level edges drawn
+		// World-level edges in the map's grammar: directed, hoverable, bundled by count.
+		`data-from="w:root" data-to="w:world-a"`, `edge-bundle`, `style="stroke-width:3.6"`,
+		`data-from="w:world-a" data-to="w:wiki.example.org"`,
 		`class="floor-portal-node"`, // external host as a portal node
 		// Portal click opens that host's root (federation resolves the host).
 		`href="/t/u/~/wiki.example.org/d/"`,
 		"wiki.example.org",
+		`1 portal`,
 	} {
 		if !strings.Contains(svg, want) {
 			t.Errorf("floor svg missing %q", want)
 		}
 	}
-	// Two edges → two <line> elements.
-	if n := strings.Count(svg, "floor-edge"); n != 2 {
+	if n := strings.Count(svg, "<line "); n != 2 {
 		t.Errorf("edge count = %d, want 2", n)
 	}
 }
 
-func TestFloorGridLayout(t *testing.T) {
-	// ~√N landscape columns; a lone world is one centered column.
-	for _, c := range []struct{ n, cols int }{{0, 1}, {1, 1}, {2, 2}, {3, 3}, {4, 3}, {9, 5}, {16, 6}} {
-		if got := floorGridCols(c.n); got != c.cols {
-			t.Errorf("floorGridCols(%d) = %d, want %d", c.n, got, c.cols)
+// Worlds ring the hub world (the one linked to at least half the others) and
+// every world lands inside the viewBox.
+func TestFloorSVGRingsAroundHub(t *testing.T) {
+	var floor domain.Floor
+	for _, n := range []string{"hub", "a", "b", "c", "d"} {
+		floor.Worlds = append(floor.Worlds, domain.FloorWorld{World: domain.WorldInfo{Name: n}})
+	}
+	for _, n := range []string{"a", "b", "c"} {
+		floor.Edges = append(floor.Edges, domain.Edge{From: domain.Ref{World: "hub"}, To: domain.Ref{World: n}, Count: 1})
+	}
+	svg := string(floorSVG(floor, trail{Panes: []paneAddr{{Kind: paneFloor}}, Focus: 0}, 0))
+	vb := regexp.MustCompile(`viewBox="0 0 (\d+) (\d+)"`).FindStringSubmatch(svg)
+	if vb == nil {
+		t.Fatalf("no viewBox in svg: %.200s", svg)
+	}
+	w, _ := strconv.Atoi(vb[1])
+	h, _ := strconv.Atoi(vb[2])
+	at := func(id string) (x, y int) {
+		t.Helper()
+		i := strings.Index(svg, `data-node="`+id+`"`)
+		if i < 0 {
+			t.Fatalf("no node %q in svg", id)
 		}
+		m := regexp.MustCompile(`cx="(-?\d+)" cy="(-?\d+)"`).FindStringSubmatch(svg[i:])
+		if m == nil {
+			t.Fatalf("node %q has no cx/cy", id)
+		}
+		x, _ = strconv.Atoi(m[1])
+		y, _ = strconv.Atoi(m[2])
+		return x, y
 	}
-	// rowItems centers partial last rows; ceilDiv counts rows (0 for empty).
-	if rowItems(9, 5, 0) != 5 || rowItems(9, 5, 1) != 4 {
-		t.Errorf("rowItems(9,5,*) = %d,%d, want 5,4", rowItems(9, 5, 0), rowItems(9, 5, 1))
+	hx, hy := at("w:hub")
+	if hx != w/2 || hy != wmTierTop+(h-wmTierTop-36)/2 {
+		t.Errorf("hub should hold the centre, got (%d,%d) in %dx%d", hx, hy, w, h)
 	}
-	if ceilDiv(9, 5) != 2 || ceilDiv(0, 5) != 0 {
-		t.Errorf("ceilDiv wrong: %d %d", ceilDiv(9, 5), ceilDiv(0, 5))
-	}
-}
-
-// Many worlds wrap into a centered grid instead of one ever-widening row: 6
-// systems → 4 cols × 2 rows, so the viewBox is two system-rows tall.
-func TestFloorSVGWrapsManyWorlds(t *testing.T) {
-	names := []string{"a", "b", "c", "d", "e", "f"}
-	ws := make([]domain.FloorWorld, 0, len(names))
-	for _, name := range names {
-		ws = append(ws, domain.FloorWorld{World: domain.WorldInfo{Name: name}})
-	}
-	svg := string(floorSVG(domain.Floor{Worlds: ws}, trail{Panes: []paneAddr{{Kind: paneFloor}}, Focus: 0}, 0))
-	if !strings.Contains(svg, `viewBox="0 0 1360 880"`) {
-		t.Errorf("expected wrapped 4×2 grid (viewBox 1360×880), got: %.120s", svg)
+	for _, n := range []string{"a", "b", "c", "d"} {
+		x, y := at("w:" + n)
+		if x <= 0 || y <= 0 || x >= w || y >= h || (x == hx && y == hy) {
+			t.Errorf("world %s at (%d,%d) should sit on the ring inside %dx%d", n, x, y, w, h)
+		}
 	}
 }
 
 func TestFloorSVGEscapesContent(t *testing.T) {
 	floor := domain.Floor{Worlds: []domain.FloorWorld{
-		{World: domain.WorldInfo{Name: "w"},
-			Docs: []domain.FloorDoc{{Path: "/x.md", Title: `<script>"evil"</script>`, Importance: 0.5, Status: "draft"}}},
+		{World: domain.WorldInfo{Name: `<script>"evil"</script>`, URL: "mark://x"}},
 	}}
 	svg := string(floorSVG(floor, trail{Panes: []paneAddr{{Kind: paneFloor}}, Focus: 0}, 0))
 	if strings.Contains(svg, "<script>") {
-		t.Errorf("unescaped title in svg: %s", svg)
+		t.Errorf("unescaped name in svg: %s", svg)
 	}
 }
 
@@ -270,36 +284,5 @@ func TestTrailFloorErrorHandling(t *testing.T) {
 	rec := get(readingApp(t, svc), "/t/u/~/w.io/d/x.md")
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `class="pane spine gone"`) {
 		t.Errorf("unfocused floor error must tombstone: %d", rec.Code)
-	}
-}
-
-func TestFloorSatCapScalesWithUniverse(t *testing.T) {
-	for _, c := range []struct{ systems, cap int }{{1, 10}, {4, 10}, {5, 6}, {9, 6}, {10, 4}, {16, 4}, {17, 3}, {40, 3}} {
-		if got := floorSatCap(c.systems); got != c.cap {
-			t.Errorf("floorSatCap(%d) = %d, want %d", c.systems, got, c.cap)
-		}
-	}
-}
-
-func TestFloorSVGTrimsSatellitesAtScale(t *testing.T) {
-	// Ten worlds, each with 10 satellites: only floorSatCap(10)=4 draw per
-	// world, importance order preserved (docs arrive pre-sorted).
-	var floor domain.Floor
-	for w := range 10 {
-		fw := domain.FloorWorld{World: domain.WorldInfo{Name: fmt.Sprintf("w%02d", w)}}
-		for d := range 10 {
-			fw.Docs = append(fw.Docs, domain.FloorDoc{
-				Path: fmt.Sprintf("/doc-%02d.md", d), Title: fmt.Sprintf("doc %02d", d), Importance: 1 - float64(d)/10,
-			})
-		}
-		floor.Worlds = append(floor.Worlds, fw)
-	}
-	svg := string(floorSVG(floor, trail{Panes: []paneAddr{{Kind: paneFloor}}, Focus: 0}, 0))
-
-	if got := strings.Count(svg, "floor-doc "); got != 10*4 {
-		t.Errorf("satellites drawn = %d, want %d", got, 10*4)
-	}
-	if !strings.Contains(svg, "/doc-03.md") || strings.Contains(svg, "/doc-04.md") {
-		t.Errorf("cap should keep the top-importance docs and drop the tail")
 	}
 }

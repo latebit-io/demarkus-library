@@ -46,8 +46,11 @@ const arrowMarker = `<defs><marker id="arrow" markerWidth="9" markerHeight="9" r
 // node instead of hiding under it. fromID/toID tag the edge with its endpoint
 // node ids so a node-hover handler can light up every incident edge. A
 // non-empty rel (a typed relation's predicate) draws dashed with the
-// predicate as its hover tooltip; "" is a plain reference.
-func directedEdge(b *strings.Builder, x1, y1, r1, x2, y2, r2 int, fromID, toID, rel string) {
+// predicate as its hover tooltip; "" is a plain reference. tier is an extra
+// rest-state class (edge-spine, edge-tree, edge-dim) the world map uses to
+// quiet its hairball; "" adds none. width > 0 overrides the stroke width
+// (a rolled-up bundle of several document edges).
+func directedEdge(b *strings.Builder, x1, y1, r1, x2, y2, r2 int, fromID, toID, rel, tier string, width float64) {
 	dx, dy := float64(x2-x1), float64(y2-y1)
 	d := math.Hypot(dx, dy)
 	if d == 0 {
@@ -57,13 +60,23 @@ func directedEdge(b *strings.Builder, x1, y1, r1, x2, y2, r2 int, fromID, toID, 
 	const gap = 3.0 // breathing room between arrow tip and target rim
 	sx, sy := x1+int(ux*float64(r1)), y1+int(uy*float64(r1))
 	ex, ey := x2-int(ux*(float64(r2)+gap)), y2-int(uy*(float64(r2)+gap))
-	if rel == "" {
-		fmt.Fprintf(b, `<line class="graph-edge" x1="%d" y1="%d" x2="%d" y2="%d" data-from="%s" data-to="%s" marker-end="url(#arrow)"/>`,
-			sx, sy, ex, ey, html.EscapeString(fromID), html.EscapeString(toID))
-		return
+	cls := "graph-edge"
+	if tier != "" {
+		cls += " " + tier
 	}
-	fmt.Fprintf(b, `<line class="graph-edge edge-rel" x1="%d" y1="%d" x2="%d" y2="%d" data-from="%s" data-to="%s" marker-end="url(#arrow)"><title>%s</title></line>`,
-		sx, sy, ex, ey, html.EscapeString(fromID), html.EscapeString(toID), html.EscapeString(rel))
+	if rel != "" {
+		cls += " edge-rel"
+	}
+	style := ""
+	if width > 0 {
+		style = fmt.Sprintf(` style="stroke-width:%.1f"`, width)
+	}
+	fmt.Fprintf(b, `<line class="%s" x1="%d" y1="%d" x2="%d" y2="%d" data-from="%s" data-to="%s" marker-end="url(#arrow)"%s>`,
+		cls, sx, sy, ex, ey, html.EscapeString(fromID), html.EscapeString(toID), style)
+	if rel != "" {
+		fmt.Fprintf(b, `<title>%s</title>`, html.EscapeString(rel))
+	}
+	b.WriteString(`</line>`)
 }
 
 // GraphPage renders the graph neighborhood as a standalone permalink —
@@ -156,9 +169,9 @@ func graphSVG(n domain.Neighborhood, urlFor func(domain.Ref) string, onTrail map
 	// outbound link points center→neighbor, a backlink points neighbor→center.
 	for _, pn := range placed {
 		if pn.inbound {
-			directedEdge(&b, pn.x, pn.y, graphNodeR, cx, cy, graphCenterR, pn.ref.Path, n.Center.Path, "")
+			directedEdge(&b, pn.x, pn.y, graphNodeR, cx, cy, graphCenterR, pn.ref.Path, n.Center.Path, "", "", 0)
 		} else {
-			directedEdge(&b, cx, cy, graphCenterR, pn.x, pn.y, graphNodeR, n.Center.Path, pn.ref.Path, "")
+			directedEdge(&b, cx, cy, graphCenterR, pn.x, pn.y, graphNodeR, n.Center.Path, pn.ref.Path, "", "", 0)
 		}
 	}
 	// Center node (data-node so hovering it lights up all its edges).

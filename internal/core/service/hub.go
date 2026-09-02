@@ -170,7 +170,7 @@ func isLocalHost(h string) bool {
 // edge with them) via portalLabel, so a hub graph dirtied by dev crawls cannot
 // clutter the floor. Both outputs are sorted for a stable, cacheable render.
 func worldEdges(edges []domain.Edge, host2name map[string]string, authorized map[string]bool) (worldLevel []domain.Edge, portalNames []string) {
-	seen := map[domain.Edge]struct{}{}
+	at := map[domain.Edge]int{} // world pair → index in out, for the rollup count
 	portals := map[string]bool{}
 	var out []domain.Edge
 	for _, e := range edges {
@@ -202,10 +202,12 @@ func worldEdges(edges []domain.Edge, host2name map[string]string, authorized map
 			portals[to] = true
 		}
 		we := domain.Edge{From: domain.Ref{World: from}, To: domain.Ref{World: to}, Type: e.Type}
-		if _, dup := seen[we]; dup {
+		if i, dup := at[we]; dup {
+			out[i].Count++
 			continue
 		}
-		seen[we] = struct{}{}
+		at[we] = len(out)
+		we.Count = 1
 		out = append(out, we)
 	}
 	sort.Slice(out, func(i, j int) bool {

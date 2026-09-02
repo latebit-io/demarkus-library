@@ -13,11 +13,10 @@ import (
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
 )
 
-// floorSatellites caps how many top-importance documents each world cluster
-// shows. The catalog returns importance order, so the cap keeps exactly the
-// most load-bearing documents (hubs, architecture, decisions per the
-// tagging conventions) as labeled satellites.
-const floorSatellites = 10
+// floorSample caps the per-world catalog read on the floor. The map draws
+// worlds as aggregates sized by this count, so it is a count proxy, not a
+// satellite list; big worlds saturate at the cap.
+const floorSample = 200
 
 // floorTTL bounds how long a freshly built floor is reused before a focused
 // rebuild. The floor is the heaviest read in the room — it fans out a world
@@ -144,7 +143,7 @@ func (s *ReadingService) buildFloor(ctx context.Context) (domain.Floor, error) {
 	floor := domain.Floor{Worlds: make([]domain.FloorWorld, 0, len(worlds))}
 	for _, w := range worlds {
 		fw := domain.FloorWorld{World: w}
-		raw, err := s.world.Lookup(ctx, w.Name, "/", "*", "", floorSatellites)
+		raw, err := s.world.Lookup(ctx, w.Name, "/", "*", "", floorSample)
 		switch {
 		case errors.Is(err, domain.ErrUnauthorized):
 			// The reader's identity died mid-assembly — that is the
@@ -153,7 +152,7 @@ func (s *ReadingService) buildFloor(ctx context.Context) (domain.Floor, error) {
 		case err != nil:
 			fw.Err = true
 		default:
-			fw.Docs = parseCatalogTable(raw.Body, floorSatellites)
+			fw.Docs = parseCatalogTable(raw.Body, floorSample)
 		}
 		floor.Worlds = append(floor.Worlds, fw)
 	}
