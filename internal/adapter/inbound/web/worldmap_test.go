@@ -445,17 +445,22 @@ func TestWorldMapAggregationRingAndHub(t *testing.T) {
 	}
 }
 
-// A reader-supplied page past the end clamps to the last page instead of
-// overflowing page*chunk; the "more" link never advances past it either.
+// Pages are cumulative: page k shows the first k*chunk members. A
+// reader-supplied page past the end clamps to the last page instead of
+// overflowing page*chunk, so every member shows and no "more" chunk remains;
+// the "more" link never advances past the last page either.
 func TestWorldMapAggregationPageClamp(t *testing.T) {
 	wm := wmDirFixture(map[string]int{"genres": 100})
 	openURL := func(keys []string) string { return "?open=" + strings.Join(keys, ",") }
-	svg := string(worldMapRender(wm, func(p string) string { return p }, "", wmOpts{open: []string{"genres@9223372036854775807"}, openURL: openURL}))
-	if !strings.Contains(svg, `data-node="/genres/d100.md"`) || strings.Contains(svg, `data-node="m:genres"`) {
-		t.Errorf("a huge page should show every member and no more chunk")
+	render := func(open string) string {
+		return string(worldMapRender(wm, func(p string) string { return p }, "", wmOpts{open: []string{open}, openURL: openURL}))
 	}
-	svg = string(worldMapRender(wm, func(p string) string { return p }, "", wmOpts{open: []string{"genres@2"}, openURL: openURL}))
-	if !strings.Contains(svg, `hx-get="?open=genres@3"`) {
-		t.Errorf("page 2 of 100 should offer page 3")
+	svg := render("genres@9223372036854775807")
+	if n := strings.Count(svg, `data-node="/genres/d`); n != 100 || strings.Contains(svg, `data-node="m:genres"`) {
+		t.Errorf("a huge page should show all 100 members and no more chunk, got %d", n)
+	}
+	svg = render("genres@2")
+	if n := strings.Count(svg, `data-node="/genres/d`); n != 2*wmChunk || !strings.Contains(svg, `hx-get="?open=genres@3"`) {
+		t.Errorf("page 2 should show %d members and offer page 3, got %d", 2*wmChunk, n)
 	}
 }
