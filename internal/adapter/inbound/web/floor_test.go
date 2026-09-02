@@ -147,11 +147,21 @@ func TestFloorSVGRingsAroundHub(t *testing.T) {
 	}
 	svg := string(floorSVG(floor, trail{Panes: []paneAddr{{Kind: paneFloor}}, Focus: 0}, 0))
 	vb := regexp.MustCompile(`viewBox="0 0 (\d+) (\d+)"`).FindStringSubmatch(svg)
+	if vb == nil {
+		t.Fatalf("no viewBox in svg: %.200s", svg)
+	}
 	w, _ := strconv.Atoi(vb[1])
 	h, _ := strconv.Atoi(vb[2])
 	at := func(id string) (x, y int) {
+		t.Helper()
 		i := strings.Index(svg, `data-node="`+id+`"`)
+		if i < 0 {
+			t.Fatalf("no node %q in svg", id)
+		}
 		m := regexp.MustCompile(`cx="(-?\d+)" cy="(-?\d+)"`).FindStringSubmatch(svg[i:])
+		if m == nil {
+			t.Fatalf("node %q has no cx/cy", id)
+		}
 		x, _ = strconv.Atoi(m[1])
 		y, _ = strconv.Atoi(m[2])
 		return x, y

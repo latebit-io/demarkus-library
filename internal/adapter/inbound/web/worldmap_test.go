@@ -412,11 +412,15 @@ func TestWorldMapAggregationRingAndHub(t *testing.T) {
 	}
 	svg := string(worldMapRender(wm, func(p string) string { return p }, "", wmOpts{}))
 	circle := func(id string) (x, y int) {
+		t.Helper()
 		i := strings.Index(svg, `data-node="`+id+`"`)
 		if i < 0 {
 			t.Fatalf("no node %s", id)
 		}
 		m := regexp.MustCompile(`cx="(-?\d+)" cy="(-?\d+)"`).FindStringSubmatch(svg[i:])
+		if m == nil {
+			t.Fatalf("node %s has no cx/cy", id)
+		}
 		x, _ = strconv.Atoi(m[1])
 		y, _ = strconv.Atoi(m[2])
 		return x, y
@@ -438,5 +442,20 @@ func TestWorldMapAggregationRingAndHub(t *testing.T) {
 	_, y2 := circle("/adr/d002.md")
 	if d := hy - y2; d != int(wmRingRadius(7)) {
 		t.Errorf("ring radius = %d, want %d", d, int(wmRingRadius(7)))
+	}
+}
+
+// A reader-supplied page past the end clamps to the last page instead of
+// overflowing page*chunk; the "more" link never advances past it either.
+func TestWorldMapAggregationPageClamp(t *testing.T) {
+	wm := wmDirFixture(map[string]int{"genres": 100})
+	openURL := func(keys []string) string { return "?open=" + strings.Join(keys, ",") }
+	svg := string(worldMapRender(wm, func(p string) string { return p }, "", wmOpts{open: []string{"genres@9223372036854775807"}, openURL: openURL}))
+	if !strings.Contains(svg, `data-node="/genres/d100.md"`) || strings.Contains(svg, `data-node="m:genres"`) {
+		t.Errorf("a huge page should show every member and no more chunk")
+	}
+	svg = string(worldMapRender(wm, func(p string) string { return p }, "", wmOpts{open: []string{"genres@2"}, openURL: openURL}))
+	if !strings.Contains(svg, `hx-get="?open=genres@3"`) {
+		t.Errorf("page 2 of 100 should offer page 3")
 	}
 }

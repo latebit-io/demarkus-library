@@ -17,11 +17,12 @@ import (
 // that pages; the rest state auto-expands the smallest groups until the
 // budget is spent. Open state is the overlay fragment's `open` query param.
 const (
-	wmChunk       = 40 // members an expanded group shows per page
-	wmAutoVisible = 50 // rest-state budget of visible items
-	wmAggPad      = 14 // spacing between sibling footprints on a ring
-	wmFoldMax     = 2  // a subdirectory this small dissolves into its parent
-	wmRingMax     = 24 // leaf groups up to this size ring their anchor; bigger ones spiral
+	wmChunk       = 40      // members an expanded group shows per page
+	wmAutoVisible = 50      // rest-state budget of visible items
+	wmAggPad      = 14      // spacing between sibling footprints on a ring
+	wmFoldMax     = 2       // a subdirectory this small dissolves into its parent
+	wmRingMax     = 24      // leaf groups up to this size ring their anchor; bigger ones spiral
+	wmPageMax     = 1 << 16 // reader-supplied page numbers clamp here (keeps page*chunk in range)
 )
 
 // wmGroup is a directory in the world's path tree.
@@ -95,7 +96,7 @@ func wmParseOpen(keys []string) wmOpenSet {
 		default:
 			if key, n, ok := strings.Cut(k, "@"); ok {
 				if p, err := strconv.Atoi(n); err == nil && p > 1 {
-					s.pages[key] = p
+					s.pages[key] = min(p, wmPageMax)
 				}
 				k = key
 			}
@@ -136,7 +137,7 @@ func (s wmOpenSet) with(key string, action wmOpenAction) []string {
 	case wmOpenMore:
 		n.open[key] = true
 		delete(n.closed, key)
-		n.pages[key] = max(n.pages[key], 1) + 1
+		n.pages[key] = min(max(n.pages[key], 1)+1, wmPageMax)
 	}
 	return n.keys()
 }
@@ -233,10 +234,14 @@ func wmVisible(root *wmGroup, open wmOpenSet, rank, degree map[string]int, chunk
 			expanded[k] = true
 		}
 	}
-	page := func(key string) int { return max(open.pages[key], 1) }
+	// A page never exceeds the last one a group has, so page*chunk stays small.
+	page := func(g *wmGroup) int {
+		last := max((len(g.docs)+chunk-1)/chunk, 1)
+		return min(max(open.pages[g.key], 1), last)
+	}
 	// Items an expanded group contributes: anchor, subgroups, shown docs, more.
 	cost := func(g *wmGroup) int {
-		shown := min(len(g.docs), page(g.key)*chunk)
+		shown := min(len(g.docs), page(g)*chunk)
 		n := 1 + len(g.subs) + shown
 		if shown < len(g.docs) {
 			n++
@@ -299,7 +304,7 @@ func wmVisible(root *wmGroup, open wmOpenSet, rank, degree map[string]int, chunk
 		}
 		docs := append([]domain.FloorDoc(nil), g.docs...)
 		sort.SliceStable(docs, func(i, j int) bool { return rank[docs[i].Path] < rank[docs[j].Path] })
-		shown := min(len(docs), page(g.key)*chunk)
+		shown := min(len(docs), page(g)*chunk)
 		for i, d := range docs[:shown] {
 			c := &wmItem{id: d.Path, kind: wmItemDoc, doc: d, count: 1}
 			owner[d.Path] = c

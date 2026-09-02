@@ -430,6 +430,10 @@
       if (!a) return;
       var c = a.cloneNode(true);
       c.classList.add("node-hot");
+      // A clone is paint only: no link, no tab stop, so it never takes focus
+      // or re-enters the hover handler. The original underneath stays live.
+      c.removeAttribute("href");
+      c.setAttribute("tabindex", "-1");
       frag.appendChild(c);
     });
     st.focus.appendChild(frag);
@@ -522,12 +526,16 @@
     var w = wmView(svg);
     return { x: w.box[0] + (cx - w.left) / w.k, y: w.box[1] + (cy - w.top) / w.k };
   }
-  window.addEventListener("resize", function () {
+  // The cached rect is viewport-relative: drop it whenever anything scrolls
+  // or the window resizes, and it is re-measured on the next gesture.
+  function wmDropRects() {
     document.querySelectorAll("svg.floor").forEach(function (svg) {
       var st = wmStates.get(svg);
       if (st) st.rect = null;
     });
-  });
+  }
+  window.addEventListener("resize", wmDropRects);
+  window.addEventListener("scroll", wmDropRects, { passive: true, capture: true });
   // Zoom by factor k about an SVG-space point (the centre when null), clamped
   // to [wmZoomMin, wmZoomMax] of the base box.
   function zoomBy(svg, k, p) {
@@ -561,6 +569,7 @@
   });
   document.addEventListener("pointermove", function (e) {
     if (!pan) return;
+    if (e.buttons === 0) { endPan(); return; } // released off-document: no pointerup came
     var dx = e.clientX - pan.x, dy = e.clientY - pan.y;
     if (!pan.moved && Math.hypot(dx, dy) < wmDragSlop) return;
     pan.moved = true;

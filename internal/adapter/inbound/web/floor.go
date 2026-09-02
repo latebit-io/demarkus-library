@@ -106,23 +106,28 @@ func plural(n int, noun string) string {
 	return fmt.Sprintf("%d %ss", n, noun)
 }
 
-// floorLayout returns the vertical radius the universe needs: a ring for up
-// to wmRingMax worlds (the hub, if any, at the centre), a sunflower beyond.
-// The ring keeps the largest world's diameter plus padding between
-// neighbours.
-func floorLayout(byRank []*wmItem) int {
-	n, maxR := 0, 0
+// floorRing is the universe's ring geometry: how many worlds sit on the ring
+// (all but a hub), the largest world radius, and the vertical ring radius
+// that keeps the largest diameter plus padding between neighbours.
+func floorRing(byRank []*wmItem) (n, maxR, ry int) {
 	for _, it := range byRank {
 		maxR = max(maxR, it.r)
 		if !it.hub {
 			n++
 		}
 	}
+	ry = int(math.Max(wmRingRadius(n), float64(n)*float64(2*maxR+wmAggPad)/(2*math.Pi)))
+	return n, maxR, ry
+}
+
+// floorLayout returns the vertical radius the universe needs: a ring for up
+// to wmRingMax worlds (the hub, if any, at the centre), a sunflower beyond.
+func floorLayout(byRank []*wmItem) int {
+	_, maxR, ry := floorRing(byRank)
 	if len(byRank) > wmRingMax {
 		return wmSpiralRadius(len(byRank)) + maxR
 	}
-	ry := math.Max(wmRingRadius(n), float64(n)*float64(2*maxR+wmAggPad)/(2*math.Pi))
-	return int(ry) + maxR + 24
+	return ry + maxR + 24
 }
 
 // floorPlace positions the worlds around (cx, cy) per floorLayout.
@@ -140,14 +145,7 @@ func floorPlace(byRank []*wmItem, cx, cy int) {
 		}
 		return
 	}
-	n, maxR := 0, 0
-	for _, it := range byRank {
-		maxR = max(maxR, it.r)
-		if !it.hub {
-			n++
-		}
-	}
-	ry := int(math.Max(wmRingRadius(n), float64(n)*float64(2*maxR+wmAggPad)/(2*math.Pi)))
+	n, _, ry := floorRing(byRank)
 	rx := int(float64(ry) * wmTierRatio)
 	j := 0
 	for _, it := range byRank {
