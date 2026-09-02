@@ -5,6 +5,7 @@ import (
 	"html"
 	"html/template"
 	"math"
+	"sort"
 	"strings"
 
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
@@ -19,100 +20,170 @@ import (
 // building a trail. The same data an agent reads via mark_worlds +
 // mark_lookup("*") — the projection adds layout, never information.
 const (
-	floorSystemW   = 340 // horizontal slot per world cluster
-	floorSystemH   = 440
-	floorOrbitR    = 130 // satellite ring radius
-	floorLabelTrim = 20  // satellite label length cap (full title in <title>)
-	floorPortalW   = 150 // horizontal slot per portal node
-	floorPortalH   = 120 // portal band height below the systems
-	floorPortalR   = 16  // portal node radius
+	floorPortalR = 12 // portal node radius (an external host, no catalog)
 )
 
-// floorPoint is a world cluster's (or portal's) center — the anchor edges
-// connect to.
-type floorPoint struct{ x, y int }
-
-// floorSVG renders the universe as one SVG (plans "Floor enrichment"):
-// authorized world clusters in a row, world-level edges between them, and
-// externally-linked hosts as portal nodes in a band below. t/idx make every
-// node link trail-aware — clicking a world opens its stacks, a doc opens the
-// document, a portal opens that host's root — all continue the trail.
+// floorSVG renders the universe as one SVG in the world map's grammar
+// (plans/world-map-aggregation.md): every authorized world is an aggregate
+// node sized by its catalog sample, portals are small rim nodes, world-level
+// edges roll up with width by count, and the layout is the leaf-group rule
+// (a ring up to wmRingMax worlds around the hub world, a sunflower beyond).
+// t/idx make every node link trail-aware — a world opens its stacks, a
+// portal that host's root — so walking the universe IS building a trail.
 func floorSVG(floor domain.Floor, t trail, idx int) template.HTML {
-	var systems, portals []domain.FloorWorld
-	for _, fw := range floor.Worlds {
-		if fw.Portal {
-			portals = append(portals, fw)
-		} else {
-			systems = append(systems, fw)
-		}
-	}
-	if len(systems) == 0 && len(portals) == 0 {
+	if len(floor.Worlds) == 0 {
 		return template.HTML(`<p class="floor-empty">The universe is empty — no worlds visible to your identity.</p>`) //nolint:gosec // static markup
 	}
-
-	// Lay out as two centered grids — systems up top, portals in a band below —
-	// rather than two single rows. A single row slid the cluster off to one side
-	// (its width was set by whichever band was wider) and grew without bound as
-	// worlds multiplied; a grid wraps at ~√N columns (landscape-biased), stays
-	// centered, and grows downward into the scrollable overlay. centers anchors
-	// the edges (keyed by world name).
-	sysCols := floorGridCols(len(systems))
-	porCols := floorGridCols(len(portals))
-	sysRows := ceilDiv(len(systems), sysCols)
-	porRows := ceilDiv(len(portals), porCols)
-
-	// The canvas is as wide as the widest band; each band's rows are centered
-	// within it, so a lone system sits in the middle, not the corner.
-	width := max(sysCols*floorSystemW, porCols*floorPortalW)
-	if width == 0 {
-		width = floorSystemW
-	}
-	systemsH := sysRows * floorSystemH
-
-	centers := make(map[string]floorPoint, len(floor.Worlds))
-	for i, fw := range systems {
-		row, col := i/sysCols, i%sysCols
-		xOff := (width - rowItems(len(systems), sysCols, row)*floorSystemW) / 2
-		centers[fw.World.Name] = floorPoint{
-			x: xOff + col*floorSystemW + floorSystemW/2,
-			y: row*floorSystemH + floorSystemH/2,
+	items := make([]*wmItem, 0, len(floor.Worlds))
+	byName := make(map[string]*wmItem, len(floor.Worlds))
+	systems, portals := 0, 0
+	for i := range floor.Worlds {
+		fw := &floor.Worlds[i]
+		it := &wmItem{id: "w:" + fw.World.Name, kind: wmItemGroup, count: len(fw.Docs),
+			group: &wmGroup{key: fw.World.Name, name: fw.World.Name, list: "/"}}
+		if fw.Portal {
+			it.r = floorPortalR
+			portals++
+		} else {
+			it.r = wmAggRadius(it.count) + 6
+			systems++
 		}
+		it.foot = float64(it.r) + wmPitch/2
+		items = append(items, it)
+		byName[fw.World.Name] = it
 	}
-	for i, fw := range portals {
-		row, col := i/porCols, i%porCols
-		xOff := (width - rowItems(len(portals), porCols, row)*floorPortalW) / 2
-		centers[fw.World.Name] = floorPoint{
-			x: xOff + col*floorPortalW + floorPortalW/2,
-			y: systemsH + row*floorPortalH + floorPortalH/2,
+	rolled := make([]*wmRolled, 0, len(floor.Edges))
+	for _, e := range floor.Edges {
+		from, okF := byName[e.From.World]
+		to, okT := byName[e.To.World]
+		if !okF || !okT || from == to {
+			continue
 		}
+		rolled = append(rolled, &wmRolled{from: from, to: to, count: max(e.Count, 1)})
 	}
-
-	height := systemsH + porRows*floorPortalH
+	vrank, spine := wmVisibleRank(items, rolled, nil)
+	byRank := append([]*wmItem(nil), items...)
+	sort.SliceStable(byRank, func(i, j int) bool { return vrank[byRank[i]] < vrank[byRank[j]] })
+	// The hub world holds the centre when it links to at least half the others.
+	if len(items) > 2 {
+		hub := byRank[0]
+		linked := map[*wmItem]bool{}
+		for _, e := range rolled {
+			if e.from == hub {
+				linked[e.to] = true
+			}
+			if e.to == hub {
+				linked[e.from] = true
+			}
+		}
+		hub.hub = len(linked) >= (len(items)-1)/2
+	}
+	outerRy := floorLayout(byRank)
+	outerRx := int(float64(outerRy) * wmTierRatio)
+	width := max(2*outerRx+2*wmSideMargin, wmMinWidth)
+	height := wmTierTop + 2*outerRy + 36
+	floorPlace(byRank, width/2, wmTierTop+outerRy)
 
 	var b strings.Builder
 	fmt.Fprintf(&b, `<svg class="floor" viewBox="0 0 %d %d" width="%d" height="%d" role="img" aria-label="universe map">`,
 		width, height, width, height)
-
-	// Edges first, so nodes draw on top. World-level lines between cluster
-	// centers (durable hub graph ∪ observed-links map).
-	for _, e := range floor.Edges {
-		from, okF := centers[e.From.World]
-		to, okT := centers[e.To.World]
-		if !okF || !okT {
-			continue
-		}
-		fmt.Fprintf(&b, `<line class="floor-edge" x1="%d" y1="%d" x2="%d" y2="%d"/>`, from.x, from.y, to.x, to.y)
-	}
-
-	satCap := floorSatCap(len(systems))
-	for _, fw := range systems {
-		floorSystem(&b, fw, centers[fw.World.Name], t, idx, satCap)
-	}
-	for _, fw := range portals {
-		floorPortal(&b, fw, centers[fw.World.Name], t, idx)
+	fmt.Fprintf(&b, `<text class="world-map-caption" x="%d" y="22" text-anchor="middle">%s · %s</text>`,
+		width/2, plural(systems, "world"), plural(portals, "portal"))
+	b.WriteString(arrowMarker)
+	wmDrawEdges(&b, rolled, vrank, spine)
+	for i := range floor.Worlds {
+		floorWorldNode(&b, &floor.Worlds[i], byName[floor.Worlds[i].World.Name], t, idx)
 	}
 	b.WriteString(`</svg>`)
 	return template.HTML(b.String()) //nolint:gosec // built here from escaped parts; node text/attrs all pass html.EscapeString
+}
+
+// plural formats a count with its noun.
+func plural(n int, noun string) string {
+	if n == 1 {
+		return "1 " + noun
+	}
+	return fmt.Sprintf("%d %ss", n, noun)
+}
+
+// floorLayout returns the vertical radius the universe needs: a ring for up
+// to wmRingMax worlds (the hub, if any, at the centre), a sunflower beyond.
+// The ring keeps the largest world's diameter plus padding between
+// neighbours.
+func floorLayout(byRank []*wmItem) int {
+	n, maxR := 0, 0
+	for _, it := range byRank {
+		maxR = max(maxR, it.r)
+		if !it.hub {
+			n++
+		}
+	}
+	if len(byRank) > wmRingMax {
+		return wmSpiralRadius(len(byRank)) + maxR
+	}
+	ry := math.Max(wmRingRadius(n), float64(n)*float64(2*maxR+wmAggPad)/(2*math.Pi))
+	return int(ry) + maxR + 24
+}
+
+// floorPlace positions the worlds around (cx, cy) per floorLayout.
+func floorPlace(byRank []*wmItem, cx, cy int) {
+	if len(byRank) > wmRingMax {
+		next := 0
+		for _, it := range byRank {
+			if it.hub {
+				it.x, it.y = cx, cy
+				next = max(next, 1)
+				continue
+			}
+			it.x, it.y = spiralAt(cx, cy, next)
+			next++
+		}
+		return
+	}
+	n, maxR := 0, 0
+	for _, it := range byRank {
+		maxR = max(maxR, it.r)
+		if !it.hub {
+			n++
+		}
+	}
+	ry := int(math.Max(wmRingRadius(n), float64(n)*float64(2*maxR+wmAggPad)/(2*math.Pi)))
+	rx := int(float64(ry) * wmTierRatio)
+	j := 0
+	for _, it := range byRank {
+		if it.hub {
+			it.x, it.y = cx, cy
+			continue
+		}
+		it.x, it.y = ellipseAt(cx, cy, j, n, rx, ry)
+		j++
+	}
+}
+
+// floorWorldNode draws one world: an aggregate circle (a dashed rim node for
+// a portal, dimmed when unreadable) that enters the world at its stacks, its
+// name, and its URL and sampled size in the tooltip.
+func floorWorldNode(b *strings.Builder, fw *domain.FloorWorld, it *wmItem, t trail, idx int) {
+	href := trailURL(trailAfterClick(t, idx, paneAddr{Kind: paneDoc, World: fw.World.Name, Value: "/"}))
+	cls, label := "floor-world", "floor-world-label"
+	if fw.Portal {
+		cls, label = "floor-portal-node", "floor-doc-label"
+	}
+	if fw.Err {
+		cls += " gone"
+	}
+	fmt.Fprintf(b, `<a href="%s" data-node="%s"><circle class="%s" cx="%d" cy="%d" r="%d"/>`,
+		html.EscapeString(href), html.EscapeString(it.id), cls, it.x, it.y, it.r)
+	fmt.Fprintf(b, `<text class="%s" x="%d" y="%d" text-anchor="middle">%s</text>`,
+		label, it.x, it.y+it.r+16, html.EscapeString(trimRunes(fw.World.Name, wmLabelTrim+6)))
+	title := fw.World.URL
+	if title == "" {
+		title = fw.World.Name
+	}
+	if !fw.Portal {
+		title += fmt.Sprintf(" — %d documents", it.count)
+	}
+	fmt.Fprintf(b, `<title>%s</title></a>`, html.EscapeString(title))
 }
 
 // floorCards renders the universe as worlds-only "door" cards (ADR 0006 §5):
@@ -175,118 +246,4 @@ func floorViewToggle(t trail, mapView bool) template.HTML {
 	// hx-boost="false" so htmx doesn't boost-navigate the click — islands.js
 	// intercepts it to summon the overlay; the href is only the JS-off fallback.
 	return template.HTML(`<a class="floor-view universe-open" href="` + html.EscapeString(base+sep+"view=map") + `" hx-boost="false">view as map →</a>`) //nolint:gosec // escaped
-}
-
-// floorSatCap scales the per-world satellite count down as the universe grows:
-// a couple of worlds can afford full orbits, but at tens of worlds every
-// cell's ten labels turn the grid to noise (roadmap "satellite density"). Docs
-// arrive importance-ordered, so trimming keeps the right ones; the world map
-// (zoom level 2) still shows the full catalog.
-func floorSatCap(systems int) int {
-	switch {
-	case systems <= 4:
-		return 10 // the fetch cap (floorSatellites) — effectively uncapped
-	case systems <= 9:
-		return 6
-	case systems <= 16:
-		return 4
-	default:
-		return 3
-	}
-}
-
-// floorSystem renders one authorized world: the world node (zooms into the
-// world map) plus its top-importance documents as satellites on an orbit ring.
-// satCap bounds the satellites drawn; the world radius keeps tracking the full
-// catalog sample so world size stays comparable across zoom levels.
-func floorSystem(b *strings.Builder, fw domain.FloorWorld, c floorPoint, t trail, idx, satCap int) {
-	worldR := 30 + 2*len(fw.Docs)
-	cls := "floor-system"
-	if fw.Err {
-		cls += " gone"
-	}
-	fmt.Fprintf(b, `<g class="%s">`, cls)
-
-	// Clicking a world zooms one level in to its map (the world-view zoom
-	// level); the stacks stay one click further via the map's dir aggregates.
-	// Enter the world at its stacks (root listing → rich index); the map is the
-	// `m` discovery overlay, not a docked pane (ADR 0006 §5).
-	worldHref := trailURL(trailAfterClick(t, idx, paneAddr{Kind: paneDoc, World: fw.World.Name, Value: "/"}))
-	fmt.Fprintf(b, `<a href="%s"><circle class="floor-world" cx="%d" cy="%d" r="%d"/>`,
-		html.EscapeString(worldHref), c.x, c.y, worldR)
-	fmt.Fprintf(b, `<text class="floor-world-label" x="%d" y="%d" text-anchor="middle">%s</text>`,
-		c.x, c.y+worldR+22, html.EscapeString(fw.World.Name))
-	if fw.World.URL != "" {
-		fmt.Fprintf(b, `<title>%s</title>`, html.EscapeString(fw.World.URL))
-	}
-	b.WriteString(`</a>`)
-
-	docs := fw.Docs
-	if len(docs) > satCap {
-		docs = docs[:satCap]
-	}
-	for j, doc := range docs {
-		angle := 2*math.Pi*float64(j)/float64(len(docs)) - math.Pi/2
-		dx := c.x + int(floorOrbitR*math.Cos(angle))
-		dy := c.y + int(floorOrbitR*math.Sin(angle))
-		r := 5 + int(doc.Importance*9)
-
-		docHref := trailURL(trailAfterClick(t, idx, paneAddr{Kind: paneDoc, World: fw.World.Name, Value: doc.Path}))
-		fmt.Fprintf(b, `<a href="%s"><circle class="floor-doc status-%s" cx="%d" cy="%d" r="%d"/>`,
-			html.EscapeString(docHref), html.EscapeString(doc.Status), dx, dy, r)
-		fmt.Fprintf(b, `<text class="floor-doc-label" x="%d" y="%d" text-anchor="middle">%s</text>`,
-			dx, dy+r+14, html.EscapeString(trimLabel(doc.Title)))
-		fmt.Fprintf(b, `<title>%s — %s</title></a>`,
-			html.EscapeString(doc.Title), html.EscapeString(doc.Path))
-	}
-	b.WriteString(`</g>`)
-}
-
-// floorPortal renders an externally-linked host (the extensional universe,
-// ADR 0005 §16): a small rim node linking to that host's root. No satellites —
-// the floor knows it exists from an edge, not from a catalog it can read.
-func floorPortal(b *strings.Builder, fw domain.FloorWorld, c floorPoint, t trail, idx int) {
-	href := trailURL(trailAfterClick(t, idx, paneAddr{Kind: paneDoc, World: fw.World.Name, Value: "/"}))
-	fmt.Fprintf(b, `<g class="floor-portal"><a href="%s"><circle class="floor-portal-node" cx="%d" cy="%d" r="%d"/>`,
-		html.EscapeString(href), c.x, c.y, floorPortalR)
-	fmt.Fprintf(b, `<text class="floor-doc-label" x="%d" y="%d" text-anchor="middle">%s</text>`,
-		c.x, c.y+floorPortalR+14, html.EscapeString(trimLabel(fw.World.Name)))
-	fmt.Fprintf(b, `<title>%s</title></a></g>`, html.EscapeString(fw.World.Name))
-}
-
-// floorGridCols picks the column count for a centered universe grid: ~√N biased
-// landscape (×2) so the layout fills a wide overlay and grows downward instead
-// of forming a single ever-widening row. n ≤ 1 is one column (a lone world
-// centers rather than hugging the corner).
-func floorGridCols(n int) int {
-	if n <= 1 {
-		return 1
-	}
-	return int(math.Ceil(math.Sqrt(float64(2 * n))))
-}
-
-// ceilDiv is ⌈a/b⌉, and 0 when b == 0 (an empty band has no rows).
-func ceilDiv(a, b int) int {
-	if b == 0 {
-		return 0
-	}
-	return (a + b - 1) / b
-}
-
-// rowItems is how many cells row holds in an n-item, cols-wide grid: cols for
-// each full row, the remainder for the last. Used to center every row.
-func rowItems(n, cols, row int) int {
-	if rem := n - row*cols; rem < cols {
-		return rem
-	}
-	return cols
-}
-
-// trimLabel shortens a satellite label; the full title rides in <title>.
-func trimLabel(s string) string {
-	runes := []rune(s)
-	if len(runes) <= floorLabelTrim {
-		return s
-	}
-	return string(runes[:floorLabelTrim-1]) + "…"
 }

@@ -181,6 +181,9 @@ type Edge struct {
 	To   Ref
 	Type EdgeType
 	Rel  string
+	// Count is how many document edges a rolled-up (world-level) edge stands
+	// for; 0 on a document edge. Set after dedup, so it never keys a set.
+	Count int
 }
 
 // WorldInfo is one world of the universe: a mark_worlds row in broker mode,

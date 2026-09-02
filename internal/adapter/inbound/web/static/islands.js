@@ -130,6 +130,7 @@
   function scan(root) {
     renderMermaid(root);
     renderMath(root);
+    hydrateMaps(root);
   }
 
   // --- trail canvas ------------------------------------------------------
@@ -241,6 +242,11 @@
   // had focus — the trigger link for a click, or the active element for a
   // hotkey toggle. Keyboard/screen-reader users land in the dialog and return
   // where they were. The backdrop is the scrim; the panel is the dialog.
+  // Hotkeys stay out of text fields.
+  function typingIn(e) {
+    var tag = (e.target.tagName || "").toLowerCase();
+    return tag === "input" || tag === "textarea" || !!e.target.isContentEditable;
+  }
   function showOverlay(el, restore) {
     if (!el) return;
     el._restoreFocus = restore || document.activeElement;
@@ -272,9 +278,7 @@
   document.addEventListener("keydown", function (e) {
     var g = graphOverlay();
     if (e.key === "Escape" && g && !g.hidden) { e.preventDefault(); closeGraph(); return; }
-    if (e.key !== "g" || e.ctrlKey || e.metaKey || e.altKey) return;
-    var tag = (e.target.tagName || "").toLowerCase();
-    if (tag === "input" || tag === "textarea" || e.target.isContentEditable) return;
+    if (e.key !== "g" || e.ctrlKey || e.metaKey || e.altKey || typingIn(e)) return;
     var p = palette();
     if ((p && !p.hidden) || !g) return; // not while the palette is open / no graph here
     e.preventDefault();
@@ -301,9 +305,15 @@
   document.addEventListener("keydown", function (e) {
     var m = mapOverlay();
     if (e.key === "Escape" && m && !m.hidden) { e.preventDefault(); closeMap(); return; }
-    if (e.key !== "m" || e.ctrlKey || e.metaKey || e.altKey) return;
-    var tag = (e.target.tagName || "").toLowerCase();
-    if (tag === "input" || tag === "textarea" || e.target.isContentEditable) return;
+    if (e.ctrlKey || e.metaKey || e.altKey || typingIn(e)) return;
+    // Zoom keys while a map overlay (world or universe) is up: + / - about
+    // the centre, 0 resets.
+    var o = openOverlay();
+    var svg = o && o.querySelector("svg.floor");
+    if (svg && (e.key === "+" || e.key === "=")) { e.preventDefault(); zoomBy(svg, wmKeyStep, null); return; }
+    if (svg && (e.key === "-" || e.key === "_")) { e.preventDefault(); zoomBy(svg, 1 / wmKeyStep, null); return; }
+    if (svg && e.key === "0") { e.preventDefault(); resetBox(svg); return; }
+    if (e.key !== "m") return;
     var p = palette();
     if ((p && !p.hidden) || !m) return;
     e.preventDefault();
@@ -337,34 +347,274 @@
   // --- node-hover highlight (map + graph) ------------------------------
   // ADR 0003 concession (JS island): a hover affordance can't be expressed in
   // SSR/CSS because an edge's two endpoints aren't DOM-adjacent to either node,
-  // so relating them needs a script. Kept in spirit with ADR 0003 — purely
-  // presentational (toggles CSS classes, no client state, no fetch, no bearing
-  // on the URL-as-state contract) and it degrades to nothing without JS, exactly
-  // like the existing mermaid/KaTeX and overlay-toggle concessions in this file.
-  // Hovering a node lights up its incident edges (.edge-hot) and the nodes they
-  // connect to (.node-hot), green via CSS. Edges carry data-from/data-to and
-  // nodes data-node.
-  document.addEventListener("mouseover", function (e) {
-    var svg = e.target.closest && e.target.closest("svg.graph, svg.world-map");
+  // so relating them needs a script. Purely presentational: no state that
+  // outlives the SVG, no fetch, no bearing on the URL-as-state contract, and
+  // it degrades to nothing without JS. Hovering a node lifts its incident
+  // edges (.edge-hot) and the nodes they connect (.node-hot). The graph pane
+  // toggles those classes in place. The world map, hundreds of nodes, must not
+  // repaint on hover (a per-node opacity fade re-rasterized the whole overlay
+  // every frame and blanked it), so it clones the lifted set into a second SVG
+  // sharing its viewBox and fades a paper scrim over the map on the compositor.
+  var wmHoverHold = 350, wmHoverSwitch = 90; // ms: leave hold-off, node-switch settle
+  var wmDragSlop = 4;                        // px before a press becomes a pan
+  var wmZoomMin = 0.5, wmZoomMax = 8, wmLabelZoomOn = 1.8, wmLabelZoomOff = 1.5;
+  var wmWheelRate = 0.0028, wmPinchRate = 0.01, wmWheelClamp = 60, wmKeyStep = 0.7;
+
+  // Per-SVG interaction state, keyed weakly so a swapped-out map takes its
+  // state with it. Built once per SVG: lines indexed by endpoint, nodes by
+  // path, pre-lowercased search text, the base viewBox, the focus layers.
+  var wmStates = new WeakMap();
+  function wmState(svg) {
+    var st = wmStates.get(svg);
+    if (st) return st;
+    var v = svg.viewBox.baseVal;
+    st = { base: [v.x, v.y, v.width, v.height], box: null, pending: null, rect: null,
+      hot: "", query: "", lines: new Map(), nodes: new Map(), search: [],
+      stage: null, dim: null, focus: null };
+    svg.querySelectorAll("line[data-from]").forEach(function (l) {
+      [l.getAttribute("data-from"), l.getAttribute("data-to")].forEach(function (k) {
+        if (!st.lines.has(k)) st.lines.set(k, []);
+        st.lines.get(k).push(l);
+      });
+    });
+    svg.querySelectorAll("[data-node]").forEach(function (a) {
+      var path = a.getAttribute("data-node"), t = a.querySelector("title");
+      st.nodes.set(path, a);
+      st.search.push({ path: path, text: (t ? t.textContent : path).toLowerCase() });
+    });
+    wmStates.set(svg, st);
+    return st;
+  }
+  function incident(svg, p) {
+    var lines = wmState(svg).lines.get(p) || [], lift = new Set([p]);
+    lines.forEach(function (l) { lift.add(l.getAttribute("data-from")); lift.add(l.getAttribute("data-to")); });
+    return { nodes: lift, lines: lines };
+  }
+  // The world map's stage: a wrapper holding the map, the scrim and the focus
+  // SVG, built once on first use.
+  function wmStageOf(svg) {
+    var st = wmState(svg);
+    if (st.stage) return st;
+    st.stage = document.createElement("div");
+    st.stage.className = "wm-stage";
+    svg.parentNode.insertBefore(st.stage, svg);
+    st.stage.appendChild(svg);
+    st.dim = st.stage.appendChild(document.createElement("div"));
+    st.dim.className = "wm-dim";
+    st.focus = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    st.focus.setAttribute("class", "floor wm-focus");
+    st.focus.setAttribute("viewBox", svg.getAttribute("viewBox"));
+    st.focus.setAttribute("aria-hidden", "true");
+    st.stage.appendChild(st.focus);
+    st.rect = null; // reparented: re-measure on the next gesture
+    return st;
+  }
+  // One renderer for hover and filter: the lifted set is the hot node's
+  // neighbourhood while there is one, else the filter matches, else nothing.
+  function wmRender(svg) {
+    var st = wmStageOf(svg), lift = null, lines = [];
+    if (st.hot) {
+      var inc = incident(svg, st.hot);
+      lift = inc.nodes; lines = inc.lines;
+    } else if (st.query) {
+      lift = new Set();
+      st.search.forEach(function (n) { if (n.text.indexOf(st.query) !== -1) lift.add(n.path); });
+    }
+    st.focus.replaceChildren();
+    st.stage.classList.toggle("wm-lit", !!lift);
+    if (!lift) return;
+    var frag = document.createDocumentFragment();
+    lines.forEach(function (l) { var c = l.cloneNode(true); c.classList.add("edge-hot"); frag.appendChild(c); });
+    lift.forEach(function (path) {
+      var a = st.nodes.get(path);
+      if (!a) return;
+      var c = a.cloneNode(true);
+      c.classList.add("node-hot");
+      frag.appendChild(c);
+    });
+    st.focus.appendChild(frag);
+  }
+  function setHot(svg, p) {
+    var st = wmState(svg);
+    if (st.hot === (p || "")) return;
+    st.hot = p || "";
+    if (svg.classList.contains("floor")) { wmRender(svg); return; }
+    svg.querySelectorAll(".edge-hot, .node-hot").forEach(function (n) { n.classList.remove("edge-hot", "node-hot"); });
+    if (!p) return;
+    var inc = incident(svg, p);
+    inc.lines.forEach(function (l) { l.classList.add("edge-hot"); });
+    inc.nodes.forEach(function (q) { var a = st.nodes.get(q); if (a) a.classList.add("node-hot"); });
+  }
+  // Leaving a node does not clear at once: the cursor crossing a gap between
+  // nodes would strobe the highlight. Switching to another node also waits a
+  // beat, since zoomed in the labels are wide hit areas and a straight cursor
+  // path crosses several. Keyboard focus switches at once.
+  var hotClear = null, hotSwitch = null;
+  function hotRoot(target) { return target.closest && target.closest("svg.graph, svg.floor"); }
+  function scheduleClear(svg) {
+    clearTimeout(hotClear);
+    hotClear = setTimeout(function () { hotClear = null; setHot(svg, null); }, wmHoverHold);
+  }
+  function hotFrom(e, immediate) {
+    var svg = hotRoot(e.target);
     if (!svg) return;
     var holder = e.target.closest("[data-node]");
-    var p = holder ? holder.getAttribute("data-node") : null;
-    svg.querySelectorAll(".edge-hot").forEach(function (n) { n.classList.remove("edge-hot"); });
-    svg.querySelectorAll(".node-hot").forEach(function (n) { n.classList.remove("node-hot"); });
-    if (!p) return;
-    var connected = new Set([p]);
-    svg.querySelectorAll("line[data-from], line[data-to]").forEach(function (l) {
-      var f = l.getAttribute("data-from"), t = l.getAttribute("data-to");
-      if (f === p || t === p) {
-        l.classList.add("edge-hot");
-        connected.add(f);
-        connected.add(t);
-      }
+    clearTimeout(hotClear); hotClear = null;
+    clearTimeout(hotSwitch); hotSwitch = null;
+    if (!holder) { scheduleClear(svg); return; }
+    var p = holder.getAttribute("data-node");
+    if (immediate || !wmState(svg).hot) { setHot(svg, p); return; }
+    hotSwitch = setTimeout(function () { hotSwitch = null; setHot(svg, p); }, wmHoverSwitch);
+  }
+  document.addEventListener("mouseover", function (e) { hotFrom(e, false); });
+  document.addEventListener("focusin", function (e) { hotFrom(e, true); });
+  document.addEventListener("mouseout", function (e) {
+    var svg = hotRoot(e.target);
+    if (!svg || (e.relatedTarget && svg.contains(e.relatedTarget))) return;
+    clearTimeout(hotSwitch); hotSwitch = null;
+    scheduleClear(svg);
+  });
+
+  // --- world-map zoom, pan, filter (plan world-map-navigation) ---------
+  // Presentational like the hover: the viewBox and a few classes change, the
+  // URL and the trail do not. Nodes stay plain <a> links; a press that moves
+  // past wmDragSlop pans and swallows the click that would follow. Only a map
+  // in the overlay canvas is zoomable; a trail-pane map keeps normal scrolling.
+  // Both the world map and the universe overlay carry svg.floor.
+  function mapSVG(target) { return target.closest && target.closest(".graph-canvas svg.floor"); }
+  function openOverlay() {
+    return [mapOverlay(), universeOverlay()].filter(function (o) { return o && !o.hidden; })[0] || null;
+  }
+  function mapFilter(el) {
+    var panel = el.closest(".graph-panel");
+    return panel && panel.querySelector(".map-filter");
+  }
+  function curBox(svg) { var st = wmState(svg); return st.box || st.base; }
+  // viewBox writes coalesce to one per frame: a trackpad emits dozens of
+  // events a second and every write repaints the whole SVG.
+  function setBox(svg, box) {
+    var st = wmState(svg);
+    st.box = box;
+    if (st.pending) return;
+    st.pending = requestAnimationFrame(function () {
+      st.pending = null;
+      var vb = st.box.join(" ");
+      svg.setAttribute("viewBox", vb);
+      if (st.focus) st.focus.setAttribute("viewBox", vb);
+      // Hysteresis: labels appear past 1.8x and stay until below 1.5x, so a
+      // gesture hovering around one level does not flip them in and out.
+      var scale = st.base[2] / st.box[2];
+      if (scale >= wmLabelZoomOn) svg.classList.add("zoomed");
+      else if (scale < wmLabelZoomOff) svg.classList.remove("zoomed");
     });
-    svg.querySelectorAll("[data-node]").forEach(function (nd) {
-      if (connected.has(nd.getAttribute("data-node"))) nd.classList.add("node-hot");
+  }
+  function resetBox(svg) { setBox(svg, wmState(svg).base.slice()); }
+  // Screen-to-SVG mapping without a layout flush per event: the element box
+  // is measured once (re-measured on resize) and preserveAspectRatio's
+  // letterbox is applied by hand.
+  function wmView(svg) {
+    var st = wmState(svg), v = curBox(svg);
+    var r = st.rect || (st.rect = svg.getBoundingClientRect());
+    var k = Math.min(r.width / v[2], r.height / v[3]);
+    return { box: v, k: k, left: r.left + (r.width - v[2] * k) / 2, top: r.top + (r.height - v[3] * k) / 2 };
+  }
+  function svgPoint(svg, cx, cy) {
+    var w = wmView(svg);
+    return { x: w.box[0] + (cx - w.left) / w.k, y: w.box[1] + (cy - w.top) / w.k };
+  }
+  window.addEventListener("resize", function () {
+    document.querySelectorAll("svg.floor").forEach(function (svg) {
+      var st = wmStates.get(svg);
+      if (st) st.rect = null;
     });
   });
+  // Zoom by factor k about an SVG-space point (the centre when null), clamped
+  // to [wmZoomMin, wmZoomMax] of the base box.
+  function zoomBy(svg, k, p) {
+    var v = curBox(svg), b = wmState(svg).base;
+    var scale = b[2] / (v[2] * k);
+    if (scale < wmZoomMin) k = b[2] / (v[2] * wmZoomMin);
+    if (scale > wmZoomMax) k = b[2] / (v[2] * wmZoomMax);
+    if (!p) p = { x: v[0] + v[2] / 2, y: v[1] + v[3] / 2 };
+    setBox(svg, [p.x - (p.x - v[0]) * k, p.y - (p.y - v[1]) * k, v[2] * k, v[3] * k]);
+  }
+  // The factor follows the delta, so a trackpad's stream of small deltas
+  // zooms smoothly and a mouse wheel's ±100 notch still steps about 18%.
+  // Pinch arrives as a ctrl-wheel with small deltas and gets a steeper curve.
+  // Listens on the map itself (hydrateMaps), never on the document: a
+  // non-passive document wheel listener disables threaded scrolling app-wide.
+  function onWheel(e) {
+    var svg = e.currentTarget;
+    e.preventDefault();
+    var d = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
+    var rate = e.ctrlKey ? wmPinchRate : wmWheelRate;
+    var k = Math.exp(Math.max(-wmWheelClamp, Math.min(wmWheelClamp, d)) * rate);
+    zoomBy(svg, k, svgPoint(svg, e.clientX, e.clientY));
+  }
+  var pan = null, swallowClick = false; // pan: {svg, x, y, box, k, moved}
+  document.addEventListener("pointerdown", function (e) {
+    swallowClick = false;
+    var svg = mapSVG(e.target);
+    if (!svg || e.button !== 0) return;
+    var w = wmView(svg);
+    pan = { svg: svg, x: e.clientX, y: e.clientY, box: w.box, k: w.k, moved: false };
+  });
+  document.addEventListener("pointermove", function (e) {
+    if (!pan) return;
+    var dx = e.clientX - pan.x, dy = e.clientY - pan.y;
+    if (!pan.moved && Math.hypot(dx, dy) < wmDragSlop) return;
+    pan.moved = true;
+    pan.svg.classList.add("panning");
+    var b = pan.box;
+    setBox(pan.svg, [b[0] - dx / pan.k, b[1] - dy / pan.k, b[2], b[3]]);
+  });
+  function endPan() {
+    if (!pan) return;
+    pan.svg.classList.remove("panning");
+    swallowClick = pan.moved;
+    pan = null;
+  }
+  document.addEventListener("pointerup", endPan);
+  document.addEventListener("pointercancel", endPan);
+  document.addEventListener("click", function (e) {
+    if (!swallowClick) return;
+    swallowClick = false;
+    e.preventDefault();
+    e.stopPropagation();
+  }, true);
+  document.addEventListener("dblclick", function (e) {
+    var svg = mapSVG(e.target);
+    if (svg && !e.target.closest("[data-node]")) resetBox(svg);
+  });
+  // Filter: lift nodes whose title or path contains the query; the scrim
+  // recedes the rest. A hot node takes precedence and the filter view returns
+  // when the hover clears (wmRender).
+  function applyFilter(input) {
+    var panel = input.closest(".graph-panel"), svg = panel && panel.querySelector("svg.floor");
+    if (!svg) return;
+    wmState(svg).query = input.value.trim().toLowerCase();
+    wmRender(svg);
+  }
+  document.addEventListener("input", function (e) {
+    if (e.target.classList && e.target.classList.contains("map-filter")) applyFilter(e.target);
+  });
+  // Hydrate (from scan): a freshly swapped-in overlay map gets its wheel
+  // listener, its filter input revealed (server-rendered hidden, since it is
+  // inert without JS) and a pending filter re-applied. Hover timers and a pan
+  // from the previous map are dropped so they cannot pin it in memory.
+  function hydrateMaps(root) {
+    if (!root.querySelectorAll) return;
+    root.querySelectorAll(".graph-canvas svg.floor").forEach(function (svg) {
+      if (wmStates.has(svg)) return;
+      clearTimeout(hotClear); hotClear = null;
+      clearTimeout(hotSwitch); hotSwitch = null;
+      pan = null;
+      wmState(svg);
+      svg.addEventListener("wheel", onWheel, { passive: false });
+      var f = mapFilter(svg);
+      if (f) { f.hidden = false; if (f.value) applyFilter(f); }
+    });
+  }
 
   document.addEventListener("DOMContentLoaded", function () {
     scan(document.body);

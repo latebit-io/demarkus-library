@@ -47,8 +47,8 @@ func TestWorldEdgesJoinsHostsAndFindsPortals(t *testing.T) {
 	got, portals := worldEdges(edges, host2name, authorized)
 
 	wantEdges := []domain.Edge{
-		{From: domain.Ref{World: "root"}, To: domain.Ref{World: "world-a"}},
-		{From: domain.Ref{World: "world-a"}, To: domain.Ref{World: "wiki.example.org"}},
+		{From: domain.Ref{World: "root"}, To: domain.Ref{World: "world-a"}, Count: 2}, // the duplicate rolls up
+		{From: domain.Ref{World: "world-a"}, To: domain.Ref{World: "wiki.example.org"}, Count: 1},
 	}
 	if !reflect.DeepEqual(got, wantEdges) {
 		t.Errorf("edges = %+v, want %+v", got, wantEdges)
@@ -73,7 +73,7 @@ func TestWorldEdgesMatchesAuthorizedWorldByNamePort(t *testing.T) {
 	if len(portals) != 0 {
 		t.Errorf("portals = %+v, want none (root:6309 must join the authorized hub)", portals)
 	}
-	want := []domain.Edge{{From: domain.Ref{World: "world-a"}, To: domain.Ref{World: "root"}}}
+	want := []domain.Edge{{From: domain.Ref{World: "world-a"}, To: domain.Ref{World: "root"}, Count: 1}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("edges = %+v, want %+v", got, want)
 	}
@@ -87,7 +87,7 @@ func TestWorldEdgesObservedIdsPassThrough(t *testing.T) {
 		{From: domain.Ref{World: "root", Path: "/a.md"}, To: domain.Ref{World: "ext.io", Path: "/b.md"}},
 	}
 	got, portals := worldEdges(edges, nil, authorized)
-	if len(got) != 1 || got[0] != (domain.Edge{From: domain.Ref{World: "root"}, To: domain.Ref{World: "ext.io"}}) {
+	if len(got) != 1 || got[0] != (domain.Edge{From: domain.Ref{World: "root"}, To: domain.Ref{World: "ext.io"}, Count: 1}) {
 		t.Errorf("edges = %+v", got)
 	}
 	if !reflect.DeepEqual(portals, []string{"ext.io"}) {
@@ -144,8 +144,8 @@ func TestWorldEdgesCanonicalizesAndFiltersPortals(t *testing.T) {
 		t.Errorf("portals = %+v, want %+v", portals, wantPortals)
 	}
 	wantEdges := []domain.Edge{
-		{From: domain.Ref{World: "root"}, To: domain.Ref{World: "dev.example.org:6401"}},
-		{From: domain.Ref{World: "root"}, To: domain.Ref{World: "soul.demarkus.io"}},
+		{From: domain.Ref{World: "root"}, To: domain.Ref{World: "dev.example.org:6401"}, Count: 1},
+		{From: domain.Ref{World: "root"}, To: domain.Ref{World: "soul.demarkus.io"}, Count: 2}, // two hosts of one world roll up
 	}
 	if !reflect.DeepEqual(gotEdges, wantEdges) {
 		t.Errorf("edges = %+v, want %+v", gotEdges, wantEdges)
@@ -208,7 +208,7 @@ func TestFloorJoinsCrossWorldEdgeViaAddress(t *testing.T) {
 		t.Fatalf("Floor: %v", err)
 	}
 	if len(floor.Edges) != 1 ||
-		floor.Edges[0] != (domain.Edge{From: domain.Ref{World: "world-a"}, To: domain.Ref{World: "root"}, Type: domain.EdgeReference}) {
+		floor.Edges[0] != (domain.Edge{From: domain.Ref{World: "world-a"}, To: domain.Ref{World: "root"}, Type: domain.EdgeReference, Count: 1}) {
 		t.Errorf("edges = %+v, want one world-a→root (joined by address)", floor.Edges)
 	}
 	for _, w := range floor.Worlds {

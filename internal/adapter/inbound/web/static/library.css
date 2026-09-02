@@ -251,7 +251,7 @@ svg.floor text { fill: var(--muted); font-family: var(--font-ui); }
 .floor-doc.status-accepted { stroke: var(--ok); }
 .floor-doc.status-wip      { stroke: var(--warn); }
 .floor-doc.status-archived { stroke-dasharray: 3 2; opacity: .6; }
-.floor-system.gone circle { stroke-dasharray: 4 3; opacity: .5; }
+.floor-world.gone, .floor-portal-node.gone { stroke-dasharray: 4 3; opacity: .5; }
 svg.floor a:hover circle { stroke-width: 3; }
 .floor-empty { color: var(--muted); font-style: italic; }
 /* World-level edges (hub graph ∪ observed map) + portal nodes for
@@ -262,12 +262,47 @@ svg.floor a:hover circle { stroke-width: 3; }
 /* World map (zoom level 2), reference-only (ADR 0006 §5): linked docs in a
    connected ring (reuse .floor-doc + .graph-edge), orphans floated in a band
    below — dashed + dimmed so "unconnected" reads at a glance. */
-.world-map .floor-doc-label { fill: var(--ink); }
+.floor .floor-doc-label { fill: var(--ink); }
 .world-map-caption { font-family: var(--font-ui); font-size: 11px; fill: var(--muted); }
 .world-map-band { font-family: var(--font-ui); font-size: 10px; fill: var(--muted);
                   text-transform: uppercase; letter-spacing: .05em; }
 .floor-doc.world-map-orphan { stroke-dasharray: 3 2; opacity: .7; }
 .world-map-new { margin-top: .6rem; font-family: var(--font-ui); font-size: .85rem; }
+/* Rest-state tiers (plan world-map-navigation): the hub spine reads at rest,
+   spanning-tree spokes are faint, cross-references near-invisible until a node
+   is hot. Outer-ring labels (.label-lod) show only when zoomed in, hot, or
+   matched by the filter. */
+/* Aggregates (worldmap_agg.go): collapsed directories, "more" chunks and the
+   anchor of an expanded group. Bundled edges carry their count as width. */
+.floor-agg { fill: var(--faint); stroke: var(--muted); stroke-width: 1.5; }
+.floor-agg-more { stroke-dasharray: 3 2; }
+.floor-agg-anchor { fill: var(--paper); }
+.floor-agg-glyph { font-family: var(--font-ui); font-size: 12px; fill: var(--ink); pointer-events: none; }
+.floor .graph-edge.edge-bundle { stroke: var(--muted); }
+.floor .graph-edge.edge-tree { opacity: .3; }
+.floor .graph-edge.edge-dim { opacity: .06; }
+.floor .label-lod { display: none; }
+.floor.zoomed .label-lod,
+.floor .node-hot .label-lod { display: inline; }
+.floor .graph-edge.edge-hot { opacity: 1; }
+/* Ego highlight and filter (islands.js): the map itself never repaints. A
+   paper scrim over it fades on the compositor, and the lifted nodes and edges
+   are clones in a second SVG that shares the map's viewBox. */
+.wm-stage { position: relative; flex: 1 1 auto; min-height: 0;
+        display: flex; flex-direction: column;
+        /* Repaints of the map stay inside the stage: the panel's blurred
+           shadow and the room behind it are never re-rasterized. */
+        contain: paint; }
+.wm-dim { position: absolute; inset: 0; z-index: 1; background: var(--paper); opacity: 0;
+        pointer-events: none; transition: opacity .25s ease; will-change: opacity; }
+.wm-stage.wm-lit .wm-dim { opacity: .78; }
+.wm-focus { position: absolute; inset: 0; z-index: 2; width: 100%; height: 100%;
+        pointer-events: none; }
+.graph-canvas svg.floor { cursor: grab; }
+.graph-canvas svg.floor.panning { cursor: grabbing; }
+.map-filter { font: inherit; font-size: .8rem; padding: .15rem .5rem; width: 14rem;
+        background: var(--paper); color: var(--ink); border: 1px solid var(--faint);
+        border-radius: 6px; }
 
 /* ── Backlinks: the observed-links map made visible (R3). Last margin
       block; empty ⇒ absent (decision 8). ────────────────────────── */
