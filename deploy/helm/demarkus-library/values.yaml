@@ -51,22 +51,30 @@ library:
 
   # Branding / theming — present the library as your own room. name
   # replaces the "demarkus Library" wordmark in titles, nav, and the
-  # login card (DEMARKUS_BRAND). The logo and override stylesheet come
-  # from an operator-managed ConfigMap mounted read-only into the pod:
+  # login card (DEMARKUS_BRAND); universeTerm renames the whole-knowledge
+  # scope readers see (DEMARKUS_TERM_UNIVERSE). The manifest, logo, and
+  # override stylesheet come from an operator-managed ConfigMap mounted
+  # read-only into the pod:
   #
   #   kubectl create configmap library-branding \
-  #     --from-file=site.css --from-file=logo.svg
+  #     --from-file=branding.yaml --from-file=site.css --from-file=logo.svg
   #
-  # configMap names it; themeCSSKey / logoKey name the entries to wire
-  # (DEMARKUS_THEME_CSS / DEMARKUS_LOGO) — an empty key skips that
-  # asset. The stylesheet loads after the built-in styles; overriding
-  # the :root design tokens (--paper, --ink, --font-prose, the signal
-  # colors — see static/library.css) is the intended surface. Asset
-  # changes are operator-driven: update the ConfigMap and bounce the
-  # deployment (assets are read at startup).
+  # configMap names it; manifestKey / themeCSSKey / logoKey name the
+  # entries to wire (DEMARKUS_BRANDING / DEMARKUS_THEME_CSS /
+  # DEMARKUS_LOGO) — an empty key skips that entry. The manifest (see
+  # docs/theming.md) carries per-world names, logos, and stylesheets plus
+  # the terms vocabulary; its relative asset paths resolve inside the same
+  # mount. The single-value keys layer over it (env wins). The stylesheet
+  # loads after the built-in styles; overriding the :root design tokens
+  # (--paper, --ink, --font-prose, the signal colors — see
+  # static/library.css) is the intended surface. Changes are
+  # operator-driven: update the ConfigMap and bounce the deployment
+  # (assets are read at startup).
   branding:
     name: ""
+    universeTerm: ""
     configMap: ""
+    manifestKey: ""
     themeCSSKey: site.css
     logoKey: ""
 

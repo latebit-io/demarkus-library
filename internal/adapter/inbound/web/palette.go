@@ -55,7 +55,7 @@ func (h *ReadingHandler) Palette(c *echo.Context) error {
 
 	var rows []paletteRow
 	if q == "" {
-		rows = recentRows(t) // "get back to where I was" is the common retrieval
+		rows = recentRows(t, h.terms) // "get back to where I was" is the common retrieval
 	} else {
 		world := c.QueryParam("world")
 		if world == "" {
@@ -135,13 +135,13 @@ func worldFromURL(cur string) string {
 
 // recentRows is the empty-query view: the trail in reverse (most-recent first),
 // the active pane skipped. Each row rewinds (focuses) its pane.
-func recentRows(t trail) []paletteRow {
+func recentRows(t trail, terms Terms) []paletteRow {
 	var rows []paletteRow
 	for i := len(t.Panes) - 1; i >= 0; i-- {
 		if i == t.Focus {
 			continue
 		}
-		title, loc := paneLabel(t.Panes[i])
+		title, loc := paneLabel(t.Panes[i], terms)
 		rows = append(rows, paletteRow{Title: title, Loc: loc, URL: trailURL(trailFocused(t, i))})
 	}
 	return rows
@@ -200,13 +200,13 @@ func matchRank(q, hay string) (int, bool) {
 }
 
 // paneLabel gives a recent row its title + location from a pane address.
-func paneLabel(p paneAddr) (title, loc string) {
+func paneLabel(p paneAddr, terms Terms) (title, loc string) {
 	switch p.Kind {
 	case paneLibrarian:
 		return "librarian", ""
 	case paneFloor:
 		if p.World == "" {
-			return "universe", ""
+			return terms.UniverseLower(), ""
 		}
 		return p.World + " — map", p.World
 	case paneTag:

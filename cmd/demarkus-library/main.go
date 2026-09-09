@@ -28,6 +28,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -117,17 +118,17 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	// Branding (the theme layer): operator name/logo/override-stylesheet from
-	// the environment. Asset files were stat-checked at config load; a read
-	// failure here (permissions, race) still stops startup loudly.
-	branding, err := web.ThemeRoutes(app, config.Brand, config.Logo, config.ThemeCSS)
+	// Branding (the theme layer): the manifest file, with the single-value
+	// environment knobs layered over it. Files were stat-checked at config
+	// load; a read failure here (permissions, race) still stops startup loudly.
+	branding, err := web.ThemeRoutes(app, themeManifest(config))
 	if err != nil {
-		logger.Error("branding assets unreadable", "err", err)
+		logger.Error("branding invalid", "err", err)
 		os.Exit(1)
 	}
 	app.Renderer = view.WithBranding(branding)
 
-	web.StaticRoutes(app)
+	web.StaticRoutes(app, config.StaticDir)
 	web.HealthRoutes(app, web.NewHealthHandler())
 
 	// Outbound adapters (driven) — the transport decides the world gateway
@@ -202,7 +203,12 @@ func main() {
 	// llm.json or LLM_API_KEY/LLM_BASE_URL/LLM_MODEL) — without one the pane
 	// reads "not on duty" and /a/stream serves only the ?slow= soak.
 	lib := buildLibrarian(logger, reading, defaultWorld, config.LLMKeyStore)
-	handler := web.NewReadingHandler(reading, defaultWorld, config.DefaultDoc)
+	// In-world branding (ADR 0008): worlds brand themselves through documents
+	// under /.well-known/library/, resolved ahead of the manifest's entries.
+	brands := web.NewWorldBrands(reading)
+	view.WithWorldBrands(brands)
+	web.WorldThemeRoutes(app, branding, brands)
+	handler := web.NewReadingHandler(reading, defaultWorld, config.DefaultDoc).WithBranding(branding).WithWorldBrands(brands)
 	if lib != nil {
 		handler = handler.WithLibrarian(lib)
 	}
@@ -226,6 +232,39 @@ func main() {
 		logger.Error("server stopped", "err", err)
 		os.Exit(1)
 	}
+}
+
+// themeManifest loads the branding manifest (if any) and layers the
+// environment knobs over it: env wins, so a one-off DEMARKUS_BRAND still
+// works beside a manifest. Env asset paths are made absolute first — the
+// manifest resolves relative paths against its own directory, which is the
+// wrong base for a path typed at the shell.
+func themeManifest(config *AppConfig) web.ThemeManifest {
+	m, err := web.LoadThemeManifest(config.Branding)
+	if err != nil {
+		slog.Error("branding manifest invalid", "err", err)
+		os.Exit(1)
+	}
+	if config.Brand != "" {
+		m.Name = config.Brand
+	}
+	if config.Logo != "" {
+		m.Logo = absPath(config.Logo)
+	}
+	if config.ThemeCSS != "" {
+		m.CSS = absPath(config.ThemeCSS)
+	}
+	if config.TermUniverse != "" {
+		m.Terms.Universe = config.TermUniverse
+	}
+	return m
+}
+
+func absPath(p string) string {
+	if a, err := filepath.Abs(p); err == nil {
+		return a
+	}
+	return p
 }
 
 // serve starts the HTTP server, over TLS when a cert/key pair is configured

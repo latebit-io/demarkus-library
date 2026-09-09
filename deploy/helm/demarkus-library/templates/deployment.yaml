@@ -122,7 +122,15 @@ spec:
             - name: DEMARKUS_BRAND
               value: {{ . | quote }}
             {{- end }}
+            {{- with trim .Values.library.branding.universeTerm }}
+            - name: DEMARKUS_TERM_UNIVERSE
+              value: {{ . | quote }}
+            {{- end }}
             {{- if trim .Values.library.branding.configMap }}
+            {{- with trim .Values.library.branding.manifestKey }}
+            - name: DEMARKUS_BRANDING
+              value: {{ printf "/etc/demarkus-library/branding/%s" . | quote }}
+            {{- end }}
             {{- with trim .Values.library.branding.themeCSSKey }}
             - name: DEMARKUS_THEME_CSS
               value: {{ printf "/etc/demarkus-library/branding/%s" . | quote }}

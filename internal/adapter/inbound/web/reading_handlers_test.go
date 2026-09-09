@@ -16,13 +16,16 @@ import (
 // tag ("Read /x.md"). docs maps a path/tag to its scripted document
 // (fallback: doc); errs maps a path/tag to a scripted error.
 type fakeReading struct {
-	doc      domain.Document
-	docs     map[string]domain.Document
-	errs     map[string]error
-	raw      domain.RawDocument
-	err      error
-	floor    domain.Floor
-	floorErr error
+	doc       domain.Document
+	docs      map[string]domain.Document
+	errs      map[string]error
+	raw       domain.RawDocument
+	raws      map[string]domain.RawDocument // per-path raw sources; nil ⇒ raw/err for every path
+	trackRaw  bool                          // record Raw calls in calls (branding cache tests)
+	gotBodies map[string]string             // every published body by path
+	err       error
+	floor     domain.Floor
+	floorErr  error
 
 	worldMap    domain.WorldMap
 	worldMapErr error
@@ -78,8 +81,20 @@ func (f *fakeReading) Tag(_ context.Context, _, tag string) (domain.Document, er
 	return f.record("Tag", tag)
 }
 
-func (f *fakeReading) Raw(_ context.Context, _, _ string) (domain.RawDocument, error) {
+func (f *fakeReading) Raw(_ context.Context, _, path string) (domain.RawDocument, error) {
 	f.called = "Raw"
+	if f.trackRaw {
+		f.calls = append(f.calls, "Raw "+path)
+	}
+	if f.raws != nil {
+		// Per-path sources (the in-world branding documents); a path not
+		// present is a missing document.
+		r, ok := f.raws[path]
+		if !ok {
+			return domain.RawDocument{}, domain.ErrNotFound
+		}
+		return r, nil
+	}
 	return f.raw, f.err
 }
 
@@ -188,6 +203,10 @@ func (f *fakeReading) Publish(_ context.Context, _, path, body string, meta doma
 	f.gotBody = body
 	f.gotMeta = meta
 	f.gotVersion = expectedVersion
+	if f.gotBodies == nil {
+		f.gotBodies = map[string]string{}
+	}
+	f.gotBodies[path] = body
 	if f.publishErr != nil {
 		return domain.Document{}, nil, f.publishErr
 	}

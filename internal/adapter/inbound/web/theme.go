@@ -1,8 +1,12 @@
 package web
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
+	"fmt"
+	"io"
 	"mime"
 	"net/http"
 	"os"
@@ -10,50 +14,186 @@ import (
 	"strings"
 
 	"github.com/labstack/echo/v5"
+	"gopkg.in/yaml.v3"
 )
 
-// Theme asset URLs: the operator-supplied branding files (DEMARKUS_LOGO /
-// DEMARKUS_THEME_CSS) served under stable paths the templates reference via
-// the logoURL/themeCSS funcs (view.go).
+// Theme asset URLs: the operator-supplied branding files served under stable
+// paths the templates reference via the logoURL/themeCSS/worldCSS funcs
+// (view.go). Per-world assets sit under themeWorldsPrefix/<world>/<file>.
 const (
-	ThemeLogoPath = "/theme/logo"
-	ThemeCSSPath  = "/theme/site.css"
+	ThemeLogoPath     = "/theme/logo"
+	ThemeCSSPath      = "/theme/site.css"
+	themeWorldsPrefix = "/theme/worlds/"
+	themeCSSType      = "text/css; charset=utf-8"
 )
 
-// ThemeRoutes loads the configured branding assets and registers their
+// ThemeManifest is the operator's branding declaration (DEMARKUS_BRANDING, a
+// YAML file): the room-wide identity, the display vocabulary, and per-world
+// overrides. Asset paths resolve relative to the manifest's directory unless
+// absolute, so a Helm ConfigMap holding the manifest and its assets side by
+// side needs no path plumbing. Unknown keys are errors: a typo must stop
+// startup, not silently leave the stock room.
+type ThemeManifest struct {
+	Name   string                `yaml:"name"`
+	Logo   string                `yaml:"logo"`
+	CSS    string                `yaml:"css"`
+	Terms  Terms                 `yaml:"terms"`
+	Worlds map[string]WorldTheme `yaml:"worlds"`
+
+	// Dir is the directory relative asset paths resolve against (the
+	// manifest's own); empty ⇒ paths are used as given.
+	Dir string `yaml:"-"`
+}
+
+// WorldTheme is one world's branding override: any field left empty inherits
+// the room-wide value (the world stylesheet loads after the room theme, so it
+// overrides rather than replaces).
+type WorldTheme struct {
+	Name string `yaml:"name"`
+	Logo string `yaml:"logo"`
+	CSS  string `yaml:"css"`
+}
+
+// Terms is the room's display vocabulary. Universe names the whole-knowledge
+// scope (the floor, the overlay, the dock anchor); an operator whose readers
+// say "Knowledge" or "Brain" renames it here. Route segments and internal
+// scope keys never change — only what readers see.
+type Terms struct {
+	Universe string `yaml:"universe"`
+}
+
+// DefaultTerms is the stock vocabulary.
+func DefaultTerms() Terms { return Terms{Universe: "Universe"} }
+
+// UniverseLower is the term in running text ("the knowledge floor").
+func (t Terms) UniverseLower() string { return strings.ToLower(t.Universe) }
+
+// LoadThemeManifest reads a manifest file; an empty path is the empty
+// manifest (the stock room), so callers need not branch.
+func LoadThemeManifest(path string) (ThemeManifest, error) {
+	var m ThemeManifest
+	if path == "" {
+		return m, nil
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return m, err
+	}
+	dec := yaml.NewDecoder(bytes.NewReader(raw))
+	dec.KnownFields(true)
+	if err := dec.Decode(&m); err != nil && !errors.Is(err, io.EOF) {
+		return m, fmt.Errorf("%s: %w", path, err)
+	}
+	m.Dir = filepath.Dir(path)
+	return m, nil
+}
+
+// resolve turns a manifest-relative asset path into one the loader can open.
+func (m ThemeManifest) resolve(p string) string {
+	p = strings.TrimSpace(p)
+	if p == "" || filepath.IsAbs(p) || m.Dir == "" {
+		return p
+	}
+	return filepath.Join(m.Dir, p)
+}
+
+// ThemeRoutes loads the manifest's branding assets and registers their
 // routes, returning the Branding the view should render under. Assets are
 // read once at startup — they are deploy-time files like the embedded
 // static/ bundle, and in-memory serving sidesteps echo's cwd-rooted fs.FS
 // (absolute paths are the common case). An unset path registers nothing and
 // leaves the matching URL empty, so templates omit the affordance entirely.
-func ThemeRoutes(e *echo.Echo, brandName, logoPath, cssPath string) (Branding, error) {
+func ThemeRoutes(e *echo.Echo, m ThemeManifest) (Branding, error) {
 	b := DefaultBranding()
-	if brandName != "" {
-		b.Name = brandName
+	if n := strings.TrimSpace(m.Name); n != "" {
+		b.Name = n
 	}
-	if logoPath != "" {
-		blob, err := os.ReadFile(logoPath)
-		if err != nil {
-			return b, err
-		}
-		// The logo may be any image format; the URL carries no extension,
-		// so the content type comes from the source path (or a sniff).
-		ctype := mime.TypeByExtension(filepath.Ext(logoPath))
-		if ctype == "" {
-			ctype = http.DetectContentType(blob)
-		}
-		e.GET(ThemeLogoPath, blobHandler(ctype, blob))
-		b.LogoURL = ThemeLogoPath
+	if u := strings.TrimSpace(m.Terms.Universe); u != "" {
+		b.Terms.Universe = u
 	}
-	if cssPath != "" {
-		blob, err := os.ReadFile(cssPath)
-		if err != nil {
-			return b, err
-		}
-		e.GET(ThemeCSSPath, blobHandler("text/css; charset=utf-8", blob))
-		b.ThemeCSSURL = ThemeCSSPath
+	var err error
+	if b.LogoURL, err = serveAsset(e, ThemeLogoPath, m.resolve(m.Logo), ""); err != nil {
+		return b, fmt.Errorf("logo: %w", err)
 	}
+	if b.ThemeCSSURL, err = serveAsset(e, ThemeCSSPath, m.resolve(m.CSS), themeCSSType); err != nil {
+		return b, fmt.Errorf("css: %w", err)
+	}
+	if len(m.Worlds) == 0 {
+		return b, nil
+	}
+	assets := map[string]echo.HandlerFunc{}
+	b.Worlds = make(map[string]WorldBranding, len(m.Worlds))
+	for world, wt := range m.Worlds {
+		world = strings.TrimSpace(world)
+		if world == "" {
+			return b, errors.New("worlds: empty world name")
+		}
+		wb := WorldBranding{Name: strings.TrimSpace(wt.Name)}
+		for _, a := range []struct {
+			file, path, ctype string
+			url               *string
+		}{
+			{"logo", m.resolve(wt.Logo), "", &wb.LogoURL},
+			{"site.css", m.resolve(wt.CSS), themeCSSType, &wb.CSSURL},
+		} {
+			if a.path == "" {
+				continue
+			}
+			blob, err := os.ReadFile(a.path)
+			if err != nil {
+				return b, fmt.Errorf("worlds.%s: %w", world, err)
+			}
+			assets[world+"/"+a.file] = blobHandler(assetType(a.ctype, a.path, blob), blob)
+			*a.url = themeWorldsPrefix + world + "/" + a.file
+		}
+		b.Worlds[world] = wb
+	}
+	b.assets = assets
 	return b, nil
+}
+
+// WorldThemeRoutes serves per-world assets: one param route (world names are
+// hostnames or system names; a lookup by the decoded :world param stays
+// correct whatever the router does with escaping). In-world documents win
+// over the manifest's files, matching the view's resolution order. brands
+// may be nil (no reading service, as in tests of the file path alone).
+func WorldThemeRoutes(e *echo.Echo, b Branding, brands *WorldBrands) {
+	e.GET(themeWorldsPrefix+":world/:file", func(c *echo.Context) error {
+		world, file := c.Param("world"), c.Param("file")
+		if a, ok := brands.Asset(c.Request().Context(), world, file); ok {
+			return blobHandler(a.ctype, a.blob)(c)
+		}
+		if h, ok := b.assets[world+"/"+file]; ok {
+			return h(c)
+		}
+		return echo.NewHTTPError(http.StatusNotFound, "no such theme asset")
+	})
+}
+
+// serveAsset registers a startup-loaded asset at route and returns the route,
+// or "" when path is empty (nothing registered).
+func serveAsset(e *echo.Echo, route, path, ctype string) (string, error) {
+	if path == "" {
+		return "", nil
+	}
+	blob, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	e.GET(route, blobHandler(assetType(ctype, path, blob), blob))
+	return route, nil
+}
+
+// assetType is the content type for an asset: as given, else by the source
+// path's extension (the served URL carries none), else sniffed.
+func assetType(ctype, path string, blob []byte) string {
+	if ctype != "" {
+		return ctype
+	}
+	if t := mime.TypeByExtension(filepath.Ext(path)); t != "" {
+		return t
+	}
+	return http.DetectContentType(blob)
 }
 
 // blobHandler serves a startup-loaded asset under a revalidation caching

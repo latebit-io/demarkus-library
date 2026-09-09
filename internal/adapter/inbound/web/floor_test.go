@@ -52,7 +52,7 @@ func TestFloorCardsWorldsOnly(t *testing.T) {
 		World: domain.WorldInfo{Name: "remote.example.org"}, Portal: true,
 	})
 	tr := trail{Panes: []paneAddr{{Kind: paneFloor}}, Focus: 0}
-	out := string(floorCards(floor, tr, 0))
+	out := string(floorCards(floor, tr, 0, DefaultTerms()))
 
 	// Worlds render as door cards; no loose documents at the universe level.
 	if !strings.Contains(out, `class="world-card"`) {
@@ -81,7 +81,7 @@ func TestFloorCardsWorldsOnly(t *testing.T) {
 
 func TestFloorSVGNodesAndLinks(t *testing.T) {
 	tr := trail{Panes: []paneAddr{{Kind: paneFloor}}, Focus: 0}
-	svg := string(floorSVG(testFloor(), tr, 0))
+	svg := string(floorSVG(testFloor(), tr, 0, DefaultTerms()))
 
 	for _, want := range []string{
 		`class="floor-world"`,
@@ -114,7 +114,7 @@ func TestFloorSVGEdgesAndPortals(t *testing.T) {
 			{From: domain.Ref{World: "world-a"}, To: domain.Ref{World: "wiki.example.org"}, Count: 1},
 		},
 	}
-	svg := string(floorSVG(floor, trail{Panes: []paneAddr{{Kind: paneFloor}}, Focus: 0}, 0))
+	svg := string(floorSVG(floor, trail{Panes: []paneAddr{{Kind: paneFloor}}, Focus: 0}, 0, DefaultTerms()))
 
 	for _, want := range []string{
 		// World-level edges in the map's grammar: directed, hoverable, bundled by count.
@@ -145,7 +145,7 @@ func TestFloorSVGRingsAroundHub(t *testing.T) {
 	for _, n := range []string{"a", "b", "c"} {
 		floor.Edges = append(floor.Edges, domain.Edge{From: domain.Ref{World: "hub"}, To: domain.Ref{World: n}, Count: 1})
 	}
-	svg := string(floorSVG(floor, trail{Panes: []paneAddr{{Kind: paneFloor}}, Focus: 0}, 0))
+	svg := string(floorSVG(floor, trail{Panes: []paneAddr{{Kind: paneFloor}}, Focus: 0}, 0, DefaultTerms()))
 	vb := regexp.MustCompile(`viewBox="0 0 (\d+) (\d+)"`).FindStringSubmatch(svg)
 	if vb == nil {
 		t.Fatalf("no viewBox in svg: %.200s", svg)
@@ -182,7 +182,7 @@ func TestFloorSVGEscapesContent(t *testing.T) {
 	floor := domain.Floor{Worlds: []domain.FloorWorld{
 		{World: domain.WorldInfo{Name: `<script>"evil"</script>`, URL: "mark://x"}},
 	}}
-	svg := string(floorSVG(floor, trail{Panes: []paneAddr{{Kind: paneFloor}}, Focus: 0}, 0))
+	svg := string(floorSVG(floor, trail{Panes: []paneAddr{{Kind: paneFloor}}, Focus: 0}, 0, DefaultTerms()))
 	if strings.Contains(svg, "<script>") {
 		t.Errorf("unescaped name in svg: %s", svg)
 	}

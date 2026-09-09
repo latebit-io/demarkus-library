@@ -301,6 +301,24 @@ tests:
             configMap:
               name: library-branding
 
+  - it: branding manifest and universe term wire their env vars
+    template: deployment.yaml
+    set:
+      library.branding.configMap: library-branding
+      library.branding.manifestKey: branding.yaml
+      library.branding.universeTerm: Knowledge
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DEMARKUS_BRANDING
+            value: /etc/demarkus-library/branding/branding.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DEMARKUS_TERM_UNIVERSE
+            value: Knowledge
+
   - it: an empty themeCSSKey skips the stylesheet but keeps the mount for the logo
     template: deployment.yaml
     set:

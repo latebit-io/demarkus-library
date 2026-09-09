@@ -55,16 +55,20 @@ type AppConfig struct {
 	// env-only LLM config.
 	LLMKeyStore bool
 
-	// Branding lets an operator present the library as their own room:
-	// Brand replaces the "demarkus Library" wordmark in titles, nav, and the
-	// login card; Logo is a path to an image file shown beside it; ThemeCSS
-	// is a path to a stylesheet served after the built-in styles, where a
-	// deployment overrides the design tokens (--paper, --ink, --font-prose,
-	// the signal colors, …) or any rule. All optional; unset keeps the
-	// stock room.
-	Brand    string // display name (default "demarkus Library")
-	Logo     string // path to a logo image file (empty ⇒ none)
-	ThemeCSS string // path to an override stylesheet (empty ⇒ none)
+	// Branding lets an operator present the library as their own room.
+	// Branding is a path to the manifest (YAML: name, logo, css, terms,
+	// per-world overrides; see docs/theming.md). The single-value knobs
+	// layer over it: Brand replaces the "demarkus Library" wordmark in
+	// titles, nav, and the login card; Logo is a path to an image file
+	// shown beside it; ThemeCSS a stylesheet served after the built-in
+	// styles; TermUniverse renames the whole-knowledge scope readers see.
+	// All optional; unset keeps the stock room.
+	Branding     string // path to the branding manifest (empty ⇒ none)
+	Brand        string // display name (empty ⇒ manifest, else "demarkus Library")
+	Logo         string // path to a logo image file (empty ⇒ manifest, else none)
+	ThemeCSS     string // path to an override stylesheet (empty ⇒ manifest, else none)
+	TermUniverse string // display term for the universe (empty ⇒ manifest, else "Universe")
+	StaticDir    string // directory whose files shadow the embedded /static/ assets (empty ⇒ none)
 
 	// TLS serves the library itself over HTTPS when both are set. In the
 	// cluster the ingress terminates TLS and these stay empty; locally they
@@ -136,11 +140,15 @@ func NewAppConfig() (*AppConfig, error) {
 		TLSCert: strings.TrimSpace(getEnv("DEMARKUS_TLS_CERT", "")),
 		TLSKey:  strings.TrimSpace(getEnv("DEMARKUS_TLS_KEY", "")),
 
-		// Blank (or whitespace) brand falls back to the stock wordmark —
-		// an empty nav brand would leave the room unnamed.
-		Brand:    getEnv("DEMARKUS_BRAND", ""),
-		Logo:     strings.TrimSpace(getEnv("DEMARKUS_LOGO", "")),
-		ThemeCSS: strings.TrimSpace(getEnv("DEMARKUS_THEME_CSS", "")),
+		// Blank (or whitespace) values stay unset so the manifest, then
+		// the stock room, fill in — an empty nav brand would leave the
+		// room unnamed.
+		Branding:     strings.TrimSpace(getEnv("DEMARKUS_BRANDING", "")),
+		Brand:        strings.TrimSpace(getEnv("DEMARKUS_BRAND", "")),
+		Logo:         strings.TrimSpace(getEnv("DEMARKUS_LOGO", "")),
+		ThemeCSS:     strings.TrimSpace(getEnv("DEMARKUS_THEME_CSS", "")),
+		TermUniverse: strings.TrimSpace(getEnv("DEMARKUS_TERM_UNIVERSE", "")),
+		StaticDir:    strings.TrimSpace(getEnv("DEMARKUS_STATIC_DIR", "")),
 
 		Host:       getEnv("DEMARKUS_HOST", "soul.demarkus.io"),
 		ReadToken:  getEnv("DEMARKUS_AUTH", ""),
@@ -161,20 +169,24 @@ func NewAppConfig() (*AppConfig, error) {
 	if (cfg.TLSCert == "") != (cfg.TLSKey == "") {
 		return nil, fmt.Errorf("DEMARKUS_TLS_CERT and DEMARKUS_TLS_KEY must be set together")
 	}
-	if strings.TrimSpace(cfg.Brand) == "" {
-		cfg.Brand = "demarkus Library"
-	}
-	// Branding assets must exist at startup — a typo'd path would otherwise
+	// Branding files must exist at startup — a typo'd path would otherwise
 	// surface as a broken logo or an unstyled room on first request.
 	for _, kv := range []struct{ key, path string }{
+		{"DEMARKUS_BRANDING", cfg.Branding},
 		{"DEMARKUS_LOGO", cfg.Logo},
 		{"DEMARKUS_THEME_CSS", cfg.ThemeCSS},
+		{"DEMARKUS_STATIC_DIR", cfg.StaticDir},
 	} {
 		if kv.path == "" {
 			continue
 		}
 		if _, err := os.Stat(kv.path); err != nil {
 			return nil, fmt.Errorf("%s: %w", kv.key, err)
+		}
+	}
+	if cfg.StaticDir != "" {
+		if info, err := os.Stat(cfg.StaticDir); err == nil && !info.IsDir() {
+			return nil, fmt.Errorf("DEMARKUS_STATIC_DIR: %s is not a directory", cfg.StaticDir)
 		}
 	}
 

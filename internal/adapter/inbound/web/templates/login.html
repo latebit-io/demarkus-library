@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Sign in — {{ brand }}</title>
+  <title>Sign in — {{ brand "" }}</title>
   <!-- The room's stylesheet: tokens (paper/ink, fonts, signal colors) and the
        shared registers, so the turnstile and the library feel like one place
        (and rebrand together under the same operator theme). -->
@@ -205,8 +205,8 @@
     </g>
   </svg>
   <main class="card">
-    {{ with logoURL }}<img class="brand-logo" src="{{ . }}" alt="">{{ end }}
-    <h1>{{ brand }}</h1>
+    {{ with logoURL "" }}<img class="brand-logo" src="{{ . }}" alt="">{{ end }}
+    <h1>{{ brand "" }}</h1>
     <p>Sign in with your organization to enter the reading room.</p>
     {{ if .Error }}<p class="error">{{ .Error }}</p>{{ end }}
     <form method="post" action="/login/start">

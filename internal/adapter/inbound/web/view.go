@@ -22,22 +22,55 @@ const csrfContextKey = "csrf"
 // Branding is the operator's identity layer over the room's chrome: the
 // display name replaces the "demarkus Library" wordmark in titles, nav, and
 // the login card; LogoURL and ThemeCSSURL point at the /theme/ assets
-// (ThemeRoutes), empty ⇒ the affordance is simply absent. Templates read it
-// via the brand/logoURL/themeCSS funcs so no view model carries it.
+// (ThemeRoutes), empty ⇒ the affordance is simply absent. Worlds carries
+// per-world overrides resolved by For; Terms the display vocabulary.
+// Templates read it via the brand/logoURL/themeCSS/worldCSS/universe funcs,
+// keyed by the view model's World, so no view model carries it.
 type Branding struct {
 	Name        string
 	LogoURL     string
 	ThemeCSSURL string
+	Terms       Terms
+	Worlds      map[string]WorldBranding
+
+	assets map[string]echo.HandlerFunc // manifest world assets, keyed <world>/<file> (WorldThemeRoutes)
+}
+
+// WorldBranding is one world's resolved override; empty fields inherit.
+type WorldBranding struct {
+	Name    string
+	LogoURL string
+	CSSURL  string
 }
 
 // DefaultBranding is the stock room: the demarkus wordmark, no logo, no
-// override stylesheet.
-func DefaultBranding() Branding { return Branding{Name: "demarkus Library"} }
+// override stylesheet, stock vocabulary.
+func DefaultBranding() Branding { return Branding{Name: "demarkus Library", Terms: DefaultTerms()} }
+
+// For resolves what the chrome shows while a world is in focus: the world's
+// own name and logo when declared, else the room's; CSSURL is the world's
+// stylesheet (empty ⇒ none), loaded after the room theme so it overrides.
+func (b Branding) For(world string) WorldBranding {
+	r := WorldBranding{Name: b.Name, LogoURL: b.LogoURL}
+	w, ok := b.Worlds[world]
+	if !ok {
+		return r
+	}
+	if w.Name != "" {
+		r.Name = w.Name
+	}
+	if w.LogoURL != "" {
+		r.LogoURL = w.LogoURL
+	}
+	r.CSSURL = w.CSSURL
+	return r
+}
 
 // View implements echo.Renderer over the embedded templates.
 type View struct {
 	templates *template.Template
 	branding  Branding
+	worlds    *WorldBrands // in-world branding (ADR 0008); nil ⇒ file manifest only
 }
 
 // NewView parses the embedded templates. Returns an error so wiring can fail
@@ -51,9 +84,11 @@ func NewView() (*View, error) {
 	t, err := template.New("library").
 		Funcs(template.FuncMap{
 			"csrf":     func() string { return "" },
-			"brand":    func() string { return "" },
-			"logoURL":  func() string { return "" },
+			"brand":    func(string) string { return "" },
+			"logoURL":  func(string) string { return "" },
+			"worldCSS": func(string) string { return "" },
 			"themeCSS": func() string { return "" },
+			"universe": func() string { return "" },
 		}).
 		ParseFS(templatesFS, "templates/*.html")
 	if err != nil {
@@ -67,7 +102,17 @@ func (v *View) WithBranding(b Branding) *View {
 	if b.Name == "" {
 		b.Name = DefaultBranding().Name
 	}
+	if b.Terms.Universe == "" {
+		b.Terms = DefaultTerms()
+	}
 	v.branding = b
+	return v
+}
+
+// WithWorldBrands lets worlds brand themselves through their own documents,
+// resolved ahead of the manifest's per-world entries.
+func (v *View) WithWorldBrands(w *WorldBrands) *View {
+	v.worlds = w
 	return v
 }
 
@@ -81,11 +126,38 @@ func (v *View) Render(c *echo.Context, w io.Writer, name string, data any) error
 	}
 	token, _ := c.Get(csrfContextKey).(string)
 	b := v.branding
+	// One resolution per world per render: the title, nav, logo, and
+	// stylesheet funcs all ask for the same world, and the in-world lookup
+	// is a (cached) read.
+	memo := map[string]WorldBranding{}
+	resolve := func(world string) WorldBranding {
+		if r, ok := memo[world]; ok {
+			return r
+		}
+		r := b.For(world)
+		if world != "" && v.worlds != nil {
+			if iw, ok := v.worlds.For(c.Request().Context(), world); ok {
+				if iw.Name != "" {
+					r.Name = iw.Name
+				}
+				if iw.LogoURL != "" {
+					r.LogoURL = iw.LogoURL
+				}
+				if iw.CSSURL != "" {
+					r.CSSURL = iw.CSSURL
+				}
+			}
+		}
+		memo[world] = r
+		return r
+	}
 	cl.Funcs(template.FuncMap{
 		"csrf":     func() string { return token },
-		"brand":    func() string { return b.Name },
-		"logoURL":  func() string { return b.LogoURL },
+		"brand":    func(world string) string { return resolve(world).Name },
+		"logoURL":  func(world string) string { return resolve(world).LogoURL },
+		"worldCSS": func(world string) string { return resolve(world).CSSURL },
 		"themeCSS": func() string { return b.ThemeCSSURL },
+		"universe": func() string { return b.Terms.Universe },
 	})
 	return cl.ExecuteTemplate(w, name, data)
 }
