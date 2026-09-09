@@ -167,9 +167,9 @@ func TestAskLibrarian_HtmxReturnsLiveExchange(t *testing.T) {
 	body := rec.Body.String()
 	for _, want := range []string{
 		"what is the floor?",
-		`sse-connect="/a/stream?ask=`, // opaque token, never the question
-		`sse-close="done"`,
-		`sse-swap="rendered"`,
+		`hx-sse:connect="/a/stream?ask=`, // opaque token, never the question
+		`hx-sse:close="done"`,
+		`class="ask-answer"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("fragment missing %q\nbody:\n%s", want, body)

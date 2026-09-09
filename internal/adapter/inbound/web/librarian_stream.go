@@ -2,8 +2,10 @@ package web
 
 // The librarian's SSE surface (Phase 4, plan D4). GET /a/stream speaks the
 // stream vocabulary — trace lines, token deltas, the reconciling `answer`
-// text and `rendered` HTML, done — into the pane's htmx SSE block. A real
-// ask arrives only as a one-shot token from POST /a/ask. ?slow= is the one
+// text and `rendered` HTML, done — into the pane's htmx SSE block. On the
+// wire (htmx 4) the swapping frames are unnamed <hx-partial> events aimed
+// at the block's regions; answer and done stay named events (see sseFrame).
+// A real ask arrives only as a one-shot token from POST /a/ask. ?slow= is the one
 // survivor of the transport spike that proved this path (build order step
 // 1): a once-a-second soak, kept as the operational diagnostic for the
 // timeout/proxy/ingress questions every new environment re-asks.
@@ -93,7 +95,7 @@ func (h *ReadingHandler) LibrarianStream(c *echo.Context) error {
 		// HTML-escape at the boundary. Multi-line payloads (answer markdown,
 		// token deltas with paragraph breaks) become one data: line per SSE
 		// spec line — the extension reassembles them with newlines.
-		if _, err := fmt.Fprintf(w, "event: %s\n%s\n\n", event, sseData(html.EscapeString(data))); err != nil {
+		if _, err := fmt.Fprint(w, sseFrame(event, html.EscapeString(data))); err != nil {
 			return false
 		}
 		flusher.Flush()
@@ -106,7 +108,7 @@ func (h *ReadingHandler) LibrarianStream(c *echo.Context) error {
 		if ctx.Err() != nil {
 			return false
 		}
-		if _, err := fmt.Fprintf(w, "event: %s\n%s\n\n", event, sseData(markup)); err != nil {
+		if _, err := fmt.Fprint(w, sseFrame(event, markup)); err != nil {
 			return false
 		}
 		flusher.Flush()
@@ -198,17 +200,38 @@ func (h *ReadingHandler) streamAsk(ctx context.Context, c *echo.Context, pa pend
 		}
 	}
 	if !done {
-		// The port may end a stream on Error alone; the EventSource still
-		// needs its close signal (sse-close="done") or the connection —
-		// exempt from the handler timeout — would dangle.
+		// The port may end a stream on Error alone; the client still needs
+		// its close signal (hx-sse:close="done") or the connection — exempt
+		// from the handler timeout — would dangle.
 		send("done", "∎")
 	}
 	return nil
 }
 
+// sseRegions maps the swapping half of the stream vocabulary onto the
+// exchange block's regions. htmx 4 swaps only UNNAMED SSE frames, so each
+// of these goes out as an <hx-partial> aimed (relative to the connecting
+// block, hence `find`) at its region with its swap style. Names absent here
+// (answer, done) travel as named events: DOM events on the block, no swap;
+// done also closes the stream via hx-sse:close.
+var sseRegions = map[string]struct{ target, swap string }{
+	"trace":    {"find .ask-trace", "beforeend"},
+	"token":    {"find .ask-stream", "beforeend"},
+	"rendered": {"find .ask-answer", "innerHTML"},
+}
+
+// sseFrame renders one complete wire frame (trailing blank line included)
+// for an event of the stream vocabulary; payload is already wire-safe HTML.
+func sseFrame(event, payload string) string {
+	if r, ok := sseRegions[event]; ok {
+		return sseData(`<hx-partial hx-target="`+r.target+`" hx-swap="`+r.swap+`">`+payload+`</hx-partial>`) + "\n\n"
+	}
+	return "event: " + event + "\n" + sseData(payload) + "\n\n"
+}
+
 // sseData renders one event payload as SSE data lines: each newline in the
-// payload becomes its own `data:` line, which EventSource clients rejoin
-// with newlines — multi-line frames stay one event.
+// payload becomes its own `data:` line, which SSE clients rejoin with
+// newlines — multi-line frames stay one event.
 func sseData(payload string) string {
 	lines := strings.Split(payload, "\n")
 	var b strings.Builder

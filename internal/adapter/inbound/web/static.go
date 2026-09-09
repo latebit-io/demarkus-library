@@ -7,7 +7,7 @@ import (
 	"github.com/labstack/echo/v5"
 )
 
-// staticFS holds vendored front-end assets (htmx 2.0.10, htmx-ext-sse 2.2.4),
+// staticFS holds vendored front-end assets (htmx 4.0.0 + its hx-sse extension),
 // generated ones (chroma.css), and the room's own stylesheet (library.css —
 // the design tokens and every register, shared by page.html and the login
 // turnstile; the operator theme at /theme/site.css loads after it). We

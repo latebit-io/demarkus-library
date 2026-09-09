@@ -533,3 +533,31 @@ func TestVersionViewOnStandaloneRouteRedirectsToCanvas(t *testing.T) {
 		t.Errorf("a redirect must not record links: %v", svc.recorded)
 	}
 }
+
+// htmx 4 history restores (back/forward) re-fetch the page with
+// HX-History-Restore-Request and swap the whole body: they must get the
+// full page like a boosted navigation, never the bare fragment.
+func TestWantsFragmentDistinguishesTargetedSwaps(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		hdrs map[string]string
+		want bool
+	}{
+		{"plain browser", nil, false},
+		{"targeted htmx swap", map[string]string{"HX-Request": "true"}, true},
+		{"boosted navigation", map[string]string{"HX-Request": "true", "HX-Boosted": "true"}, false},
+		{"history restore", map[string]string{"HX-Request": "true", "HX-History-Restore-Request": "true"}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/w/w/d/x.md", http.NoBody)
+			for k, v := range tc.hdrs {
+				req.Header.Set(k, v)
+			}
+			if got := wantsFragment(req); got != tc.want {
+				t.Errorf("wantsFragment = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

@@ -30,7 +30,7 @@
      URL; every link already carries its post-click trail, so hx-boost'd
      clicks are plain page swaps and browser back/forward is temporal
      history over spatial states. -->
-<body hx-boost="true" class="canvas-page{{if .PaneScroll}} pane-scroll{{end}}">
+<body {{template "hx-body"}} class="canvas-page{{if .PaneScroll}} pane-scroll{{end}}">
   {{template "nav" .}}
   <main id="main" class="canvas">
     {{- range .Panes }}

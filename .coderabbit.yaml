@@ -81,7 +81,7 @@ reviews:
           allowed is the plain-text health check.
         - NO client-side framework or client state. Flag React/Vue/Alpine/Stimulus,
           a JS bundler/Node build, or client-side routing/stores.
-        - NO CDN asset references in templates. htmx (pinned, currently 2.0.10)
+        - NO CDN asset references in templates. htmx (pinned, currently 4.0.0)
           and any future asset are vendored under web/static/ and served from the
           binary. Flag unpkg/jsdelivr/cdnjs/googleapis script or link tags.
         - NO bespoke JS island without an ADR 0003 concession line. htmx

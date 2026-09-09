@@ -631,10 +631,11 @@
   });
   // htmx fragment swaps (hx-boost navigation) land after settle; rescan
   // just the swapped subtree, and re-center the canvas only when the swap
-  // actually re-rendered panes. afterSettle fires for EVERY swap — hover
+  // actually re-rendered panes. after:settle fires for EVERY swap — hover
   // preview cards, palette keystrokes, librarian exchanges — and
-  // re-centering on those yanked the viewport mid-read.
-  document.body.addEventListener("htmx:afterSettle", function (e) {
+  // re-centering on those yanked the viewport mid-read. Listened on the
+  // document: a body-level swap keeps the element, but this survives either way.
+  document.addEventListener("htmx:after:settle", function (e) {
     var t = e.target;
     scan(t);
     if (t === document.body ||
