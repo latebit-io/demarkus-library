@@ -31,6 +31,9 @@ comments one to three lines saying why; narrow interfaces; smallest correct incr
 Gate before handing work back: bash pre-commit.sh, then helm unittest deploy/helm/demarkus-library.
 Local tooling: $lint
 
+Answer style is terse: minimize text, keep technical precision, one line per
+item, no recaps or restatements. Under 10 lines unless detail is required.
+
 The user commits and pushes. Never run git commit or git push.
 CTX
 )
