@@ -27,12 +27,9 @@ const (
 	themeCSSType      = "text/css; charset=utf-8"
 )
 
-// ThemeManifest is the operator's branding declaration (DEMARKUS_BRANDING, a
-// YAML file): the room-wide identity, the display vocabulary, and per-world
-// overrides. Asset paths resolve relative to the manifest's directory unless
-// absolute, so a Helm ConfigMap holding the manifest and its assets side by
-// side needs no path plumbing. Unknown keys are errors: a typo must stop
-// startup, not silently leave the stock room.
+// ThemeManifest is the operator's branding declaration (DEMARKUS_BRANDING).
+// Relative asset paths resolve against the manifest's own directory, so a
+// ConfigMap carries both. Unknown keys stop startup rather than pass silently.
 type ThemeManifest struct {
 	Name   string                `yaml:"name"`
 	Logo   string                `yaml:"logo"`
@@ -55,9 +52,8 @@ type WorldTheme struct {
 }
 
 // Terms is the room's display vocabulary. Universe names the whole-knowledge
-// scope (the floor, the overlay, the dock anchor); an operator whose readers
-// say "Knowledge" or "Brain" renames it here. Route segments and internal
-// scope keys never change — only what readers see.
+// scope readers see (floor, overlay, dock); routes and internal scope keys
+// keep their own names.
 type Terms struct {
 	Universe string `yaml:"universe"`
 }
@@ -97,12 +93,9 @@ func (m ThemeManifest) resolve(p string) string {
 	return filepath.Join(m.Dir, p)
 }
 
-// ThemeRoutes loads the manifest's branding assets and registers their
-// routes, returning the Branding the view should render under. Assets are
-// read once at startup — they are deploy-time files like the embedded
-// static/ bundle, and in-memory serving sidesteps echo's cwd-rooted fs.FS
-// (absolute paths are the common case). An unset path registers nothing and
-// leaves the matching URL empty, so templates omit the affordance entirely.
+// ThemeRoutes loads the manifest's assets and registers their routes,
+// returning the Branding to render under. Assets are read once at startup;
+// an unset path registers nothing, so templates omit that affordance.
 func ThemeRoutes(e *echo.Echo, m ThemeManifest) (Branding, error) {
 	b := DefaultBranding()
 	if n := strings.TrimSpace(m.Name); n != "" {
@@ -152,11 +145,9 @@ func ThemeRoutes(e *echo.Echo, m ThemeManifest) (Branding, error) {
 	return b, nil
 }
 
-// WorldThemeRoutes serves per-world assets: one param route (world names are
-// hostnames or system names; a lookup by the decoded :world param stays
-// correct whatever the router does with escaping). In-world documents win
-// over the manifest's files, matching the view's resolution order. brands
-// may be nil (no reading service, as in tests of the file path alone).
+// WorldThemeRoutes serves per-world assets from one param route, so a world
+// name with dots or escapes still matches. In-world documents win over the
+// manifest's files, as they do in the view; brands may be nil.
 func WorldThemeRoutes(e *echo.Echo, b Branding, brands *WorldBrands) {
 	e.GET(themeWorldsPrefix+":world/:file", func(c *echo.Context) error {
 		world, file := c.Param("world"), c.Param("file")
@@ -196,18 +187,14 @@ func assetType(ctype, path string, blob []byte) string {
 	return http.DetectContentType(blob)
 }
 
-// assetCSP keeps a theme asset inert if a reader navigates to it directly:
-// no scripts, no fetches, and a sandboxed origin — so a world's SVG can
-// never run as a page with the library's origin and session. Loaded as an
-// <img> or a stylesheet, browsers ignore the header, so nothing rendered
-// changes.
+// assetCSP keeps a theme asset inert when a reader navigates straight to it,
+// so a world's SVG cannot run as a page on the library's origin. Browsers
+// ignore it when the asset loads as an <img> or a stylesheet.
 const assetCSP = "default-src 'none'; style-src 'unsafe-inline'; sandbox"
 
-// blobHandler serves a loaded asset under a revalidation caching model: an
-// ETag over the content with `no-cache` (cache, but ask first), so repeat
-// navigations cost a 304 instead of the body — and a rebrand shows on the
-// reader's next request, which a long max-age on the stable /theme/* URLs
-// would defer. The type is declared, never sniffed.
+// blobHandler serves a loaded asset with an ETag and `no-cache`: repeat
+// navigations cost a 304, and a rebrand still shows on the next request,
+// which a long max-age on these stable URLs would defer.
 func blobHandler(ctype string, blob []byte) func(*echo.Context) error {
 	sum := sha256.Sum256(blob)
 	etag := `"` + hex.EncodeToString(sum[:8]) + `"`

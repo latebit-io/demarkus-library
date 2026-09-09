@@ -19,13 +19,9 @@ var templatesFS embed.FS
 // the token (see csrf.go).
 const csrfContextKey = "csrf"
 
-// Branding is the operator's identity layer over the room's chrome: the
-// display name replaces the "demarkus Library" wordmark in titles, nav, and
-// the login card; LogoURL and ThemeCSSURL point at the /theme/ assets
-// (ThemeRoutes), empty ⇒ the affordance is simply absent. Worlds carries
-// per-world overrides resolved by For; Terms the display vocabulary.
-// Templates read it via the brand/logoURL/themeCSS/worldCSS/universe funcs,
-// keyed by the view model's World, so no view model carries it.
+// Branding is the operator's identity layer over the room's chrome: name,
+// assets, per-world overrides (resolved by For), and the display vocabulary.
+// Templates read it through funcs keyed by the view model's World.
 type Branding struct {
 	Name        string
 	LogoURL     string
@@ -76,11 +72,9 @@ type View struct {
 // NewView parses the embedded templates. Returns an error so wiring can fail
 // loudly at startup rather than on first request.
 func NewView() (*View, error) {
-	// csrf is a per-request function the renderer overrides on a clone; a
-	// no-op placeholder must exist at parse time so templates referencing
-	// {{ csrf }} compile (likewise the branding funcs, bound per-render from
-	// v.branding). The base template is only ever cloned, never executed,
-	// which keeps the per-request Funcs override on the clone valid.
+	// Placeholders so templates calling these funcs compile; Render binds the
+	// real ones on a clone. The base template is only ever cloned, never
+	// executed, which keeps that per-request override valid.
 	t, err := template.New("library").
 		Funcs(template.FuncMap{
 			"csrf":     func() string { return "" },

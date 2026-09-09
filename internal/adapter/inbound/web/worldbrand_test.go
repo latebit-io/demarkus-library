@@ -25,6 +25,11 @@ func inWorldSvc(logoBody string) *fakeReading {
 	}
 }
 
+// fencedLogo wraps bytes the way a published logo.md carries them.
+func fencedLogo(lang, info, content string) string {
+	return fencedDoc{Title: "Logo", Summary: "The mark.", Fence: fence{Lang: lang, Info: info, Content: content}}.markdown()
+}
+
 func inWorldApp(t *testing.T, svc *fakeReading) (*echo.Echo, *WorldBrands) {
 	t.Helper()
 	app := echo.New()
@@ -72,7 +77,7 @@ func TestInWorldBrandingRendersAndServes(t *testing.T) {
 
 func TestInWorldLogoBase64(t *testing.T) {
 	png := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 0, 0, 0, 0}
-	body := wrapFence("Logo", "The mark.", "base64", "image/png", base64.StdEncoding.EncodeToString(png))
+	body := fencedLogo("base64", "image/png", base64.StdEncoding.EncodeToString(png))
 	app, _ := inWorldApp(t, inWorldSvc(body))
 	rec := get(app, "/theme/worlds/soul.demarkus.io/logo")
 	if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "image/png" || rec.Body.Len() != len(png) {
@@ -137,37 +142,43 @@ func TestWorldBrandsCacheTTLAndInvalidate(t *testing.T) {
 }
 
 func TestFirstFenceAndWrap(t *testing.T) {
-	body := wrapFence("Logo", "Summary.", "base64", "image/png", "AAAA\nBBBB")
-	lang, info, content, ok := firstFence(body)
-	if !ok || lang != "base64" || info != "image/png" || content != "AAAA\nBBBB" {
-		t.Errorf("round trip: %q %q %q %v", lang, info, content, ok)
+	body := fencedLogo("base64", "image/png", "AAAA\nBBBB")
+	got, ok := firstFence(body)
+	want := fence{Lang: "base64", Info: "image/png", Content: "AAAA\nBBBB"}
+	if !ok || got != want {
+		t.Errorf("round trip: %+v ok=%v, want %+v", got, ok, want)
 	}
-	if _, _, _, ok := firstFence("# No fence\n\nplain text"); ok {
+	if _, ok := firstFence("# No fence\n\nplain text"); ok {
 		t.Error("matched a fence in plain text")
 	}
-	if a := decodeLogo("```svg\n" + strings.Repeat("x", worldBrandMaxBytes+1) + "\n```"); a != nil {
+	if asset := decodeLogo("```svg\n" + strings.Repeat("x", worldBrandMaxBytes+1) + "\n```"); asset != nil {
 		t.Error("oversized logo accepted")
 	}
 }
 
 func TestInWorldLogoRejectsActiveOrMislabeledContent(t *testing.T) {
 	png := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 0, 0, 0, 0}
-	cases := map[string]string{
-		"html as base64":      wrapFence("Logo", "s", "base64", "text/html", base64.StdEncoding.EncodeToString([]byte("<html><script>alert(1)</script>"))),
-		"svg with script":     wrapFence("Logo", "s", "svg", "", "<svg xmlns='http://www.w3.org/2000/svg'><script>alert(1)</script></svg>"),
-		"svg with handler":    wrapFence("Logo", "s", "svg", "", "<svg xmlns='http://www.w3.org/2000/svg' onload='alert(1)'/>"),
-		"svg external href":   wrapFence("Logo", "s", "svg", "", "<svg xmlns='http://www.w3.org/2000/svg'><image href='https://evil.example/x.png'/></svg>"),
-		"svg declared as png": wrapFence("Logo", "s", "base64", "image/png", base64.StdEncoding.EncodeToString([]byte("<svg xmlns='http://www.w3.org/2000/svg'/>"))),
-		"png declared as svg": wrapFence("Logo", "s", "base64", "image/svg+xml", base64.StdEncoding.EncodeToString(png)),
-		"unknown type":        wrapFence("Logo", "s", "base64", "application/pdf", base64.StdEncoding.EncodeToString([]byte("%PDF-1.4"))),
+	tests := []struct {
+		name string
+		body string
+	}{
+		{name: "html as base64", body: fencedLogo("base64", "text/html", base64.StdEncoding.EncodeToString([]byte("<html><script>alert(1)</script>")))},
+		{name: "svg with script", body: fencedLogo("svg", "", "<svg xmlns='http://www.w3.org/2000/svg'><script>alert(1)</script></svg>")},
+		{name: "svg with event handler", body: fencedLogo("svg", "", "<svg xmlns='http://www.w3.org/2000/svg' onload='alert(1)'/>")},
+		{name: "svg with external reference", body: fencedLogo("svg", "", "<svg xmlns='http://www.w3.org/2000/svg'><image href='https://evil.example/x.png'/></svg>")},
+		{name: "svg declared as png", body: fencedLogo("base64", "image/png", base64.StdEncoding.EncodeToString([]byte("<svg xmlns='http://www.w3.org/2000/svg'/>")))},
+		{name: "png declared as svg", body: fencedLogo("base64", "image/svg+xml", base64.StdEncoding.EncodeToString(png))},
+		{name: "unsupported type", body: fencedLogo("base64", "application/pdf", base64.StdEncoding.EncodeToString([]byte("%PDF-1.4")))},
 	}
-	for name, body := range cases {
-		if a := decodeLogo(body); a != nil {
-			t.Errorf("%s: accepted as %s", name, a.ctype)
-		}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if asset := decodeLogo(tt.body); asset != nil {
+				t.Errorf("accepted as %s", asset.ctype)
+			}
+		})
 	}
-	if a := decodeLogo(wrapFence("Logo", "s", "base64", "", base64.StdEncoding.EncodeToString(png))); a == nil || a.ctype != "image/png" {
-		t.Errorf("undeclared png: %+v", a)
+	if asset := decodeLogo(fencedLogo("base64", "", base64.StdEncoding.EncodeToString(png))); asset == nil || asset.ctype != "image/png" {
+		t.Errorf("undeclared png: %+v", asset)
 	}
 }
 
@@ -187,16 +198,16 @@ func TestWorldAssetsServeHardened(t *testing.T) {
 
 func TestFenceSurvivesBackticksInContent(t *testing.T) {
 	css := "/* a ``` in a comment */\n:root { --x: 1; }\n````\nstill css"
-	body := wrapFence("Stylesheet", "s", "css", "", css)
-	lang, _, content, ok := firstFence(body)
-	if !ok || lang != "css" || content != css {
-		t.Errorf("round trip lost content: ok=%v lang=%q content=%q", ok, lang, content)
+	body := fencedDoc{Title: "Stylesheet", Summary: "s", Fence: fence{Lang: "css", Content: css}}.markdown()
+	got, ok := firstFence(body)
+	if !ok || got.Lang != "css" || got.Content != css {
+		t.Errorf("round trip lost content: ok=%v %+v", ok, got)
 	}
 }
 
 func TestBrandingNameSurvivesYAMLFolding(t *testing.T) {
 	long := strings.Repeat("A very long brand name ", 8) + "end"
-	body := wrapFence("Branding", "s", "yaml", "", yamlMapping("name", long))
+	body := fencedDoc{Title: "Branding", Summary: "s", Fence: fence{Lang: "yaml", Content: yamlMapping("name", long)}}.markdown()
 	svc := &fakeReading{raws: map[string]domain.RawDocument{WorldBrandDoc: {Body: body}}}
 	b, ok := NewWorldBrands(svc).For(context.Background(), "w")
 	if !ok || b.Name != long {
