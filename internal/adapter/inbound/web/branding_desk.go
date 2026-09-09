@@ -27,6 +27,7 @@ type brandingVM struct {
 	User          string
 	LibrarianURL  string
 	Name          string // current in-world name
+	LogoSVG       string // pasted SVG kept across a failed save (file inputs cannot be refilled)
 	Tokens        []tokenField
 	CSS           string // current in-world stylesheet source
 	LogoURL       string // current in-world logo (empty ⇒ none)
@@ -46,6 +47,7 @@ type tokenField struct {
 // brandingForm is one submitted desk form, parsed and validated once.
 type brandingForm struct {
 	name     string
+	logoSVG  string
 	tokens   map[string]string
 	css      string
 	clearCSS bool
@@ -152,6 +154,7 @@ func (h *ReadingHandler) SaveBranding(c *echo.Context) error {
 func readBrandingForm(c *echo.Context) (brandingForm, error) {
 	form := brandingForm{
 		name:     strings.TrimSpace(c.FormValue("name")),
+		logoSVG:  strings.TrimSpace(c.FormValue("logo_svg")),
 		css:      strings.TrimSpace(c.FormValue("css")),
 		clearCSS: c.FormValue("clear_css") != "",
 		tokens:   map[string]string{},
@@ -175,7 +178,7 @@ func readBrandingForm(c *echo.Context) (brandingForm, error) {
 // restore puts a submitted form back into the view model after a failure, so
 // a rejected save never costs the operator their typing.
 func (f brandingForm) restore(vm *brandingVM) {
-	vm.Name, vm.CSS = f.name, f.css
+	vm.Name, vm.CSS, vm.LogoSVG = f.name, f.css, f.logoSVG
 	vm.Tokens = tokenFields(f.tokens)
 }
 
@@ -187,6 +190,7 @@ func brandingDocs(form brandingForm) []brandDoc {
 		title:   brandNameTitle,
 		body:    fencedDoc{Title: brandNameTitle, Summary: "How this world presents itself in the library.", Fence: fence{Lang: "yaml", Content: brandingYAML(form)}}.markdown(),
 		restore: func(vm *brandingVM) { vm.Name, vm.Tokens = form.name, tokenFields(form.tokens) },
+		// the logo rides its own document; nothing to restore here
 	}}
 	switch {
 	case form.css != "":

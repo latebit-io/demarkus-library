@@ -290,8 +290,9 @@ operator-managed ConfigMap so assets never live in values files.
    ```
 
 The chart mounts the ConfigMap at `/etc/demarkus-library/branding` and sets
-`DEMARKUS_BRANDING` / `DEMARKUS_THEME_CSS` / `DEMARKUS_LOGO` to the named
-keys. `name` alone works without any ConfigMap. Rolling a rebrand is operator-driven, matching the
+`DEMARKUS_BRANDING` / `DEMARKUS_THEME_CSS` / `DEMARKUS_LOGO` /
+`DEMARKUS_FAVICON` to the named keys. A key set without `configMap` fails the
+render rather than being silently ignored. `name` alone works without any ConfigMap. Rolling a rebrand is operator-driven, matching the
 chart's Secret-rotation posture: update the ConfigMap, then restart the
 deployment (`kubectl rollout restart deploy/<release>-demarkus-library`) —
 assets are read at startup.

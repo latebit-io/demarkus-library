@@ -75,6 +75,7 @@ library:
     universeTerm: ""
     configMap: ""
     manifestKey: ""
+    # Only wired when configMap is set; the other keys refuse to render without one.
     themeCSSKey: site.css
     logoKey: ""
     faviconKey: ""

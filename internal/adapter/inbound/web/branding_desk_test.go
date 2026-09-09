@@ -144,6 +144,10 @@ func TestBrandingDeskRejectsBadLogo(t *testing.T) {
 	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "SVG markup") {
 		t.Errorf("bad svg: status %d", rec.Code)
 	}
+	// The paste survives the rejection; a file input cannot be refilled.
+	if !strings.Contains(rec.Body.String(), ">not svg</textarea>") {
+		t.Error("rejected SVG paste was dropped from the form")
+	}
 	if svc.gotBodies != nil {
 		t.Error("published despite a rejected logo")
 	}
