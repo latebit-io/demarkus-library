@@ -23,6 +23,12 @@ const (
 	floorPortalR = 12 // portal node radius (an external host, no catalog)
 )
 
+// floorEmpty is the floor with nothing to show.
+func floorEmpty(terms Terms) template.HTML {
+	return template.HTML(`<p class="floor-empty">The ` + template.HTMLEscapeString(terms.UniverseLower()) + //nolint:gosec // escaped term in static markup
+		` is empty — no worlds visible to your identity.</p>`)
+}
+
 // floorSVG renders the universe as one SVG in the world map's grammar
 // (plans/world-map-aggregation.md): every authorized world is an aggregate
 // node sized by its catalog sample, portals are small rim nodes, world-level
@@ -30,9 +36,9 @@ const (
 // (a ring up to wmRingMax worlds around the hub world, a sunflower beyond).
 // t/idx make every node link trail-aware — a world opens its stacks, a
 // portal that host's root — so walking the universe IS building a trail.
-func floorSVG(floor domain.Floor, t trail, idx int) template.HTML {
+func floorSVG(floor domain.Floor, t trail, idx int, terms Terms) template.HTML {
 	if len(floor.Worlds) == 0 {
-		return template.HTML(`<p class="floor-empty">The universe is empty — no worlds visible to your identity.</p>`) //nolint:gosec // static markup
+		return floorEmpty(terms)
 	}
 	items := make([]*wmItem, 0, len(floor.Worlds))
 	byName := make(map[string]*wmItem, len(floor.Worlds))
@@ -85,8 +91,8 @@ func floorSVG(floor domain.Floor, t trail, idx int) template.HTML {
 	floorPlace(byRank, width/2, wmTierTop+outerRy)
 
 	var b strings.Builder
-	fmt.Fprintf(&b, `<svg class="floor" viewBox="0 0 %d %d" width="%d" height="%d" role="img" aria-label="universe map">`,
-		width, height, width, height)
+	fmt.Fprintf(&b, `<svg class="floor" viewBox="0 0 %d %d" width="%d" height="%d" role="img" aria-label="%s map">`,
+		width, height, width, height, template.HTMLEscapeString(terms.UniverseLower()))
 	fmt.Fprintf(&b, `<text class="world-map-caption" x="%d" y="22" text-anchor="middle">%s · %s</text>`,
 		width/2, plural(systems, "world"), plural(portals, "portal"))
 	b.WriteString(arrowMarker)
@@ -190,9 +196,9 @@ func floorWorldNode(b *strings.Builder, fw *domain.FloorWorld, it *wmItem, t tra
 // document row never has. Federated/remote worlds (portals) get a dashed,
 // external-link treatment: visibly "a server you connect to," not a local world
 // you enter. This is the default cold-entry view; floorSVG is the "view as map".
-func floorCards(floor domain.Floor, t trail, idx int) template.HTML {
+func floorCards(floor domain.Floor, t trail, idx int, terms Terms) template.HTML {
 	if len(floor.Worlds) == 0 {
-		return template.HTML(`<p class="floor-empty">The universe is empty — no worlds visible to your identity.</p>`) //nolint:gosec // static markup
+		return floorEmpty(terms)
 	}
 	var b strings.Builder
 	b.WriteString(`<ul class="worlds">`)

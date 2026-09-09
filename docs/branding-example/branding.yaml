@@ -1,0 +1,41 @@
+# A complete branding manifest. Copy this directory, edit, and point the
+# library at it:
+#
+#   DEMARKUS_BRANDING=/etc/demarkus-library/branding/branding.yaml
+#
+# Relative paths resolve against this file's directory, so the manifest and
+# its assets travel together.
+
+name: ACME Brain
+logo: logo.svg
+favicon: logo.svg
+
+# Design tokens: the whole room recolored without writing CSS. Set only what
+# you want to change. light-dark(a, b) gives light and dark schemes their own
+# value; a plain value applies to both.
+theme:
+  paper: light-dark(#fbf7f0, #0e1116)
+  ink: light-dark(#1b2430, #dbe3ec)
+  accent: "#0f766e"
+  font-prose: Charter, Palatino, Georgia, serif
+
+# What readers call the whole-knowledge scope (the floor, its overlay, the
+# dock anchor). Routes never change.
+terms:
+  universe: Knowledge
+
+# Anything the tokens cannot express.
+css: site.css
+
+# Per-world overrides, shown while that world is open. Empty fields inherit
+# the room's. A world can also brand itself from inside the knowledge system
+# (see the in-world branding section of docs/theming.md), which wins over
+# what is declared here.
+worlds:
+  root:
+    name: ACME Handbook
+    theme:
+      accent: "#b45309"
+  soul.demarkus.io:
+    name: Field Notes
+    css: notes.css

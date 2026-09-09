@@ -40,13 +40,25 @@ type ReadingHandler struct {
 	asks         *pendingAsks   // POST /a/ask → SSE handoff tokens (librarian_asks.go)
 	defaultWorld string
 	defaultDoc   string
-	paneScroll   bool // the pane-scroll room, ADR 0007 (DEMARKUS_PANE_SCROLL opts out)
+	paneScroll   bool         // the pane-scroll room, ADR 0007 (DEMARKUS_PANE_SCROLL opts out)
+	terms        Terms        // display vocabulary (Branding.Terms); handler-built labels read it
+	brands       *WorldBrands // in-world branding resolver (ADR 0008); nil ⇒ desk shows nothing current
 }
 
 // NewReadingHandler binds the reading service, the world served at /, and the
 // document shown there.
 func NewReadingHandler(reading port.ReadingService, defaultWorld, defaultDoc string) ReadingHandler {
-	return ReadingHandler{reading: reading, asks: newPendingAsks(), defaultWorld: defaultWorld, defaultDoc: defaultDoc}
+	return ReadingHandler{reading: reading, asks: newPendingAsks(), defaultWorld: defaultWorld, defaultDoc: defaultDoc, terms: DefaultTerms()}
+}
+
+// WithBranding adopts the operator's vocabulary for labels the handlers
+// build in Go (floor titles, dock anchor, palette rows); the templates read
+// the same Branding through the view.
+func (h ReadingHandler) WithBranding(b Branding) ReadingHandler {
+	if b.Terms.Universe != "" {
+		h.terms = b.Terms
+	}
+	return h
 }
 
 // WithLibrarian wires the Phase 4 librarian into the reading room (the
@@ -160,7 +172,7 @@ func (h *ReadingHandler) FloorPage(c *echo.Context) error {
 		return presentError(c, err, "universe", "/")
 	}
 	t := currentTrail(c)
-	return c.HTML(http.StatusOK, string(floorSVG(floor, t, t.Focus)))
+	return c.HTML(http.StatusOK, string(floorSVG(floor, t, t.Focus, h.terms)))
 }
 
 // canvasTrailURL returns the canonical /t/ trail URL for a single pane, or ""

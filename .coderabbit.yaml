@@ -32,6 +32,30 @@ reviews:
     - "!internal/adapter/inbound/web/static/vendor/**"
     - "!internal/adapter/inbound/web/static/*.min.js"
   path_instructions:
+    - path: "**/*.go"
+      instructions: >
+        Repository-wide Go code-quality rules (from the demarkus coding
+        guidelines; see CLAUDE.md).
+
+        Flag:
+        - A function returning more than two values unless one is error, or
+          several results of the same primitive type. These want a result
+          struct with named fields.
+        - More than four parameters without a parameter struct.
+        - Logic duplicated across packages or surfaces instead of extracted to
+          the package that owns it.
+        - A discarded error, or a best-effort path with no comment saying so.
+          Errors returned upward carry the operation and identifier:
+          fmt.Errorf("fetch %s: %w", path, err).
+        - A dependency taken as a wide interface or a concrete type when the
+          consumer uses one or two methods.
+        - Names that need narration, or single letters outside short loops and
+          closures.
+        - Comment blocks longer than three lines, or comments restating what
+          the code already shows.
+        - Tests that are not table-driven with named subtests where a behavior
+          matrix exists, or that write fixtures outside t.TempDir().
+
     - path: "internal/core/domain/**"
       instructions: >
         The center of the hexagon. Entities and domain errors only.

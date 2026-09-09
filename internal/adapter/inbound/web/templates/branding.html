@@ -1,0 +1,75 @@
+{{/* The branding desk (ADR 0008): a world's owners set its name, stylesheet,
+     and logo from inside the room. Saves publish the world's own
+     /.well-known/library/ documents; nothing touches the deployment. */}}
+{{define "branding"}}<!doctype html>
+<html lang="en">
+{{template "head" .}}
+<body {{template "hx-body"}} class="edit-page">
+  {{template "nav" .}}
+  <main id="main">
+    <div class="edit-pane">
+      <header class="doc">
+        <div class="meta"><code>mark://{{ .World }}{{ "/.well-known/library/" }}</code> · branding</div>
+        <h1>Branding for {{ .World }}</h1>
+      </header>
+
+      {{- if .Error }}
+      <p class="edit-error" role="alert">{{ .Error }}</p>
+      {{- end }}
+      {{- if .Notice }}
+      <p class="edit-notice" role="status">{{ .Notice }}</p>
+      {{- end }}
+
+      <!-- Real multipart POST (hx-boost off) so the logo file uploads and the
+           save redirects like every desk write. -->
+      <form class="edit-form branding-form" method="post" enctype="multipart/form-data"
+            action="/w/{{ .WorldPath }}/branding" hx-boost="false">
+        <input type="hidden" name="_csrf" value="{{ csrf }}">
+        <div class="edit-meta">
+          <label>name
+            <input type="text" name="name" value="{{ .Name }}" placeholder="shown in the title and nav while this world is open">
+          </label>
+          <div class="edit-actions">
+            <button type="submit" class="edit-save">save</button>
+            <a class="edit-cancel" hx-boost="false" href="{{ .CancelURL }}">cancel</a>
+          </div>
+        </div>
+
+        <fieldset class="branding-logo">
+          <legend>logo</legend>
+          {{- if .LogoURL }}
+          <p class="branding-current"><img src="{{ .LogoURL }}" alt="current logo"> current logo · <label><input type="checkbox" name="clear_logo"> remove</label></p>
+          {{- end }}
+          <label>upload (SVG, PNG, or JPEG, up to 256 KB)
+            <input type="file" name="logo_file" accept="image/*">
+          </label>
+          <label>or paste SVG markup
+            <textarea name="logo_svg" rows="4" spellcheck="false" placeholder="&lt;svg …&gt;">{{ .LogoSVG }}</textarea>
+          </label>
+        </fieldset>
+
+        <fieldset class="branding-tokens">
+          <legend>colors and type</legend>
+          <p class="edit-append-note">The room's design tokens, for this world. Set only what you want to change; a value like <code>light-dark(#f7f3ea, #101418)</code> gives light and dark schemes their own. No CSS needed.</p>
+          <div class="token-grid">
+            {{- range .Tokens }}
+            <label>{{ .Name }}
+              <input type="text" name="token_{{ .Name }}" value="{{ .Value }}" placeholder="{{ .Hint }}" spellcheck="false">
+            </label>
+            {{- end }}
+          </div>
+        </fieldset>
+
+        <fieldset class="branding-css">
+          <legend>stylesheet</legend>
+          <p class="edit-append-note">For anything the tokens above cannot express. Loads after them, and after the room theme, while this world is open.</p>
+          <textarea class="edit-body" name="css" rows="16" spellcheck="false" placeholder=":root { --paper: #f7f3ea; --ink: #1d2733; }">{{ .CSS }}</textarea>
+          {{- if .CSS }}
+          <label><input type="checkbox" name="clear_css"> remove the stylesheet</label>
+          {{- end }}
+        </fieldset>
+      </form>
+    </div>
+  </main>
+</body>
+</html>{{end}}

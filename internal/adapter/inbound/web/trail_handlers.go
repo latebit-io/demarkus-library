@@ -162,7 +162,7 @@ func (h *ReadingHandler) Trail(c *echo.Context) error {
 					return presentError(c, err, scope, "/")
 				}
 				vm.Panes[i] = paneVM{Mode: "spine", Kind: paneFloor, Gone: true,
-					FocusURL: trailURL(trailFocused(t, i)), Title: floorSpineTitle(addr)}
+					FocusURL: trailURL(trailFocused(t, i)), Title: floorSpineTitle(addr, h.terms)}
 				continue
 			}
 			vm.Panes[i] = pane
@@ -289,15 +289,15 @@ func (h *ReadingHandler) floorPaneView(ctx context.Context, t trail, i int, mapV
 		Mode:     mode,
 		Kind:     paneFloor,
 		FocusURL: trailURL(trailFocused(t, i)),
-		Title:    "Universe",
-		World:    "universe",
+		Title:    h.terms.Universe,
+		World:    h.terms.UniverseLower(),
 	}
 	if mode != "spine" {
 		// Worlds-only door cards by default (ADR 0006 §5); the SVG topology is
 		// the deliberate "view as map" secondary view.
-		body := floorCards(floor, t, i)
+		body := floorCards(floor, t, i, h.terms)
 		if mapView {
-			body = floorSVG(floor, t, i)
+			body = floorSVG(floor, t, i, h.terms)
 		}
 		vm.Content = floorViewToggle(t, mapView) + body
 	}

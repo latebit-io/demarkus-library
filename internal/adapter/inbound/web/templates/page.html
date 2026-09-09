@@ -1,7 +1,7 @@
 {{define "head"}}<head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{ .Title }} — {{ brand }}</title>
+  <title>{{ .Title }} — {{ brand .World }}</title>
   <script src="/static/htmx.min.js"></script>
   <!-- The SSE extension (ADR 0003's earmarked streaming-librarian island):
        declarative hx-sse:connect / hx-sse:close attributes for the librarian
@@ -20,6 +20,12 @@
        operator theme below overrides. Extracted from this template so
        hx-boost navigations cache it instead of re-downloading inline CSS. -->
   <link rel="stylesheet" href="/static/library.css">
+  <link rel="icon" href="{{ favicon }}">
+  {{- with tokensCSS }}
+  <!-- Operator design tokens (the manifest's theme block): the :root values
+       above, overridden without writing CSS. -->
+  <link rel="stylesheet" href="{{ . }}">
+  {{- end }}
   {{- with themeCSS }}
   <!-- Operator theme (DEMARKUS_THEME_CSS): loaded last so its rules win the
        cascade over the built-in styles at equal specificity. Overriding the
@@ -28,8 +34,14 @@
   {{- end }}
 </head>{{end}}
 
-{{define "nav"}}<nav>
-    <a class="brand" href="/">{{ with logoURL }}<img src="{{ . }}" alt="">{{ end }}{{ brand }}</a>
+{{/* The focused world's stylesheet rides in the body, not the head: htmx 4
+     drops a boosted response's <head> (only the title survives), so a head
+     link would stick to the first world visited. In the body it swaps with
+     the page. Loaded after the room theme, so it overrides. */}}
+{{define "world-theme"}}{{ with worldCSS .World }}<link rel="stylesheet" href="{{ . }}">{{ end }}{{end}}
+
+{{define "nav"}}{{template "world-theme" .}}<nav>
+    <a class="brand" href="/">{{ with logoURL .World }}<img src="{{ . }}" alt="">{{ end }}{{ brand .World }}</a>
     <span class="world">{{ .World }}</span>
     <!-- Search affordance: a real link to the catalog page (works with JS off);
          islands.js intercepts the click to open the ⌃K palette overlay instead. -->

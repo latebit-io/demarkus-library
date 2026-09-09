@@ -242,7 +242,11 @@ func worldMapRender(wm domain.WorldMap, docURL func(string) string, newURL strin
 	})
 	b.WriteString(`</svg>`)
 	if newURL != "" {
-		b.WriteString(`<p class="world-map-new"><a href="` + html.EscapeString(newURL) + `" hx-boost="false" class="edit-link">+ new document</a></p>`)
+		// The branding desk shares the write gate with "new document" and the
+		// same /w/<world>/ prefix, so it hangs off the same affordance.
+		brandURL := newURL[:strings.LastIndex(newURL, "/new")] + "/branding"
+		b.WriteString(`<p class="world-map-new"><a href="` + html.EscapeString(newURL) + `" hx-boost="false" class="edit-link">+ new document</a>` +
+			` · <a href="` + html.EscapeString(brandURL) + `" hx-boost="false" class="edit-link">branding</a></p>`)
 	}
 	return template.HTML(b.String()) //nolint:gosec // built from escaped parts; all node text/attrs pass html.EscapeString
 }
@@ -481,11 +485,11 @@ func spiralAt(cx, cy, i int) (x, y int) {
 	return cx + int(r*wmTierRatio*math.Cos(a)), cy + int(r*math.Sin(a))
 }
 
-// floorSpineTitle names a floor-kind tombstone/spine pane: "Universe" for the
-// bare floor, "Map: <world>" for a world map.
-func floorSpineTitle(addr paneAddr) string {
+// floorSpineTitle names a floor-kind tombstone/spine pane: the universe term
+// for the bare floor, "Map: <world>" for a world map.
+func floorSpineTitle(addr paneAddr, terms Terms) string {
 	if addr.World == "" {
-		return "Universe"
+		return terms.Universe
 	}
 	return "Map: " + addr.World
 }

@@ -57,6 +57,8 @@ func ReadingRoutes(e *echo.Echo, handler ReadingHandler, middleware ...echo.Midd
 	e.GET("/w/:world/append/*", handler.AppendForm, mw...)
 	e.POST("/w/:world/append/*", handler.AppendDoc, mw...)
 	e.POST("/w/:world/preview", handler.EditPreview, mw...)
+	e.GET("/w/:world/branding", handler.BrandingForm, mw...)
+	e.POST("/w/:world/branding", handler.SaveBranding, mw...)
 	e.GET("/w/:world/tags/:tag", handler.TagPage, mw...)
 	e.GET("/w/:world/preview/*", handler.Preview, mw...)
 	e.GET("/w/:world/raw/*", handler.RawSource, mw...)

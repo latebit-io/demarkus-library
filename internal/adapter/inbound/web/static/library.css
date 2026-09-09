@@ -633,3 +633,19 @@ body.canvas-page { padding-bottom: 4.5rem; }
 .ask-form button { font: inherit; color: inherit; background: transparent;
         border: 1px solid var(--muted); border-radius: 4px; padding: .35rem .8rem;
         cursor: pointer; }
+
+/* ── The branding desk (ADR 0008): the world's name, logo, and stylesheet,
+   edited in the room. Reuses the edit registers; fieldsets stack. */
+.branding-form fieldset { border: 1px solid var(--faint); border-radius: 4px;
+  padding: .8rem 1rem; margin: 0 0 1rem; display: flex; flex-direction: column; gap: .6rem; }
+.branding-form legend { font: .8rem var(--font-ui); color: var(--muted); padding: 0 .3rem; }
+.branding-form label { display: flex; flex-direction: column; gap: .2rem; font: .8rem var(--font-ui); color: var(--muted); }
+.branding-form textarea { font: inherit; font-size: .85rem; padding: .3rem .4rem;
+  border: 1px solid var(--faint); border-radius: 3px; background: var(--paper); color: var(--ink); }
+.branding-form .edit-body { min-height: 14rem; }
+.branding-current { display: flex; align-items: center; gap: .6rem; margin: 0; font: .8rem var(--font-ui); }
+.branding-current img { max-height: 2.4rem; max-width: 10rem; }
+.branding-current label { flex-direction: row; align-items: center; gap: .3rem; }
+.branding-tokens .token-grid { display: grid; gap: .5rem .9rem;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); }
+.branding-tokens .token-grid input { font-family: var(--font-mono); font-size: .8rem; }

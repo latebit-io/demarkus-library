@@ -52,14 +52,14 @@ type dockChip struct {
 func (h *ReadingHandler) buildDock(t trail) dockVM {
 	d := dockVM{Entries: make([]dockEntry, len(t.Panes))}
 	for i, p := range t.Panes {
-		label, _ := paneLabel(p)
+		label, _ := paneLabel(p, h.terms)
 		e := dockEntry{
 			Label:     label,
-			World:     dockWorld(p),
+			World:     dockWorld(p, h.terms),
 			URL:       trailURL(trailFocused(t, i)),
 			Active:    i == t.Focus,
 			First:     i == 0,
-			ShowWorld: i == 0 || dockWorld(p) != dockWorld(t.Panes[i-1]),
+			ShowWorld: i == 0 || dockWorld(p, h.terms) != dockWorld(t.Panes[i-1], h.terms),
 		}
 		if i > 0 {
 			e.Walked = h.refEdgeBetween(t.Panes[i-1], p)
@@ -71,10 +71,10 @@ func (h *ReadingHandler) buildDock(t trail) dockVM {
 }
 
 // dockWorld is the world shown for a pane — the floor has none, so it reads as
-// "universe" (the strip's left anchor).
-func dockWorld(p paneAddr) string {
+// the universe term (the strip's left anchor).
+func dockWorld(p paneAddr, terms Terms) string {
 	if p.Kind == paneFloor && p.World == "" {
-		return "universe"
+		return terms.UniverseLower()
 	}
 	return p.World
 }

@@ -264,7 +264,7 @@ func (h *ReadingHandler) paneContextLabel(ctx context.Context, p paneAddr) strin
 		return "this librarian conversation"
 	case paneFloor:
 		if p.World == "" {
-			return "the universe floor"
+			return "the " + h.terms.UniverseLower() + " floor"
 		}
 		return "map of world " + p.World
 	case paneGraph:
