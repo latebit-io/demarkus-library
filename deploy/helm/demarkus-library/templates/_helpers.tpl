@@ -100,6 +100,12 @@ checks: a whitespace-only value must fail here, not at pod startup.
 {{- fail "library.quic.host is required when library.transport is \"quic\"" -}}
 {{- end -}}
 {{- end -}}
+{{- /* A manifest key without the ConfigMap that carries it would render no
+       DEMARKUS_BRANDING at all: the pod starts with the stock room and
+       nothing says why. */ -}}
+{{- if and (trim .Values.library.branding.manifestKey) (not (trim .Values.library.branding.configMap)) -}}
+{{- fail "library.branding.configMap is required when library.branding.manifestKey is set" -}}
+{{- end -}}
 {{- end -}}
 
 {{/*

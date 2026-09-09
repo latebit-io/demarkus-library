@@ -91,8 +91,14 @@ func TestInWorldBrandingAbsentFallsBack(t *testing.T) {
 		t.Errorf("absent logo: status %d", rec.Code)
 	}
 	// Absence is cached: the anchor doc is read once per TTL, not per render.
+	svc.trackRaw = true
 	svc.calls = nil
 	get(app, "/t/soul.demarkus.io/d/x.md")
+	for _, call := range svc.calls {
+		if strings.HasPrefix(call, "Raw ") {
+			t.Errorf("cached absence re-read the anchor: %v", svc.calls)
+		}
+	}
 	if _, ok := brands.For(context.Background(), "soul.demarkus.io"); ok {
 		t.Error("unbranded world reported a brand")
 	}
@@ -141,5 +147,59 @@ func TestFirstFenceAndWrap(t *testing.T) {
 	}
 	if a := decodeLogo("```svg\n" + strings.Repeat("x", worldBrandMaxBytes+1) + "\n```"); a != nil {
 		t.Error("oversized logo accepted")
+	}
+}
+
+func TestInWorldLogoRejectsActiveOrMislabeledContent(t *testing.T) {
+	png := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 0, 0, 0, 0}
+	cases := map[string]string{
+		"html as base64":      wrapFence("Logo", "s", "base64", "text/html", base64.StdEncoding.EncodeToString([]byte("<html><script>alert(1)</script>"))),
+		"svg with script":     wrapFence("Logo", "s", "svg", "", "<svg xmlns='http://www.w3.org/2000/svg'><script>alert(1)</script></svg>"),
+		"svg with handler":    wrapFence("Logo", "s", "svg", "", "<svg xmlns='http://www.w3.org/2000/svg' onload='alert(1)'/>"),
+		"svg external href":   wrapFence("Logo", "s", "svg", "", "<svg xmlns='http://www.w3.org/2000/svg'><image href='https://evil.example/x.png'/></svg>"),
+		"svg declared as png": wrapFence("Logo", "s", "base64", "image/png", base64.StdEncoding.EncodeToString([]byte("<svg xmlns='http://www.w3.org/2000/svg'/>"))),
+		"png declared as svg": wrapFence("Logo", "s", "base64", "image/svg+xml", base64.StdEncoding.EncodeToString(png)),
+		"unknown type":        wrapFence("Logo", "s", "base64", "application/pdf", base64.StdEncoding.EncodeToString([]byte("%PDF-1.4"))),
+	}
+	for name, body := range cases {
+		if a := decodeLogo(body); a != nil {
+			t.Errorf("%s: accepted as %s", name, a.ctype)
+		}
+	}
+	if a := decodeLogo(wrapFence("Logo", "s", "base64", "", base64.StdEncoding.EncodeToString(png))); a == nil || a.ctype != "image/png" {
+		t.Errorf("undeclared png: %+v", a)
+	}
+}
+
+func TestWorldAssetsServeHardened(t *testing.T) {
+	svc := inWorldSvc("# Logo\n\nMark.\n\n```svg\n<svg xmlns='http://www.w3.org/2000/svg'/>\n```\n")
+	app, _ := inWorldApp(t, svc)
+	for _, path := range []string{"/theme/worlds/soul.demarkus.io/logo", "/theme/worlds/soul.demarkus.io/site.css"} {
+		rec := get(app, path)
+		if rec.Header().Get("X-Content-Type-Options") != "nosniff" {
+			t.Errorf("%s: missing nosniff", path)
+		}
+		if csp := rec.Header().Get("Content-Security-Policy"); !strings.Contains(csp, "sandbox") || !strings.Contains(csp, "default-src 'none'") {
+			t.Errorf("%s: CSP = %q", path, csp)
+		}
+	}
+}
+
+func TestFenceSurvivesBackticksInContent(t *testing.T) {
+	css := "/* a ``` in a comment */\n:root { --x: 1; }\n````\nstill css"
+	body := wrapFence("Stylesheet", "s", "css", "", css)
+	lang, _, content, ok := firstFence(body)
+	if !ok || lang != "css" || content != css {
+		t.Errorf("round trip lost content: ok=%v lang=%q content=%q", ok, lang, content)
+	}
+}
+
+func TestBrandingNameSurvivesYAMLFolding(t *testing.T) {
+	long := strings.Repeat("A very long brand name ", 8) + "end"
+	body := wrapFence("Branding", "s", "yaml", "", yamlMapping("name", long))
+	svc := &fakeReading{raws: map[string]domain.RawDocument{WorldBrandDoc: {Body: body}}}
+	b, ok := NewWorldBrands(svc).For(context.Background(), "w")
+	if !ok || b.Name != long {
+		t.Errorf("name = %q, ok=%v", b.Name, ok)
 	}
 }

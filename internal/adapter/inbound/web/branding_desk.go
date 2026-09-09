@@ -1,7 +1,6 @@
 package web
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
 	"errors"
@@ -72,6 +71,13 @@ func (h *ReadingHandler) brandingVM(c *echo.Context, world string) brandingVM {
 	return vm
 }
 
+// brandDoc is one branding document a save writes. restore, when set, puts
+// the submitted value back into the form if that document's write fails.
+type brandDoc struct {
+	path, body, title string
+	restore           func(*brandingVM)
+}
+
 // SaveBranding publishes the changed documents. Empty fields leave a document
 // alone; the clear checkboxes publish it without a fence, which the resolver
 // reads as "none". branding.md is always written: it is the anchor.
@@ -90,26 +96,55 @@ func (h *ReadingHandler) SaveBranding(c *echo.Context) error {
 	if err != nil {
 		return fail(http.StatusBadRequest, err.Error())
 	}
-	docs := []struct{ path, body, title string }{
-		{WorldBrandDoc, wrapFence("Branding", "How this world presents itself in the library.", "yaml", "", "name: "+yamlString(name)), "Branding"},
-	}
+	docs := []brandDoc{{
+		path:    WorldBrandDoc,
+		body:    wrapFence("Branding", "How this world presents itself in the library.", "yaml", "", yamlMapping("name", name)),
+		title:   "Branding",
+		restore: func(vm *brandingVM) { vm.Name = name },
+	}}
 	switch {
 	case css != "":
-		docs = append(docs, struct{ path, body, title string }{WorldBrandCSS, wrapFence("Stylesheet", "Design tokens and rules the library loads for this world.", "css", "", css), "Stylesheet"})
+		docs = append(docs, brandDoc{
+			path:    WorldBrandCSS,
+			body:    wrapFence("Stylesheet", "Design tokens and rules the library loads for this world.", "css", "", css),
+			title:   "Stylesheet",
+			restore: func(vm *brandingVM) { vm.CSS = css },
+		})
 	case c.FormValue("clear_css") != "":
-		docs = append(docs, struct{ path, body, title string }{WorldBrandCSS, "# Stylesheet\n\nNo stylesheet: the room's theme applies.\n", "Stylesheet"})
+		docs = append(docs, brandDoc{
+			path:  WorldBrandCSS,
+			body:  "# Stylesheet\n\nNo stylesheet: the room's theme applies.\n",
+			title: "Stylesheet",
+		})
 	}
 	if logoBody != "" {
-		docs = append(docs, struct{ path, body, title string }{WorldBrandLogo, logoBody, "Logo"})
+		docs = append(docs, brandDoc{path: WorldBrandLogo, body: logoBody, title: "Logo"})
 	}
+	// No batch write exists on the port, so each document lands on its own.
+	// The cache is dropped after every success, so a failure re-renders from
+	// what is actually persisted — except the field that failed, which keeps
+	// the submitted text so a retry costs no retyping. The banner names what
+	// saved and what did not: a partial save is never silent.
+	var saved []string
 	for _, d := range docs {
 		meta := domain.PublishMeta{Title: d.title, Tags: []string{"library", "branding"}, Importance: "0.2"}
-		if err := h.publishBrandDoc(ctx, world, d.path, d.body, meta); err != nil {
-			return fail(editErrorStatus(err), editErrorMessage(err))
+		err := h.publishBrandDoc(ctx, world, d.path, d.body, meta)
+		if h.brands != nil {
+			h.brands.Invalidate(world)
 		}
-	}
-	if h.brands != nil {
-		h.brands.Invalidate(world)
+		if err != nil {
+			msg := d.title + " was not saved: " + editErrorMessage(err)
+			if len(saved) > 0 {
+				msg = "Saved " + strings.Join(saved, ", ") + ". " + msg + " Other fields show what is stored now."
+			}
+			vm := h.brandingVM(c, world)
+			if d.restore != nil {
+				d.restore(&vm)
+			}
+			vm.Error = msg
+			return c.Render(editErrorStatus(err), "branding", vm)
+		}
+		saved = append(saved, strings.ToLower(d.title))
 	}
 	return c.Redirect(http.StatusSeeOther, "/w/"+url.PathEscape(world)+"/branding?saved=1")
 }
@@ -150,26 +185,24 @@ func logoDocument(c *echo.Context) (string, error) {
 		if fh.Size > worldBrandMaxBytes {
 			return "", errors.New("logo file is larger than 256 KB")
 		}
-		blob, ctype, err := readUpload(fh)
+		blob, declared, err := readUpload(fh)
 		if err != nil {
 			return "", err
 		}
-		if strings.Contains(ctype, "svg") || bytes.HasPrefix(bytes.TrimSpace(blob), []byte("<svg")) {
-			return wrapFence("Logo", summary, "svg", "", string(blob)), nil
+		ctype, err := checkLogo(blob, declared)
+		if err != nil {
+			return "", err
 		}
-		if !strings.HasPrefix(ctype, "image/") {
-			return "", errors.New("logo must be an image")
+		if ctype == "image/svg+xml" {
+			return wrapFence("Logo", summary, "svg", "", string(blob)), nil
 		}
 		return wrapFence("Logo", summary, "base64", ctype, base64.StdEncoding.EncodeToString(blob)), nil
 	case err != nil && !errors.Is(err, http.ErrMissingFile) && !errors.Is(err, http.ErrNotMultipart):
 		return "", err
 	}
 	if svg := strings.TrimSpace(c.FormValue("logo_svg")); svg != "" {
-		if !strings.HasPrefix(svg, "<svg") && !strings.HasPrefix(svg, "<?xml") {
-			return "", errors.New("pasted logo must be SVG markup")
-		}
-		if len(svg) > worldBrandMaxBytes {
-			return "", errors.New("pasted SVG is larger than 256 KB")
+		if _, err := checkLogo([]byte(svg), "image/svg+xml"); err != nil {
+			return "", errors.New("pasted logo must be SVG markup: " + err.Error())
 		}
 		return wrapFence("Logo", summary, "svg", "", svg), nil
 	}
@@ -179,8 +212,8 @@ func logoDocument(c *echo.Context) (string, error) {
 	return "", nil
 }
 
-// readUpload reads a bounded upload and settles its content type: the
-// browser's header when it names an image, else a sniff.
+// readUpload reads a bounded upload and returns the browser's declared type
+// (checkLogo verifies it against the bytes).
 func readUpload(fh *multipart.FileHeader) (blob []byte, ctype string, err error) {
 	f, err := fh.Open()
 	if err != nil {
@@ -194,18 +227,15 @@ func readUpload(fh *multipart.FileHeader) (blob []byte, ctype string, err error)
 	if len(blob) > worldBrandMaxBytes {
 		return nil, "", errors.New("logo file is larger than 256 KB")
 	}
-	ctype = fh.Header.Get("Content-Type")
-	if !strings.HasPrefix(ctype, "image/") {
-		ctype = http.DetectContentType(blob)
-	}
-	return blob, ctype, nil
+	return blob, fh.Header.Get("Content-Type"), nil
 }
 
-// yamlString quotes a scalar for the branding fence.
-func yamlString(s string) string {
-	out, err := yaml.Marshal(s)
+// yamlMapping renders one key/value as a YAML mapping so a long or odd value
+// is quoted and folded with the indentation the decoder expects.
+func yamlMapping(key, value string) string {
+	out, err := yaml.Marshal(map[string]string{key: value})
 	if err != nil {
-		return `""`
+		return key + `: ""`
 	}
-	return strings.TrimSpace(string(out))
+	return strings.TrimRight(string(out), "\n")
 }

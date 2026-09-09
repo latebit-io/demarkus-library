@@ -87,7 +87,6 @@ func TestBrandingDeskSavePublishesFencedDocs(t *testing.T) {
 		t.Error("branding documents published untagged")
 	}
 	// The resolver re-reads after the save (the cache was invalidated).
-	svc.raws[WorldBrandDoc] = domain.RawDocument{Body: svc.gotBodies[WorldBrandDoc]}
 	if b, ok := brands.For(t.Context(), "soul.demarkus.io"); !ok || b.Name != "ACME: Brain" {
 		t.Errorf("after save: %+v %v", b, ok)
 	}
@@ -147,5 +146,43 @@ func TestBrandingDeskRejectsBadLogo(t *testing.T) {
 	}
 	if svc.gotBodies != nil {
 		t.Error("published despite a rejected logo")
+	}
+}
+
+func TestBrandingDeskPartialSaveIsReported(t *testing.T) {
+	svc := &fakeReading{raws: map[string]domain.RawDocument{}, editErr: domain.ErrNotFound,
+		publishErrFor: map[string]error{WorldBrandCSS: domain.ErrWriteUnsupported}}
+	app, brands := deskApp(t, svc)
+	brands.For(t.Context(), "soul.demarkus.io")
+	rec := postForm(app, "/w/soul.demarkus.io/branding", url.Values{"name": {"Soul"}, "css": {":root{}"}})
+	if rec.Code == http.StatusSeeOther {
+		t.Fatal("partial save redirected as success")
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "Saved branding.") || !strings.Contains(body, "Stylesheet was not saved") {
+		t.Errorf("partial save not reported: %q", body[strings.Index(body, "edit-error"):min(len(body), strings.Index(body, "edit-error")+200)])
+	}
+	if _, ok := svc.gotBodies[WorldBrandDoc]; !ok {
+		t.Error("anchor document was not written before the failure")
+	}
+	// The failed field keeps what was typed, so a retry costs no retyping.
+	if !strings.Contains(body, ":root{}") {
+		t.Error("submitted stylesheet was dropped from the redisplayed form")
+	}
+	// The cache was dropped after the successful write, so the desk shows
+	// what is stored now rather than the submitted stylesheet.
+	if b, ok := brands.For(t.Context(), "soul.demarkus.io"); !ok || b.Name != "Soul" {
+		t.Errorf("persisted name after partial save: %+v %v", b, ok)
+	}
+}
+
+func TestBrandingDeskRejectsScriptedSVGUpload(t *testing.T) {
+	svc := &fakeReading{raws: map[string]domain.RawDocument{}, editErr: domain.ErrNotFound}
+	app, _ := deskApp(t, svc)
+	rec := postForm(app, "/w/soul.demarkus.io/branding", url.Values{
+		"logo_svg": {"<svg xmlns='http://www.w3.org/2000/svg'><script>alert(1)</script></svg>"},
+	})
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "scripts") {
+		t.Errorf("scripted svg: status %d", rec.Code)
 	}
 }

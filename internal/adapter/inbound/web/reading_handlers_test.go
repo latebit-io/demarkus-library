@@ -16,16 +16,17 @@ import (
 // tag ("Read /x.md"). docs maps a path/tag to its scripted document
 // (fallback: doc); errs maps a path/tag to a scripted error.
 type fakeReading struct {
-	doc       domain.Document
-	docs      map[string]domain.Document
-	errs      map[string]error
-	raw       domain.RawDocument
-	raws      map[string]domain.RawDocument // per-path raw sources; nil ⇒ raw/err for every path
-	trackRaw  bool                          // record Raw calls in calls (branding cache tests)
-	gotBodies map[string]string             // every published body by path
-	err       error
-	floor     domain.Floor
-	floorErr  error
+	doc           domain.Document
+	docs          map[string]domain.Document
+	errs          map[string]error
+	raw           domain.RawDocument
+	raws          map[string]domain.RawDocument // per-path raw sources; nil ⇒ raw/err for every path
+	trackRaw      bool                          // record Raw calls in calls (branding cache tests)
+	gotBodies     map[string]string             // every published body by path
+	publishErrFor map[string]error              // publish failure for one path (partial-save tests)
+	err           error
+	floor         domain.Floor
+	floorErr      error
 
 	worldMap    domain.WorldMap
 	worldMapErr error
@@ -203,10 +204,18 @@ func (f *fakeReading) Publish(_ context.Context, _, path, body string, meta doma
 	f.gotBody = body
 	f.gotMeta = meta
 	f.gotVersion = expectedVersion
+	if e := f.publishErrFor[path]; e != nil {
+		return domain.Document{}, nil, e
+	}
 	if f.gotBodies == nil {
 		f.gotBodies = map[string]string{}
 	}
 	f.gotBodies[path] = body
+	if f.raws != nil {
+		// A published document becomes readable, like a real world — so a
+		// handler that re-reads after a write sees what it just stored.
+		f.raws[path] = domain.RawDocument{Body: body}
+	}
 	if f.publishErr != nil {
 		return domain.Document{}, nil, f.publishErr
 	}

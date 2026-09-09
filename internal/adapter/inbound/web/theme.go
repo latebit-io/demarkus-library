@@ -196,11 +196,18 @@ func assetType(ctype, path string, blob []byte) string {
 	return http.DetectContentType(blob)
 }
 
-// blobHandler serves a startup-loaded asset under a revalidation caching
-// model: an ETag over the content with `no-cache` (cache, but ask first), so
-// repeat navigations cost a 304 instead of the body — and a rebrand shows on
-// the reader's next request after the restart, which a long max-age on the
-// stable /theme/* URLs would defer.
+// assetCSP keeps a theme asset inert if a reader navigates to it directly:
+// no scripts, no fetches, and a sandboxed origin — so a world's SVG can
+// never run as a page with the library's origin and session. Loaded as an
+// <img> or a stylesheet, browsers ignore the header, so nothing rendered
+// changes.
+const assetCSP = "default-src 'none'; style-src 'unsafe-inline'; sandbox"
+
+// blobHandler serves a loaded asset under a revalidation caching model: an
+// ETag over the content with `no-cache` (cache, but ask first), so repeat
+// navigations cost a 304 instead of the body — and a rebrand shows on the
+// reader's next request, which a long max-age on the stable /theme/* URLs
+// would defer. The type is declared, never sniffed.
 func blobHandler(ctype string, blob []byte) func(*echo.Context) error {
 	sum := sha256.Sum256(blob)
 	etag := `"` + hex.EncodeToString(sum[:8]) + `"`
@@ -208,6 +215,8 @@ func blobHandler(ctype string, blob []byte) func(*echo.Context) error {
 		h := c.Response().Header()
 		h.Set("ETag", etag)
 		h.Set("Cache-Control", "no-cache")
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("Content-Security-Policy", assetCSP)
 		if strings.Contains(c.Request().Header.Get("If-None-Match"), etag) {
 			return c.NoContent(http.StatusNotModified)
 		}

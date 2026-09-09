@@ -319,6 +319,14 @@ tests:
             name: DEMARKUS_TERM_UNIVERSE
             value: Knowledge
 
+  - it: fails render when manifestKey is set without a configMap
+    template: deployment.yaml
+    set:
+      library.branding.manifestKey: branding.yaml
+    asserts:
+      - failedTemplate:
+          errorMessage: library.branding.configMap is required when library.branding.manifestKey is set
+
   - it: an empty themeCSSKey skips the stylesheet but keeps the mount for the logo
     template: deployment.yaml
     set:

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"errors"
 	"net/http"
 	"regexp"
 	"strings"
@@ -168,54 +169,138 @@ func (w *WorldBrands) load(ctx context.Context, world string) worldBrand {
 }
 
 // decodeLogo unwraps logo.md: an ```svg fence verbatim, or a ```base64 fence
-// whose info string names the content type (sniffed when absent).
+// whose info string names the content type (sniffed when absent). The bytes
+// pass checkLogo like an upload would — a world is a shared write surface,
+// so the document is not trusted just because it exists.
 func decodeLogo(body string) *worldAsset {
 	lang, info, content, ok := firstFence(body)
 	if !ok {
 		return nil
 	}
+	var blob []byte
+	declared := ""
 	switch lang {
 	case "svg", "xml":
-		if len(content) > worldBrandMaxBytes {
-			return nil
-		}
-		return &worldAsset{ctype: "image/svg+xml", blob: []byte(content)}
+		blob, declared = []byte(content), "image/svg+xml"
 	case "base64":
-		blob, err := base64.StdEncoding.DecodeString(strings.Join(strings.Fields(content), ""))
-		if err != nil || len(blob) == 0 || len(blob) > worldBrandMaxBytes {
+		var err error
+		if blob, err = base64.StdEncoding.DecodeString(strings.Join(strings.Fields(content), "")); err != nil {
 			return nil
 		}
-		ctype := strings.TrimSpace(info)
-		if ctype == "" {
-			ctype = http.DetectContentType(blob)
-		}
-		return &worldAsset{ctype: ctype, blob: blob}
+		declared = info
+	default:
+		return nil
 	}
-	return nil
+	ctype, err := checkLogo(blob, declared)
+	if err != nil {
+		return nil
+	}
+	return &worldAsset{ctype: ctype, blob: blob}
 }
 
-// fenceRE matches a fenced block: the info string's first word is the
-// language, the rest is free text (the base64 fence carries a content type).
-var fenceRE = regexp.MustCompile("(?s)(?:^|\n)```[ \t]*([^\\s`]*)[ \t]*([^\n]*)\n(.*?)\n```[ \t]*(?:\n|$)")
+// rasterTypes are the inert image types a logo may be; anything else that
+// is not an inert SVG is refused at both boundaries (upload and read).
+var rasterTypes = map[string]bool{"image/png": true, "image/jpeg": true, "image/gif": true, "image/webp": true}
+
+// svgActive matches SVG constructs that could run or fetch: script, event
+// handlers, javascript: URLs, embedded documents, and external references.
+var svgActive = regexp.MustCompile(`(?i)<script|<foreignobject|<iframe|<embed|<object|javascript:|\son[a-z]+\s*=|href\s*=\s*["']?\s*(https?:|//)|@import|url\(\s*["']?\s*(https?:|//)|data:text/html`)
+
+// checkLogo validates logo bytes against their declared type and returns the
+// type to serve. Raster bytes must sniff as the declared type; an SVG must
+// be inert. The served type is always one the browser treats as an image.
+func checkLogo(blob []byte, declared string) (string, error) {
+	if len(blob) == 0 {
+		return "", errors.New("logo is empty")
+	}
+	if len(blob) > worldBrandMaxBytes {
+		return "", errors.New("logo is larger than 256 KB")
+	}
+	declared = strings.ToLower(strings.TrimSpace(strings.SplitN(declared, ";", 2)[0]))
+	if declared == "application/octet-stream" {
+		declared = ""
+	}
+	trimmed := bytes.TrimSpace(blob)
+	isSVG := bytes.HasPrefix(trimmed, []byte("<svg")) ||
+		(bytes.HasPrefix(trimmed, []byte("<?xml")) && bytes.Contains(trimmed, []byte("<svg")))
+	if declared == "image/svg+xml" || (declared == "" && isSVG) {
+		if !isSVG {
+			return "", errors.New("logo is not SVG markup")
+		}
+		if svgActive.Match(trimmed) {
+			return "", errors.New("SVG logo must not contain scripts, event handlers, or external references")
+		}
+		return "image/svg+xml", nil
+	}
+	sniffed := strings.SplitN(http.DetectContentType(blob), ";", 2)[0]
+	if declared == "" {
+		declared = sniffed
+	}
+	if !rasterTypes[declared] {
+		return "", errors.New("logo must be PNG, JPEG, GIF, WebP, or SVG")
+	}
+	if sniffed != declared {
+		return "", errors.New("logo bytes do not match the declared image type")
+	}
+	return declared, nil
+}
 
 // firstFence returns the first fenced block's language, extra info, and
-// content (without the trailing newline).
+// content. A fence is three or more backticks; the closer must be at least
+// as long (CommonMark), so content may itself contain shorter backtick runs
+// (wrapFence picks the opener accordingly).
 func firstFence(body string) (lang, info, content string, ok bool) {
-	m := fenceRE.FindStringSubmatch(body)
-	if m == nil {
-		return "", "", "", false
+	lines := strings.Split(body, "\n")
+	for i, line := range lines {
+		run := backtickPrefix(line)
+		if run < 3 {
+			continue
+		}
+		rest := strings.TrimSpace(line[run:])
+		if strings.Contains(rest, "`") {
+			continue // not a fence opener
+		}
+		lang, info, _ = strings.Cut(rest, " ")
+		for j := i + 1; j < len(lines); j++ {
+			if r := backtickPrefix(lines[j]); r >= run && strings.TrimSpace(lines[j][r:]) == "" {
+				return strings.ToLower(lang), strings.TrimSpace(info), strings.Join(lines[i+1:j], "\n"), true
+			}
+		}
+		return "", "", "", false // unterminated
 	}
-	return strings.ToLower(m[1]), strings.TrimSpace(m[2]), m[3], true
+	return "", "", "", false
+}
+
+// backtickPrefix counts the leading backticks of a line.
+func backtickPrefix(line string) int {
+	return len(line) - len(strings.TrimLeft(line, "`"))
 }
 
 // wrapFence is the inverse the branding desk uses: an H1 and summary keep
-// the style gate quiet; the fence carries the payload.
+// the style gate quiet; the fence carries the payload, opened with more
+// backticks than any run inside it so the content can never close it early.
 func wrapFence(title, summary, lang, info, content string) string {
+	content = strings.TrimRight(content, "\n")
+	fence := strings.Repeat("`", max(3, longestBacktickRun(content)+1))
 	var b bytes.Buffer
-	b.WriteString("# " + title + "\n\n" + summary + "\n\n```" + lang)
+	b.WriteString("# " + title + "\n\n" + summary + "\n\n" + fence + lang)
 	if info != "" {
 		b.WriteString(" " + info)
 	}
-	b.WriteString("\n" + strings.TrimRight(content, "\n") + "\n```\n")
+	b.WriteString("\n" + content + "\n" + fence + "\n")
 	return b.String()
+}
+
+// longestBacktickRun is the longest sequence of consecutive backticks in s.
+func longestBacktickRun(s string) int {
+	longest, run := 0, 0
+	for _, r := range s {
+		if r == '`' {
+			run++
+			longest = max(longest, run)
+		} else {
+			run = 0
+		}
+	}
+	return longest
 }

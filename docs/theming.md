@@ -19,8 +19,10 @@ configuration.
 All optional; unset keeps the stock room. The single-value env vars layer
 over the manifest (env wins), so a one-off `DEMARKUS_BRAND` works beside a
 manifest. Paths are stat-checked at startup — a typo'd path stops the server
-loudly instead of shipping a broken logo or an unstyled room. Assets are read
-once at startup: changing a file requires a restart.
+loudly instead of shipping a broken logo or an unstyled room. The manifest,
+logo, and theme stylesheet are read once at startup, so changing them requires
+a restart; files under `DEMARKUS_STATIC_DIR` are served per request and take
+effect on the next load.
 
 ## The manifest
 
@@ -66,13 +68,29 @@ minute) ahead of the manifest's `worlds` entry.
 
 | Document | Payload |
 |---|---|
-| `branding.md` | A ```yaml fence: `name: …`. The anchor: without it the others are not read. |
-| `site.css.md` | A ```css fence. Loads after the room theme while the world is open. |
-| `logo.md` | A ```svg fence, or a ```base64 fence whose info string is the content type (` ```base64 image/png `). Up to 256 KB. |
+| `branding.md` | A `yaml` fenced block holding `name: …`. The anchor: without it the others are not read. |
+| `site.css.md` | A `css` fenced block. Loads after the room theme while the world is open. |
+| `logo.md` | An `svg` fenced block, or a `base64` block whose info string names the content type (`base64 image/png`). PNG, JPEG, GIF, WebP, or SVG without scripts or event handlers; up to 256 KB. |
+
+A world's own branding documents look like this:
+
+````markdown
+# Branding
+
+How this world presents itself in the library.
+
+```yaml
+name: Fritz's Soul
+```
+````
 
 Each document carries an H1 and a one-sentence summary above the fence, so
 the style gate stays quiet and the document reads sensibly in any client.
-Assets serve at `/theme/worlds/<world>/logo` and `/theme/worlds/<world>/site.css`.
+Assets serve at `/theme/worlds/<world>/logo` and `/theme/worlds/<world>/site.css`
+with `X-Content-Type-Options: nosniff` and a sandboxing Content-Security-Policy,
+so a world's logo can never run as a page on the library's origin. A logo whose
+bytes do not match its declared type, or an SVG carrying `<script>`, event
+handlers, or external references, is ignored.
 
 ### The branding desk
 
