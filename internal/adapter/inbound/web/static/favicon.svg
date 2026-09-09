@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="demarkus Library">
+  <style>
+    .ground { fill: #f7f3ea }
+    .spine { fill: #1d2733 }
+    .mark { fill: #8250df }
+    @media (prefers-color-scheme: dark) {
+      .ground { fill: #101418 }
+      .spine { fill: #d8e1ea }
+    }
+  </style>
+  <rect class="ground" width="32" height="32" rx="6"/>
+  <rect class="spine" x="7" y="8" width="4" height="16" rx="1"/>
+  <rect class="spine" x="13" y="8" width="4" height="16" rx="1"/>
+  <rect class="mark" x="19" y="8" width="6" height="16" rx="1"/>
+</svg>

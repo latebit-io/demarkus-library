@@ -48,9 +48,21 @@
           </label>
         </fieldset>
 
+        <fieldset class="branding-tokens">
+          <legend>colors and type</legend>
+          <p class="edit-append-note">The room's design tokens, for this world. Set only what you want to change; a value like <code>light-dark(#f7f3ea, #101418)</code> gives light and dark schemes their own. No CSS needed.</p>
+          <div class="token-grid">
+            {{- range .Tokens }}
+            <label>{{ .Name }}
+              <input type="text" name="token_{{ .Name }}" value="{{ .Value }}" placeholder="{{ .Hint }}" spellcheck="false">
+            </label>
+            {{- end }}
+          </div>
+        </fieldset>
+
         <fieldset class="branding-css">
           <legend>stylesheet</legend>
-          <p class="edit-append-note">Loads after the room theme while this world is open. Override the <code>:root</code> tokens (<code>--paper</code>, <code>--ink</code>, <code>--accent</code>, <code>--font-prose</code>, …) or any rule.</p>
+          <p class="edit-append-note">For anything the tokens above cannot express. Loads after them, and after the room theme, while this world is open.</p>
           <textarea class="edit-body" name="css" rows="16" spellcheck="false" placeholder=":root { --paper: #f7f3ea; --ink: #1d2733; }">{{ .CSS }}</textarea>
           {{- if .CSS }}
           <label><input type="checkbox" name="clear_css"> remove the stylesheet</label>

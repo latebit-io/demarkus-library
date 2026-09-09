@@ -27,11 +27,29 @@ type brandingVM struct {
 	User          string
 	LibrarianURL  string
 	Name          string // current in-world name
+	Tokens        []tokenField
 	CSS           string // current in-world stylesheet source
 	LogoURL       string // current in-world logo (empty ⇒ none)
 	Error         string
 	Notice        string
 	CancelURL     string
+}
+
+// tokenField is one design-token input on the desk: the token an operator
+// may set without writing CSS, its stored value, and an example.
+type tokenField struct {
+	Name  string
+	Value string
+	Hint  string
+}
+
+// brandingForm is one submitted desk form, parsed and validated once.
+type brandingForm struct {
+	name     string
+	tokens   map[string]string
+	css      string
+	clearCSS bool
+	logoBody string
 }
 
 // The documents a save writes, titled once here so the body and its catalog
@@ -78,11 +96,22 @@ func (h *ReadingHandler) brandingVM(c *echo.Context, world string) brandingVM {
 	if h.lib != nil {
 		vm.LibrarianURL = "/a"
 	}
+	var stored brandDesk
 	if h.brands != nil {
-		stored := h.brands.Desk(c.Request().Context(), world)
+		stored = h.brands.Desk(c.Request().Context(), world)
 		vm.Name, vm.CSS, vm.LogoURL = stored.Name, stored.CSS, stored.LogoURL
 	}
+	vm.Tokens = tokenFields(stored.Tokens)
 	return vm
+}
+
+// tokenFields lists every settable token, filled in from what is stored.
+func tokenFields(stored map[string]string) []tokenField {
+	fields := make([]tokenField, 0, len(brandTokens))
+	for _, name := range brandTokens {
+		fields = append(fields, tokenField{Name: name, Value: stored[name], Hint: tokenHints[name]})
+	}
+	return fields
 }
 
 // SaveBranding publishes the changed documents. Empty fields leave a document
@@ -91,16 +120,15 @@ func (h *ReadingHandler) brandingVM(c *echo.Context, world string) brandingVM {
 func (h *ReadingHandler) SaveBranding(c *echo.Context) error {
 	world := c.Param("world")
 	ctx := c.Request().Context()
-	name := strings.TrimSpace(c.FormValue("name"))
-	css := strings.TrimSpace(c.FormValue("css"))
 
-	logoBody, err := logoDocument(c)
+	form, err := readBrandingForm(c)
 	if err != nil {
 		vm := h.brandingVM(c, world)
-		vm.Name, vm.CSS, vm.Error = name, css, err.Error()
+		form.restore(&vm)
+		vm.Error = err.Error()
 		return c.Render(http.StatusBadRequest, "branding", vm)
 	}
-	docs := brandingDocs(c, name, css, logoBody)
+	docs := brandingDocs(form)
 
 	// No batch write exists on the port, so documents land one at a time and
 	// the cache is dropped after each success; renderPartialSave reports what
@@ -119,34 +147,75 @@ func (h *ReadingHandler) SaveBranding(c *echo.Context) error {
 	return c.Redirect(http.StatusSeeOther, "/w/"+url.PathEscape(world)+"/branding?saved=1")
 }
 
+// readBrandingForm parses and validates a submitted desk form. Tokens are
+// checked here so an unsafe value is refused before anything is published.
+func readBrandingForm(c *echo.Context) (brandingForm, error) {
+	form := brandingForm{
+		name:     strings.TrimSpace(c.FormValue("name")),
+		css:      strings.TrimSpace(c.FormValue("css")),
+		clearCSS: c.FormValue("clear_css") != "",
+		tokens:   map[string]string{},
+	}
+	for _, name := range brandTokens {
+		if value := strings.TrimSpace(c.FormValue("token_" + name)); value != "" {
+			form.tokens[name] = value
+		}
+	}
+	if _, err := tokensCSS(form.tokens); err != nil {
+		return form, err
+	}
+	logoBody, err := logoDocument(c)
+	if err != nil {
+		return form, err
+	}
+	form.logoBody = logoBody
+	return form, nil
+}
+
+// restore puts a submitted form back into the view model after a failure, so
+// a rejected save never costs the operator their typing.
+func (f brandingForm) restore(vm *brandingVM) {
+	vm.Name, vm.CSS = f.name, f.css
+	vm.Tokens = tokenFields(f.tokens)
+}
+
 // brandingDocs assembles what this save writes: the anchor always, the
 // stylesheet when submitted or cleared, the logo only when one was supplied.
-func brandingDocs(c *echo.Context, name, css, logoBody string) []brandDoc {
+func brandingDocs(form brandingForm) []brandDoc {
 	docs := []brandDoc{{
 		path:    WorldBrandDoc,
 		title:   brandNameTitle,
-		body:    fencedDoc{Title: brandNameTitle, Summary: "How this world presents itself in the library.", Fence: fence{Lang: "yaml", Content: yamlMapping("name", name)}}.markdown(),
-		restore: func(vm *brandingVM) { vm.Name = name },
+		body:    fencedDoc{Title: brandNameTitle, Summary: "How this world presents itself in the library.", Fence: fence{Lang: "yaml", Content: brandingYAML(form)}}.markdown(),
+		restore: func(vm *brandingVM) { vm.Name, vm.Tokens = form.name, tokenFields(form.tokens) },
 	}}
 	switch {
-	case css != "":
+	case form.css != "":
 		docs = append(docs, brandDoc{
 			path:    WorldBrandCSS,
 			title:   brandCSSTitle,
-			body:    fencedDoc{Title: brandCSSTitle, Summary: "Design tokens and rules the library loads for this world.", Fence: fence{Lang: "css", Content: css}}.markdown(),
-			restore: func(vm *brandingVM) { vm.CSS = css },
+			body:    fencedDoc{Title: brandCSSTitle, Summary: "Rules the library loads for this world, after its design tokens.", Fence: fence{Lang: "css", Content: form.css}}.markdown(),
+			restore: func(vm *brandingVM) { vm.CSS = form.css },
 		})
-	case c.FormValue("clear_css") != "":
+	case form.clearCSS:
 		docs = append(docs, brandDoc{
 			path:  WorldBrandCSS,
 			title: brandCSSTitle,
 			body:  "# " + brandCSSTitle + "\n\nNo stylesheet: the room's theme applies.\n",
 		})
 	}
-	if logoBody != "" {
-		docs = append(docs, brandDoc{path: WorldBrandLogo, title: brandLogoTitle, body: logoBody})
+	if form.logoBody != "" {
+		docs = append(docs, brandDoc{path: WorldBrandLogo, title: brandLogoTitle, body: form.logoBody})
 	}
 	return docs
+}
+
+// brandingYAML renders the anchor document's fence: the name and any tokens.
+func brandingYAML(form brandingForm) string {
+	out, err := yaml.Marshal(brandingFile{Name: form.name, Theme: form.tokens})
+	if err != nil {
+		return `name: ""`
+	}
+	return strings.TrimRight(string(out), "\n")
 }
 
 // renderPartialSave re-renders the desk from persisted state after a failed
@@ -242,14 +311,4 @@ func readUpload(fh *multipart.FileHeader) (logoUpload, error) {
 		return logoUpload{}, errors.New("logo file is larger than 256 KB")
 	}
 	return logoUpload{blob: blob, declared: fh.Header.Get("Content-Type")}, nil
-}
-
-// yamlMapping renders one key/value as a YAML mapping so a long or odd value
-// is quoted and folded with the indentation the decoder expects.
-func yamlMapping(key, value string) string {
-	out, err := yaml.Marshal(map[string]string{key: value})
-	if err != nil {
-		return key + `: ""`
-	}
-	return strings.TrimRight(string(out), "\n")
 }

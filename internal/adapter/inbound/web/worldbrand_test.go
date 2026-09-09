@@ -207,10 +207,50 @@ func TestFenceSurvivesBackticksInContent(t *testing.T) {
 
 func TestBrandingNameSurvivesYAMLFolding(t *testing.T) {
 	long := strings.Repeat("A very long brand name ", 8) + "end"
-	body := fencedDoc{Title: "Branding", Summary: "s", Fence: fence{Lang: "yaml", Content: yamlMapping("name", long)}}.markdown()
+	body := fencedDoc{Title: "Branding", Summary: "s", Fence: fence{Lang: "yaml", Content: brandingYAML(brandingForm{name: long})}}.markdown()
 	svc := &fakeReading{raws: map[string]domain.RawDocument{WorldBrandDoc: {Body: body}}}
 	b, ok := NewWorldBrands(svc).For(context.Background(), "w")
 	if !ok || b.Name != long {
 		t.Errorf("name = %q, ok=%v", b.Name, ok)
+	}
+}
+
+func TestInWorldTokensPrecedeTheStylesheet(t *testing.T) {
+	// The fixture's stylesheet sets --paper: #abcdef; the tokens set a
+	// different value, so the served order is visible.
+	svc := inWorldSvc("")
+	svc.raws[WorldBrandDoc] = domain.RawDocument{Body: fencedDoc{
+		Title: "Branding", Summary: "s",
+		Fence: fence{Lang: "yaml", Content: "name: Soul Room\ntheme:\n  paper: \"#123456\"\n"},
+	}.markdown()}
+	app, brands := inWorldApp(t, svc)
+	rec := get(app, "/theme/worlds/soul.demarkus.io/site.css")
+	body := rec.Body.String()
+	if rec.Code != http.StatusOK {
+		t.Fatalf("world sheet: %d %q", rec.Code, body)
+	}
+	tokens, sheet := strings.Index(body, "#123456"), strings.Index(body, "#abcdef")
+	if tokens < 0 || sheet < 0 || sheet < tokens {
+		t.Errorf("stylesheet did not follow the tokens: %q", body)
+	}
+	desk := brands.Desk(t.Context(), "soul.demarkus.io")
+	if desk.Tokens["paper"] != "#123456" || strings.Contains(desk.CSS, "#123456") {
+		t.Errorf("desk mixed tokens into the stylesheet field: %+v", desk)
+	}
+}
+
+func TestInWorldUnsafeTokensAreDropped(t *testing.T) {
+	svc := inWorldSvc("")
+	svc.raws[WorldBrandDoc] = domain.RawDocument{Body: fencedDoc{
+		Title: "Branding", Summary: "s",
+		Fence: fence{Lang: "yaml", Content: "name: Soul Room\ntheme:\n  paper: \"#fff} body{display:none\"\n"},
+	}.markdown()}
+	app, _ := inWorldApp(t, svc)
+	body := get(app, "/theme/worlds/soul.demarkus.io/site.css").Body.String()
+	if strings.Contains(body, "display:none") {
+		t.Errorf("unsafe token reached the served sheet: %q", body)
+	}
+	if strings.TrimSpace(body) != ":root { --paper: #abcdef; }" {
+		t.Errorf("dropping the tokens changed the stylesheet: %q", body)
 	}
 }

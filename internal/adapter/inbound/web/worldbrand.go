@@ -32,7 +32,8 @@ type rawReader interface {
 // brandingFile is the yaml fence of branding.md. Unknown keys are ignored so
 // a newer world does not break an older library.
 type brandingFile struct {
-	Name string `yaml:"name"`
+	Name  string            `yaml:"name"`
+	Theme map[string]string `yaml:"theme,omitempty"`
 }
 
 // worldAsset is one unwrapped asset, ready to serve.
@@ -44,15 +45,19 @@ type worldAsset struct {
 // worldBrand is a world's resolved identity; the zero value means the world
 // declares none, which is cached too so absence stays cheap.
 type worldBrand struct {
-	name    string
-	css     *worldAsset
-	logo    *worldAsset
+	name   string
+	tokens map[string]string
+	rawCSS string      // the stylesheet as published, for the desk
+	sheet  *worldAsset // tokens + rawCSS, ready to serve; nil ⇒ none
+	logo   *worldAsset
+
 	fetched time.Time
 }
 
 // brandDesk is what the branding desk pre-fills from a world's documents.
 type brandDesk struct {
 	Name    string
+	Tokens  map[string]string
 	CSS     string
 	LogoURL string
 }
@@ -78,14 +83,14 @@ func NewWorldBrands(source rawReader) *WorldBrands {
 // when the world declares no branding of its own.
 func (w *WorldBrands) For(ctx context.Context, world string) (WorldBranding, bool) {
 	brand := w.get(ctx, world)
-	if brand.name == "" && brand.css == nil && brand.logo == nil {
+	if brand.name == "" && brand.sheet == nil && brand.logo == nil {
 		return WorldBranding{}, false
 	}
 	resolved := WorldBranding{Name: brand.name}
 	if brand.logo != nil {
 		resolved.LogoURL = themeWorldsPrefix + world + "/logo"
 	}
-	if brand.css != nil {
+	if brand.sheet != nil {
 		resolved.CSSURL = themeWorldsPrefix + world + "/site.css"
 	}
 	return resolved, true
@@ -100,8 +105,8 @@ func (w *WorldBrands) Asset(ctx context.Context, world, file string) (worldAsset
 			return *brand.logo, true
 		}
 	case "site.css":
-		if brand.css != nil {
-			return *brand.css, true
+		if brand.sheet != nil {
+			return *brand.sheet, true
 		}
 	}
 	return worldAsset{}, false
@@ -110,10 +115,7 @@ func (w *WorldBrands) Asset(ctx context.Context, world, file string) (worldAsset
 // Desk returns the world's stored branding as the desk's form fields.
 func (w *WorldBrands) Desk(ctx context.Context, world string) brandDesk {
 	brand := w.get(ctx, world)
-	desk := brandDesk{Name: brand.name}
-	if brand.css != nil {
-		desk.CSS = string(brand.css.blob)
-	}
+	desk := brandDesk{Name: brand.name, Tokens: brand.tokens, CSS: brand.rawCSS}
 	if brand.logo != nil {
 		desk.LogoURL = themeWorldsPrefix + world + "/logo"
 	}
@@ -159,12 +161,22 @@ func (w *WorldBrands) load(ctx context.Context, world string) worldBrand {
 		var declared brandingFile
 		if yaml.Unmarshal([]byte(f.Content), &declared) == nil {
 			brand.name = strings.TrimSpace(declared.Name)
+			brand.tokens = declared.Theme
 		}
 	}
 	if raw, err := w.source.Raw(ctx, world, WorldBrandCSS); err == nil {
 		if f, ok := firstFence(raw.Body); ok && f.Lang == "css" && len(f.Content) <= worldBrandMaxBytes {
-			brand.css = &worldAsset{ctype: themeCSSType, blob: []byte(f.Content)}
+			brand.rawCSS = f.Content
 		}
+	}
+	// Tokens first so the world's own CSS can still override them. Unsafe or
+	// unknown tokens drop the block, like any other unreadable branding.
+	sheet, err := tokensCSS(brand.tokens)
+	if err != nil {
+		sheet, brand.tokens = "", nil
+	}
+	if sheet+brand.rawCSS != "" {
+		brand.sheet = &worldAsset{ctype: themeCSSType, blob: []byte(sheet + brand.rawCSS)}
 	}
 	if raw, err := w.source.Raw(ctx, world, WorldBrandLogo); err == nil {
 		brand.logo = decodeLogo(raw.Body)

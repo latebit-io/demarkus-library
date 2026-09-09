@@ -23,6 +23,9 @@ import (
 const (
 	ThemeLogoPath     = "/theme/logo"
 	ThemeCSSPath      = "/theme/site.css"
+	ThemeTokensPath   = "/theme/tokens.css"
+	ThemeFaviconPath  = "/theme/favicon"
+	DefaultFaviconURL = "/static/favicon.svg"
 	themeWorldsPrefix = "/theme/worlds/"
 	themeCSSType      = "text/css; charset=utf-8"
 )
@@ -31,11 +34,13 @@ const (
 // Relative asset paths resolve against the manifest's own directory, so a
 // ConfigMap carries both. Unknown keys stop startup rather than pass silently.
 type ThemeManifest struct {
-	Name   string                `yaml:"name"`
-	Logo   string                `yaml:"logo"`
-	CSS    string                `yaml:"css"`
-	Terms  Terms                 `yaml:"terms"`
-	Worlds map[string]WorldTheme `yaml:"worlds"`
+	Name    string                `yaml:"name"`
+	Logo    string                `yaml:"logo"`
+	Favicon string                `yaml:"favicon"`
+	CSS     string                `yaml:"css"`
+	Theme   map[string]string     `yaml:"theme"`
+	Terms   Terms                 `yaml:"terms"`
+	Worlds  map[string]WorldTheme `yaml:"worlds"`
 
 	// Dir is the directory relative asset paths resolve against (the
 	// manifest's own); empty ⇒ paths are used as given.
@@ -46,9 +51,10 @@ type ThemeManifest struct {
 // the room-wide value (the world stylesheet loads after the room theme, so it
 // overrides rather than replaces).
 type WorldTheme struct {
-	Name string `yaml:"name"`
-	Logo string `yaml:"logo"`
-	CSS  string `yaml:"css"`
+	Name  string            `yaml:"name"`
+	Logo  string            `yaml:"logo"`
+	CSS   string            `yaml:"css"`
+	Theme map[string]string `yaml:"theme"`
 }
 
 // Terms is the room's display vocabulary. Universe names the whole-knowledge
@@ -108,6 +114,24 @@ func ThemeRoutes(e *echo.Echo, m ThemeManifest) (Branding, error) {
 	if b.LogoURL, err = serveAsset(e, ThemeLogoPath, m.resolve(m.Logo), ""); err != nil {
 		return b, fmt.Errorf("logo: %w", err)
 	}
+	if b.FaviconURL, err = serveAsset(e, ThemeFaviconPath, m.resolve(m.Favicon), ""); err != nil {
+		return b, fmt.Errorf("favicon: %w", err)
+	}
+	if b.FaviconURL == "" {
+		b.FaviconURL = DefaultFaviconURL
+	}
+	// Bare /favicon.ico is requested without a link, so answer it too.
+	e.GET("/favicon.ico", func(c *echo.Context) error {
+		return c.Redirect(http.StatusMovedPermanently, b.FaviconURL)
+	})
+	tokens, err := tokensCSS(m.Theme)
+	if err != nil {
+		return b, fmt.Errorf("theme: %w", err)
+	}
+	if tokens != "" {
+		e.GET(ThemeTokensPath, blobHandler(themeCSSType, []byte(tokens)))
+		b.TokensCSSURL = ThemeTokensPath
+	}
 	if b.ThemeCSSURL, err = serveAsset(e, ThemeCSSPath, m.resolve(m.CSS), themeCSSType); err != nil {
 		return b, fmt.Errorf("css: %w", err)
 	}
@@ -122,22 +146,30 @@ func ThemeRoutes(e *echo.Echo, m ThemeManifest) (Branding, error) {
 			return b, errors.New("worlds: empty world name")
 		}
 		wb := WorldBranding{Name: strings.TrimSpace(wt.Name)}
-		for _, a := range []struct {
-			file, path, ctype string
-			url               *string
-		}{
-			{"logo", m.resolve(wt.Logo), "", &wb.LogoURL},
-			{"site.css", m.resolve(wt.CSS), themeCSSType, &wb.CSSURL},
-		} {
-			if a.path == "" {
-				continue
-			}
-			blob, err := os.ReadFile(a.path)
+		if path := m.resolve(wt.Logo); path != "" {
+			blob, err := os.ReadFile(path)
 			if err != nil {
-				return b, fmt.Errorf("worlds.%s: %w", world, err)
+				return b, fmt.Errorf("worlds.%s.logo: %w", world, err)
 			}
-			assets[world+"/"+a.file] = blobHandler(assetType(a.ctype, a.path, blob), blob)
-			*a.url = themeWorldsPrefix + world + "/" + a.file
+			assets[world+"/logo"] = blobHandler(assetType("", path, blob), blob)
+			wb.LogoURL = themeWorldsPrefix + world + "/logo"
+		}
+		// A world's tokens and its stylesheet share one sheet: htmx keeps only
+		// the title of a boosted head, so the world theme is one body link.
+		sheet, err := tokensCSS(wt.Theme)
+		if err != nil {
+			return b, fmt.Errorf("worlds.%s.theme: %w", world, err)
+		}
+		if path := m.resolve(wt.CSS); path != "" {
+			blob, err := os.ReadFile(path)
+			if err != nil {
+				return b, fmt.Errorf("worlds.%s.css: %w", world, err)
+			}
+			sheet += string(blob)
+		}
+		if sheet != "" {
+			assets[world+"/site.css"] = blobHandler(themeCSSType, []byte(sheet))
+			wb.CSSURL = themeWorldsPrefix + world + "/site.css"
 		}
 		b.Worlds[world] = wb
 	}

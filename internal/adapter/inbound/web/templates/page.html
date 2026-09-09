@@ -20,6 +20,12 @@
        operator theme below overrides. Extracted from this template so
        hx-boost navigations cache it instead of re-downloading inline CSS. -->
   <link rel="stylesheet" href="/static/library.css">
+  <link rel="icon" href="{{ favicon }}">
+  {{- with tokensCSS }}
+  <!-- Operator design tokens (the manifest's theme block): the :root values
+       above, overridden without writing CSS. -->
+  <link rel="stylesheet" href="{{ . }}">
+  {{- end }}
   {{- with themeCSS }}
   <!-- Operator theme (DEMARKUS_THEME_CSS): loaded last so its rules win the
        cascade over the built-in styles at equal specificity. Overriding the

@@ -30,7 +30,7 @@ func brandedApp(t *testing.T, svc *fakeReading) *echo.Echo {
 	if err != nil {
 		t.Fatalf("NewView: %v", err)
 	}
-	branding, err := ThemeRoutes(app, ThemeManifest{Name: "Acme Knowledge", Logo: logo, CSS: css})
+	branding, err := ThemeRoutes(app, ThemeManifest{Name: "Acme Knowledge", Logo: logo, Favicon: logo, CSS: css})
 	if err != nil {
 		t.Fatalf("ThemeRoutes: %v", err)
 	}

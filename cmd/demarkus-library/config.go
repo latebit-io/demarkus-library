@@ -66,6 +66,7 @@ type AppConfig struct {
 	Branding     string // path to the branding manifest (empty ⇒ none)
 	Brand        string // display name (empty ⇒ manifest, else "demarkus Library")
 	Logo         string // path to a logo image file (empty ⇒ manifest, else none)
+	Favicon      string // path to a favicon image (empty ⇒ manifest, else the built-in mark)
 	ThemeCSS     string // path to an override stylesheet (empty ⇒ manifest, else none)
 	TermUniverse string // display term for the universe (empty ⇒ manifest, else "Universe")
 	StaticDir    string // directory whose files shadow the embedded /static/ assets (empty ⇒ none)
@@ -146,6 +147,7 @@ func NewAppConfig() (*AppConfig, error) {
 		Branding:     strings.TrimSpace(getEnv("DEMARKUS_BRANDING", "")),
 		Brand:        strings.TrimSpace(getEnv("DEMARKUS_BRAND", "")),
 		Logo:         strings.TrimSpace(getEnv("DEMARKUS_LOGO", "")),
+		Favicon:      strings.TrimSpace(getEnv("DEMARKUS_FAVICON", "")),
 		ThemeCSS:     strings.TrimSpace(getEnv("DEMARKUS_THEME_CSS", "")),
 		TermUniverse: strings.TrimSpace(getEnv("DEMARKUS_TERM_UNIVERSE", "")),
 		StaticDir:    strings.TrimSpace(getEnv("DEMARKUS_STATIC_DIR", "")),
@@ -174,6 +176,7 @@ func NewAppConfig() (*AppConfig, error) {
 	for _, kv := range []struct{ key, path string }{
 		{"DEMARKUS_BRANDING", cfg.Branding},
 		{"DEMARKUS_LOGO", cfg.Logo},
+		{"DEMARKUS_FAVICON", cfg.Favicon},
 		{"DEMARKUS_THEME_CSS", cfg.ThemeCSS},
 		{"DEMARKUS_STATIC_DIR", cfg.StaticDir},
 	} {

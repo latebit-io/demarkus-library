@@ -251,6 +251,9 @@ func themeManifest(config *AppConfig) web.ThemeManifest {
 	if config.Logo != "" {
 		m.Logo = absPath(config.Logo)
 	}
+	if config.Favicon != "" {
+		m.Favicon = absPath(config.Favicon)
+	}
 	if config.ThemeCSS != "" {
 		m.CSS = absPath(config.ThemeCSS)
 	}

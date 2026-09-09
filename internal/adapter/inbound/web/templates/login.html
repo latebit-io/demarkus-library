@@ -8,6 +8,10 @@
        shared registers, so the turnstile and the library feel like one place
        (and rebrand together under the same operator theme). -->
   <link rel="stylesheet" href="/static/library.css">
+  <link rel="icon" href="{{ favicon }}">
+  {{- with tokensCSS }}
+  <link rel="stylesheet" href="{{ . }}">
+  {{- end }}
   <style>
     /* Turnstile-only layout: a centered card over the graph backdrop. The
        reading room's body geometry (reading-column max-width, page padding)

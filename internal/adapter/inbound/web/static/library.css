@@ -646,3 +646,6 @@ body.canvas-page { padding-bottom: 4.5rem; }
 .branding-current { display: flex; align-items: center; gap: .6rem; margin: 0; font: .8rem var(--font-ui); }
 .branding-current img { max-height: 2.4rem; max-width: 10rem; }
 .branding-current label { flex-direction: row; align-items: center; gap: .3rem; }
+.branding-tokens .token-grid { display: grid; gap: .5rem .9rem;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); }
+.branding-tokens .token-grid input { font-family: var(--font-mono); font-size: .8rem; }

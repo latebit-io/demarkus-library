@@ -12,6 +12,7 @@ configuration.
 | `DEMARKUS_BRANDING` | Path to a branding manifest (YAML, below): everything in one file, including per-world overrides and the display vocabulary. |
 | `DEMARKUS_BRAND` | Display name in page titles, the nav wordmark, and the login card. Default `demarkus Library`. |
 | `DEMARKUS_LOGO` | Path to an image file (SVG/PNG/…), shown beside the brand name in the nav and above the login card. Served at `/theme/logo`. |
+| `DEMARKUS_FAVICON` | Path to the browser-tab icon. Served at `/theme/favicon`; without one the room ships its own mark. |
 | `DEMARKUS_THEME_CSS` | Path to a stylesheet, loaded **after** the built-in styles on every page. Served at `/theme/site.css`. |
 | `DEMARKUS_TERM_UNIVERSE` | Display word for the whole-knowledge scope (the floor, the overlay, the dock anchor). Default `Universe`. |
 | `DEMARKUS_STATIC_DIR` | Directory whose files shadow the embedded `/static/` assets by name. Drop in a whole `library.css` to replace the stock sheet; everything else still comes from the binary. |
@@ -33,7 +34,13 @@ the manifest's own directory, so the manifest and its assets travel together
 ```yaml
 name: ACME Brain            # DEMARKUS_BRAND
 logo: acme.svg              # DEMARKUS_LOGO
+favicon: acme.svg           # DEMARKUS_FAVICON
 css: site.css               # DEMARKUS_THEME_CSS
+
+# Design tokens: recolor the room without writing CSS (see below).
+theme:
+  paper: light-dark(#fbf7f0, #0e1116)
+  accent: "#0f766e"
 
 terms:
   universe: Knowledge       # DEMARKUS_TERM_UNIVERSE
@@ -47,7 +54,35 @@ worlds:
     css: soul.css
   latebit:
     name: Latebit Brain
+    theme:
+      accent: "#b45309"
 ```
+
+A ready-to-copy manifest, stylesheet, and logo live in
+[branding-example/](branding-example/); a test loads that directory on every
+run, so the example cannot drift from the code.
+
+## Design tokens: branding without CSS
+
+`theme:` sets the room's design tokens directly, so most rebrands need no
+stylesheet at all. The same block works per world. Settable tokens, which are
+the `:root` custom properties in `library.css`:
+
+| Group | Tokens |
+|---|---|
+| Surfaces | `paper`, `ink`, `muted`, `faint` |
+| Type | `font-prose`, `font-ui`, `font-mono` |
+| Signal | `ok`, `warn`, `danger`, `info`, `accent` |
+| Layout | `margin-w`, `gutter` |
+
+Use `light-dark(a, b)` for separate light and dark values; a plain value
+applies to both. Values are checked: an unknown token name, or a value that
+would close the rule, start another, or fetch something, is refused. In the
+manifest that stops startup; in a world's own document the token block is
+dropped and the rest of the branding still applies.
+
+The tokens load after the built-in styles and before any stylesheet, so
+`css:` can still override them.
 
 Per-world assets are served at `/theme/worlds/<world>/logo` and
 `/theme/worlds/<world>/site.css`. A world stylesheet loads after the room
@@ -68,7 +103,7 @@ minute) ahead of the manifest's `worlds` entry.
 
 | Document | Payload |
 |---|---|
-| `branding.md` | A `yaml` fenced block holding `name: …`. The anchor: without it the others are not read. |
+| `branding.md` | A `yaml` fenced block holding `name: …` and an optional `theme:` token block. The anchor: without it the others are not read. |
 | `site.css.md` | A `css` fenced block. Loads after the room theme while the world is open. |
 | `logo.md` | An `svg` fenced block, or a `base64` block whose info string names the content type (`base64 image/png`). PNG, JPEG, GIF, WebP, or SVG without scripts or event handlers; up to 256 KB. |
 
@@ -96,7 +131,8 @@ handlers, or external references, is ignored.
 
 Signed-in readers with write access to a world reach its desk from the world
 map ("branding", beside "new document") or at `/w/<world>/branding`: a name
-field, a logo upload or pasted SVG, and the stylesheet. Saving publishes the
+field, a logo upload or pasted SVG, the design tokens as plain form fields,
+and a stylesheet box for anything the tokens cannot express. Saving publishes the
 documents above with tags and a low importance; history and revert come
 with the world. Empty fields leave a document alone; the remove boxes clear
 one.
@@ -239,6 +275,7 @@ operator-managed ConfigMap so assets never live in values files.
        name: Acme Knowledge          # DEMARKUS_BRAND (optional beside a manifest; env wins)
        themeCSSKey: site.css         # DEMARKUS_THEME_CSS; "" skips
        logoKey: logo.svg             # DEMARKUS_LOGO; "" (default) skips
+       faviconKey: logo.svg          # DEMARKUS_FAVICON; "" (default) skips
        universeTerm: Knowledge       # DEMARKUS_TERM_UNIVERSE
    ```
 

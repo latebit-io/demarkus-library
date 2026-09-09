@@ -1,0 +1,10 @@
+/* Loaded after the built-in styles and after the manifest's design tokens,
+   so anything here wins. Reach for this only when a token cannot say it. */
+
+/* A wordmark that is set rather than defaulted. */
+nav a.brand { letter-spacing: .02em; font-weight: 600; }
+
+/* Wider margin for sidenotes on large screens. */
+@media (min-width: 1400px) {
+  :root { --margin-w: 320px; }
+}

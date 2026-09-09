@@ -77,6 +77,7 @@ library:
     manifestKey: ""
     themeCSSKey: site.css
     logoKey: ""
+    faviconKey: ""
 
   # The AI librarian (Phase 4): feature-dark unless an LLM provider key is
   # wired. keyEnv names the provider-selecting env var — nib's llmconfig

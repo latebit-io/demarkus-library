@@ -186,3 +186,50 @@ func TestBrandingDeskRejectsScriptedSVGUpload(t *testing.T) {
 		t.Errorf("scripted svg: status %d", rec.Code)
 	}
 }
+
+func TestBrandingDeskTokensRoundTrip(t *testing.T) {
+	svc := inWorldSvc("")
+	svc.draft = domain.EditDraft{Version: 4}
+	app, brands := deskApp(t, svc)
+
+	rec := get(app, "/w/soul.demarkus.io/branding")
+	for _, want := range []string{`name="token_paper"`, `name="token_accent"`, `placeholder="light-dark(#f7f3ea, #101418)"`} {
+		if !strings.Contains(rec.Body.String(), want) {
+			t.Errorf("desk missing %q", want)
+		}
+	}
+
+	rec = postForm(app, "/w/soul.demarkus.io/branding", url.Values{
+		"name": {"Soul"}, "token_paper": {"#fbf7f0"}, "token_accent": {"#0f766e"},
+	})
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("save: %d %q", rec.Code, rec.Body.String())
+	}
+	body := svc.gotBodies[WorldBrandDoc]
+	for _, want := range []string{"name: Soul", "theme:", "paper: '#fbf7f0'", "accent: '#0f766e'"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("anchor document missing %q: %q", want, body)
+		}
+	}
+	if desk := brands.Desk(t.Context(), "soul.demarkus.io"); desk.Tokens["accent"] != "#0f766e" {
+		t.Errorf("tokens did not survive the round trip: %+v", desk.Tokens)
+	}
+}
+
+func TestBrandingDeskRejectsUnsafeToken(t *testing.T) {
+	svc := &fakeReading{raws: map[string]domain.RawDocument{}, editErr: domain.ErrNotFound}
+	app, _ := deskApp(t, svc)
+	rec := postForm(app, "/w/soul.demarkus.io/branding", url.Values{
+		"name": {"Soul"}, "token_paper": {"#fff} body{display:none"},
+	})
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	if svc.gotBodies != nil {
+		t.Error("published despite a rejected token")
+	}
+	// The typed value comes back so the operator can fix it.
+	if !strings.Contains(rec.Body.String(), "display:none") {
+		t.Error("rejected token value was dropped from the form")
+	}
+}

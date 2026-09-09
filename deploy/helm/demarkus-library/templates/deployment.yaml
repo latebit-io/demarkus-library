@@ -139,6 +139,10 @@ spec:
             - name: DEMARKUS_LOGO
               value: {{ printf "/etc/demarkus-library/branding/%s" . | quote }}
             {{- end }}
+            {{- with trim .Values.library.branding.faviconKey }}
+            - name: DEMARKUS_FAVICON
+              value: {{ printf "/etc/demarkus-library/branding/%s" . | quote }}
+            {{- end }}
             {{- end }}
             {{- /* The AI librarian (Phase 4) enables when an LLM provider key
                    reaches the pod: nib's llmconfig auto-selects the builtin

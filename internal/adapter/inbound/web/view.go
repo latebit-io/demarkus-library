@@ -23,11 +23,13 @@ const csrfContextKey = "csrf"
 // assets, per-world overrides (resolved by For), and the display vocabulary.
 // Templates read it through funcs keyed by the view model's World.
 type Branding struct {
-	Name        string
-	LogoURL     string
-	ThemeCSSURL string
-	Terms       Terms
-	Worlds      map[string]WorldBranding
+	Name         string
+	LogoURL      string
+	FaviconURL   string
+	TokensCSSURL string
+	ThemeCSSURL  string
+	Terms        Terms
+	Worlds       map[string]WorldBranding
 
 	assets map[string]echo.HandlerFunc // manifest world assets, keyed <world>/<file> (WorldThemeRoutes)
 }
@@ -41,7 +43,9 @@ type WorldBranding struct {
 
 // DefaultBranding is the stock room: the demarkus wordmark, no logo, no
 // override stylesheet, stock vocabulary.
-func DefaultBranding() Branding { return Branding{Name: "demarkus Library", Terms: DefaultTerms()} }
+func DefaultBranding() Branding {
+	return Branding{Name: "demarkus Library", FaviconURL: DefaultFaviconURL, Terms: DefaultTerms()}
+}
 
 // For resolves what the chrome shows while a world is in focus: the world's
 // own name and logo when declared, else the room's; CSSURL is the world's
@@ -77,12 +81,14 @@ func NewView() (*View, error) {
 	// executed, which keeps that per-request override valid.
 	t, err := template.New("library").
 		Funcs(template.FuncMap{
-			"csrf":     func() string { return "" },
-			"brand":    func(string) string { return "" },
-			"logoURL":  func(string) string { return "" },
-			"worldCSS": func(string) string { return "" },
-			"themeCSS": func() string { return "" },
-			"universe": func() string { return "" },
+			"csrf":      func() string { return "" },
+			"brand":     func(string) string { return "" },
+			"logoURL":   func(string) string { return "" },
+			"worldCSS":  func(string) string { return "" },
+			"themeCSS":  func() string { return "" },
+			"tokensCSS": func() string { return "" },
+			"favicon":   func() string { return "" },
+			"universe":  func() string { return "" },
 		}).
 		ParseFS(templatesFS, "templates/*.html")
 	if err != nil {
@@ -98,6 +104,9 @@ func (v *View) WithBranding(b Branding) *View {
 	}
 	if b.Terms.Universe == "" {
 		b.Terms = DefaultTerms()
+	}
+	if b.FaviconURL == "" {
+		b.FaviconURL = DefaultFaviconURL
 	}
 	v.branding = b
 	return v
@@ -146,12 +155,14 @@ func (v *View) Render(c *echo.Context, w io.Writer, name string, data any) error
 		return r
 	}
 	cl.Funcs(template.FuncMap{
-		"csrf":     func() string { return token },
-		"brand":    func(world string) string { return resolve(world).Name },
-		"logoURL":  func(world string) string { return resolve(world).LogoURL },
-		"worldCSS": func(world string) string { return resolve(world).CSSURL },
-		"themeCSS": func() string { return b.ThemeCSSURL },
-		"universe": func() string { return b.Terms.Universe },
+		"csrf":      func() string { return token },
+		"brand":     func(world string) string { return resolve(world).Name },
+		"logoURL":   func(world string) string { return resolve(world).LogoURL },
+		"worldCSS":  func(world string) string { return resolve(world).CSSURL },
+		"themeCSS":  func() string { return b.ThemeCSSURL },
+		"tokensCSS": func() string { return b.TokensCSSURL },
+		"favicon":   func() string { return b.FaviconURL },
+		"universe":  func() string { return b.Terms.Universe },
 	})
 	return cl.ExecuteTemplate(w, name, data)
 }
