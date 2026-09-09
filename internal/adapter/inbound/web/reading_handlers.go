@@ -175,11 +175,19 @@ func (h *ReadingHandler) FloorPage(c *echo.Context) error {
 // (the canvas is server-rendered). raw/versions keep rendering standalone — they
 // are deliberate escapes to the unrendered projection, not navigation surfaces.
 func canvasTrailURL(c *echo.Context, addr paneAddr) string {
-	hdr := c.Request().Header
-	if hdr.Get("HX-Request") == "true" && hdr.Get("HX-Boosted") != "true" {
+	if wantsFragment(c.Request()) {
 		return ""
 	}
 	return trailURL(trail{Panes: []paneAddr{addr}, Focus: 0})
+}
+
+// wantsFragment reports whether an htmx request targets a fragment. Boosted
+// navigations swap the whole body, and so do htmx 4 history restores (back/
+// forward re-fetch the page with HX-History-Restore-Request instead of a DOM
+// snapshot): both want the full document; only targeted swaps get bare content.
+func wantsFragment(r *http.Request) bool {
+	h := r.Header
+	return h.Get("HX-Request") == "true" && h.Get("HX-Boosted") != "true" && h.Get("HX-History-Restore-Request") != "true"
 }
 
 // Doc renders a document, or a directory listing (the stacks) when the path
@@ -376,8 +384,7 @@ func tagLinks(world string, tags []string) []tagLink {
 // otherwise. A boosted navigation wants the whole document, so it gets the
 // full page; only non-boosted htmx requests get the bare fragment.
 func (h *ReadingHandler) templateFor(c *echo.Context) string {
-	r := c.Request()
-	if r.Header.Get("HX-Request") == "true" && r.Header.Get("HX-Boosted") != "true" {
+	if wantsFragment(c.Request()) {
 		return "content"
 	}
 	return "page"

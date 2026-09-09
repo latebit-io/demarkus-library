@@ -75,9 +75,9 @@ func askToken(t *testing.T, e *echo.Echo, question string) string {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("ask status = %d (body: %s)", rec.Code, rec.Body.String())
 	}
-	m := regexp.MustCompile(`sse-connect="([^"]+)"`).FindStringSubmatch(rec.Body.String())
+	m := regexp.MustCompile(`hx-sse:connect="([^"]+)"`).FindStringSubmatch(rec.Body.String())
 	if m == nil {
-		t.Fatalf("no sse-connect in fragment:\n%s", rec.Body.String())
+		t.Fatalf("no hx-sse:connect in fragment:\n%s", rec.Body.String())
 	}
 	return html.UnescapeString(m[1])
 }
@@ -103,15 +103,18 @@ func TestLibrarianStream_LibrarianPathMapsEvents(t *testing.T) {
 	e.ServeHTTP(rec, req)
 
 	body := rec.Body.String()
+	// Swapping frames are unnamed <hx-partial> events aimed at the exchange
+	// block's regions (htmx 4 swaps only unnamed SSE messages); answer and
+	// done stay named events.
 	for _, want := range []string{
-		"event: trace\ndata: open path=&#34;/ops/deploy.md&#34;",
-		"event: token\ndata: It lives ",
+		"data: <hx-partial hx-target=\"find .ask-trace\" hx-swap=\"beforeend\">open path=&#34;/ops/deploy.md&#34;</hx-partial>\n\n",
+		"data: <hx-partial hx-target=\"find .ask-stream\" hx-swap=\"beforeend\">It lives </hx-partial>\n\n",
 		// A newline inside one event becomes two data: lines of one frame.
-		"event: token\ndata: in ops.\ndata: See the runbook.",
+		"data: <hx-partial hx-target=\"find .ask-stream\" hx-swap=\"beforeend\">in ops.\ndata: See the runbook.</hx-partial>\n\n",
 		"event: answer\ndata: It lives in ops.\ndata: See the runbook.",
-		// The rendered event carries the answer through the document
+		// The rendered frame carries the answer through the document
 		// pipeline (the fake wraps in <p>) — unescaped HTML by design.
-		"event: rendered\ndata: <p>It lives in ops.",
+		"data: <hx-partial hx-target=\"find .ask-answer\" hx-swap=\"innerHTML\"><p>It lives in ops.",
 		"event: done",
 	} {
 		if !strings.Contains(body, want) {
@@ -173,7 +176,7 @@ func TestAskLibrarian_JunkIdxClamps(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("junk idx ask status = %d", rec.Code)
 	}
-	m := regexp.MustCompile(`sse-connect="([^"]+)"`).FindStringSubmatch(rec.Body.String())
+	m := regexp.MustCompile(`hx-sse:connect="([^"]+)"`).FindStringSubmatch(rec.Body.String())
 	if m == nil {
 		t.Fatal("no stream URL in fragment")
 	}
@@ -206,7 +209,7 @@ func TestLibrarianStream_ErrorPathIsGenericAndCloses(t *testing.T) {
 	if strings.Contains(body, "secret-internal-detail") {
 		t.Errorf("internal error text reached the wire:\n%s", body)
 	}
-	if !strings.Contains(body, "event: trace\ndata: ⚠") {
+	if !strings.Contains(body, "hx-swap=\"beforeend\">⚠") {
 		t.Errorf("missing generic error trace:\n%s", body)
 	}
 	if !strings.Contains(body, "event: done") {

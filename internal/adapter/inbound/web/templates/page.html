@@ -4,9 +4,10 @@
   <title>{{ .Title }} — {{ brand }}</title>
   <script src="/static/htmx.min.js"></script>
   <!-- The SSE extension (ADR 0003's earmarked streaming-librarian island):
-       declarative sse-connect/sse-swap attributes for the librarian pane's
-       live answers. Vendored + pinned like htmx itself. -->
-  <script src="/static/sse.min.js"></script>
+       declarative hx-sse:connect / hx-sse:close attributes for the librarian
+       pane's live answers; htmx 4 loads it by inclusion (no hx-ext).
+       Vendored + pinned like htmx itself. -->
+  <script src="/static/hx-sse.min.js"></script>
   <!-- Islands loader — every scripted concession in one file: mermaid +
        KaTeX (ADR 0003) and the trail canvas's scroll-focused-pane-into-view
        snippet (pre-agreed in ADR 0005's consequences as the trail engine's
@@ -49,12 +50,18 @@
     {{- end }}
 </nav>{{end}}
 
+{{/* The htmx attributes every <body> carries (page, canvas, edit). hx-boost:
+     in-app navigation swaps without a full reload; the server still renders
+     every page, so links work with JS off too. htmx 4 inherits nothing
+     implicitly, hence :inherited. hx-status: htmx 4 swaps 4xx/5xx bodies by
+     default; keep the htmx 2 rule (no swap, no URL push) until error pages
+     render as HTML fragments — Echo's default error body is JSON. */}}
+{{define "hx-body"}}hx-boost:inherited="true" hx-status:4xx:inherited="swap:none push:false" hx-status:5xx:inherited="swap:none push:false"{{end}}
+
 {{define "page"}}<!doctype html>
 <html lang="en">
 {{template "head" .}}
-<!-- hx-boost: in-app navigation swaps without a full reload; the server still
-     renders every page, so links work with JS off too. -->
-<body hx-boost="true">
+<body {{template "hx-body"}}>
   {{template "nav" .}}
   <main id="main">
     {{ template "content" . }}

@@ -1,7 +1,7 @@
 {{define "edit"}}<!doctype html>
 <html lang="en">
 {{template "head" .}}
-<body hx-boost="true" class="edit-page">
+<body {{template "hx-body"}} class="edit-page">
   {{template "nav" .}}
   <main id="main">
     <div class="edit-pane">
