@@ -12,7 +12,9 @@ reviews:
   # cycles → less rate-limit pressure (CodeRabbit fair-use is per-hour review +
   # files volume). Pair with on-demand triggering below.
   profile: chill
-  request_changes_workflow: false
+  # CodeRabbit approves once its comments are resolved — that approval is
+  # what satisfies main's required-review branch protection.
+  request_changes_workflow: true
   high_level_summary: true
   high_level_summary_placeholder: "@coderabbitai summary"
   auto_title_placeholder: "@coderabbitai"
@@ -154,11 +156,10 @@ reviews:
         already be sanitized server-side.
 
   auto_review:
-    # On-demand: CodeRabbit does NOT review on every push. Trigger one review
-    # per PR when it's ready by commenting `@coderabbitai review`. This caps
-    # review volume (the rate-limit driver) to one run per PR instead of one
-    # per push. `@coderabbitai full review` re-reviews everything if needed.
-    enabled: false
+    # Automatic: every non-draft PR gets reviewed on open and on push. Open
+    # PRs as drafts while iterating to hold the review until ready;
+    # `@coderabbitai full review` re-reviews everything if needed.
+    enabled: true
     drafts: false
     ignore_title_keywords:
       - "WIP"
