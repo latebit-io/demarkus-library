@@ -129,10 +129,20 @@ handlers, or external references, is ignored.
 
 ### The branding desk
 
-Signed-in readers with write access to a world reach its desk from the world
-map ("branding", beside "new document") or at `/w/<world>/branding`: a name
-field, a logo upload or pasted SVG, the design tokens as plain form fields,
-and a stylesheet box for anything the tokens cannot express. Saving publishes the
+Whoever the world already lets write may brand it. There is no separate admin
+role: the gate is a broker session whose bearer carries write scope, or a
+configured token in direct QUIC mode. Branding documents are ordinary
+documents, so the world's own write authorization is the right gate, and a
+second library-specific role would only be able to disagree with it.
+
+The desk is at `/w/<world>/branding`, linked from the world map beside "new
+document" wherever the write affordances show. It offers a name field, a logo
+upload or pasted SVG, the design tokens as plain form fields, and a stylesheet
+box for anything the tokens cannot express.
+
+In broker mode the link appears once you are signed in. In QUIC mode the write
+affordances stay hidden, as they do for editing, so reach the desk by URL; it
+works when the configured token grants writes. Saving publishes the
 documents above with tags and a low importance; history and revert come
 with the world. Empty fields leave a document alone; the remove boxes clear
 one.
