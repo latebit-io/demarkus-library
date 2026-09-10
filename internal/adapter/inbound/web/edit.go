@@ -181,7 +181,8 @@ func (h *EditHandler) CreateDoc(c *echo.Context) error {
 	// Create publishes at version 0 → on_conflict "fail" (a path-taken conflict
 	// is ErrConflict, never a merge candidate), so the candidate return is
 	// always nil here.
-	if _, _, err := h.editor.Publish(c.Request().Context(), world, path, body, meta, 0); err != nil {
+	create := domain.PublishRequest{World: world, Path: path, Body: body, Meta: meta}
+	if _, _, err := h.editor.Publish(c.Request().Context(), create); err != nil {
 		vm.Path = path
 		vm.Error = createErrorMessage(err)
 		return h.renderEdit(c, editErrorStatus(err), &vm)
@@ -329,7 +330,13 @@ func (h *EditHandler) SaveEdit(c *echo.Context) error {
 		Importance: strings.TrimSpace(c.FormValue("importance")),
 	}
 
-	_, merge, err := h.editor.Publish(c.Request().Context(), world, p, body, meta, version)
+	_, merge, err := h.editor.Publish(c.Request().Context(), domain.PublishRequest{
+		World:           world,
+		Path:            p,
+		Body:            body,
+		Meta:            meta,
+		ExpectedVersion: version,
+	})
 	if err == nil && merge == nil {
 		// Real POST (the form opts out of hx-boost), so a 303 is a normal
 		// browser redirect — back onto the carried trail, or the document.

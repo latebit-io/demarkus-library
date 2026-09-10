@@ -87,7 +87,7 @@ func TestVerbsAndArgs(t *testing.T) {
 		},
 			"mark_versions", "mark://soul/x.md"},
 		{"Lookup", func(g *Gateway, ctx context.Context) (domain.RawDocument, error) {
-			return g.Lookup(ctx, "soul", "/", "hex", "", 0)
+			return g.Lookup(ctx, domain.LookupRequest{World: "soul", Scope: "/", Query: "hex"})
 		},
 			"mark_lookup", "mark://soul/"},
 	}
@@ -111,7 +111,7 @@ func TestVerbsAndArgs(t *testing.T) {
 	// entirely so the broker applies its own default.
 	fc := &fakeCaller{text: "status: ok\n\nbody"}
 	g := &Gateway{caller: fc}
-	if _, err := g.Lookup(authedCtx(t), "soul", "/", "hexagonal", "", 0); err != nil {
+	if _, err := g.Lookup(authedCtx(t), domain.LookupRequest{World: "soul", Scope: "/", Query: "hexagonal"}); err != nil {
 		t.Fatalf("Lookup: %v", err)
 	}
 	if got := fc.gotArgs["query"]; got != "hexagonal" {
@@ -128,7 +128,7 @@ func TestVerbsAndArgs(t *testing.T) {
 	// the match-all index/map callers cap the catalog explicitly).
 	fc = &fakeCaller{text: "status: ok\n\nbody"}
 	g = &Gateway{caller: fc}
-	if _, err := g.Lookup(authedCtx(t), "soul", "/", "adr", "tag=adr", 500); err != nil {
+	if _, err := g.Lookup(authedCtx(t), domain.LookupRequest{World: "soul", Scope: "/", Query: "adr", Filter: "tag=adr", Limit: 500}); err != nil {
 		t.Fatalf("Lookup with filter: %v", err)
 	}
 	if got := fc.gotArgs["filter"]; got != "tag=adr" {
@@ -495,8 +495,13 @@ func TestPublishBuildsArgsAndParsesVersion(t *testing.T) {
 	fc := &fakeCaller{text: "status: ok\nversion: 8\n"}
 	g := &Gateway{caller: fc}
 
-	res, err := g.Publish(authedCtx(t), "root", "/adr/7.md", "# body",
-		domain.PublishMeta{Title: "ADR 7", Tags: []string{"adr", "status:accepted"}, Importance: "0.9"}, 7)
+	res, err := g.Publish(authedCtx(t), domain.PublishRequest{
+		World:           "root",
+		Path:            "/adr/7.md",
+		Body:            "# body",
+		Meta:            domain.PublishMeta{Title: "ADR 7", Tags: []string{"adr", "status:accepted"}, Importance: "0.9"},
+		ExpectedVersion: 7,
+	})
 	if err != nil {
 		t.Fatalf("Publish: %v", err)
 	}
@@ -532,7 +537,7 @@ func TestPublishParsesMergeCandidate(t *testing.T) {
 	fc := &fakeCaller{text: "status: merge-candidate\nyour-version: 7\ncurrent-version: 9\npublish-at-version: 9\nhas-markers: true\n\n" + mergedBody}
 	g := &Gateway{caller: fc}
 
-	res, err := g.Publish(authedCtx(t), "root", "/x.md", "mine", domain.PublishMeta{}, 7)
+	res, err := g.Publish(authedCtx(t), domain.PublishRequest{World: "root", Path: "/x.md", Body: "mine", ExpectedVersion: 7})
 	if err != nil {
 		t.Fatalf("Publish: %v", err)
 	}
@@ -549,7 +554,7 @@ func TestPublishMergeCandidateNeedsValidVersion(t *testing.T) {
 	// candidate with version 0 (which would resolve at the create sentinel).
 	fc := &fakeCaller{text: "status: merge-candidate\nhas-markers: false\n\nmerged body"}
 	g := &Gateway{caller: fc}
-	res, err := g.Publish(authedCtx(t), "root", "/x.md", "mine", domain.PublishMeta{}, 7)
+	res, err := g.Publish(authedCtx(t), domain.PublishRequest{World: "root", Path: "/x.md", Body: "mine", ExpectedVersion: 7})
 	if err != nil {
 		t.Fatalf("Publish: %v", err)
 	}
@@ -563,7 +568,7 @@ func TestPublishCreateUsesFailNotMerge(t *testing.T) {
 	// error, not a merge target, so on_conflict is "fail".
 	fc := &fakeCaller{text: "status: ok\nversion: 1\n"}
 	g := &Gateway{caller: fc}
-	if _, err := g.Publish(authedCtx(t), "root", "/new.md", "b", domain.PublishMeta{}, 0); err != nil {
+	if _, err := g.Publish(authedCtx(t), domain.PublishRequest{World: "root", Path: "/new.md", Body: "b"}); err != nil {
 		t.Fatalf("Publish: %v", err)
 	}
 	if fc.gotArgs["on_conflict"] != "fail" {
@@ -574,14 +579,14 @@ func TestPublishCreateUsesFailNotMerge(t *testing.T) {
 func TestPublishMapsConflict(t *testing.T) {
 	fc := &fakeCaller{text: "expected version 5 but current is 6", isToolErr: true}
 	g := &Gateway{caller: fc}
-	if _, err := g.Publish(authedCtx(t), "root", "/x.md", "b", domain.PublishMeta{}, 5); !errors.Is(err, domain.ErrConflict) {
+	if _, err := g.Publish(authedCtx(t), domain.PublishRequest{World: "root", Path: "/x.md", Body: "b", ExpectedVersion: 5}); !errors.Is(err, domain.ErrConflict) {
 		t.Errorf("err = %v, want ErrConflict", err)
 	}
 }
 
 func TestPublishNoBearerIsUnauthorized(t *testing.T) {
 	g := &Gateway{caller: &fakeCaller{}}
-	if _, err := g.Publish(t.Context(), "root", "/x.md", "b", domain.PublishMeta{}, 0); !errors.Is(err, domain.ErrUnauthorized) {
+	if _, err := g.Publish(t.Context(), domain.PublishRequest{World: "root", Path: "/x.md", Body: "b"}); !errors.Is(err, domain.ErrUnauthorized) {
 		t.Errorf("err = %v, want ErrUnauthorized", err)
 	}
 }

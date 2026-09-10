@@ -17,7 +17,7 @@ type fakeClient struct {
 func (f fakeClient) Fetch(string, string, string) (fetch.Result, error)    { return f.res, f.err }
 func (f fakeClient) List(string, string, string) (fetch.Result, error)     { return f.res, f.err }
 func (f fakeClient) Versions(string, string, string) (fetch.Result, error) { return f.res, f.err }
-func (f fakeClient) Lookup(_, _, _, _ string, _ fetch.LookupOptions) (fetch.Result, error) {
+func (f fakeClient) Lookup(lookupCall) (fetch.Result, error) {
 	return f.res, f.err
 }
 

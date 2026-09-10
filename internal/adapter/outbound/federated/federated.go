@@ -77,12 +77,12 @@ func (g *Gateway) Versions(ctx context.Context, w, path string) (domain.RawDocum
 }
 
 // Lookup routes to the world's transport.
-func (g *Gateway) Lookup(ctx context.Context, w, scope, query, filter string, limit int) (domain.RawDocument, error) {
-	gw, err := g.route(w)
+func (g *Gateway) Lookup(ctx context.Context, req domain.LookupRequest) (domain.RawDocument, error) {
+	gw, err := g.route(req.World)
 	if err != nil {
 		return domain.RawDocument{}, err
 	}
-	return gw.Lookup(ctx, w, scope, query, filter, limit)
+	return gw.Lookup(ctx, req)
 }
 
 // LookupAll uses the broker universe when available, otherwise the direct
@@ -100,12 +100,12 @@ func (g *Gateway) LookupAll(ctx context.Context, scope, query, filter string, li
 // Publish routes the write to the world's transport (Phase 3): knowledge-system
 // names go to the broker (mark_publish), bare hosts to the QUIC side (which
 // degrades to ErrWriteUnsupported — read-only).
-func (g *Gateway) Publish(ctx context.Context, w, path, body string, meta domain.PublishMeta, expectedVersion int) (domain.PublishResult, error) {
-	gw, err := g.route(w)
+func (g *Gateway) Publish(ctx context.Context, req domain.PublishRequest) (domain.PublishResult, error) {
+	gw, err := g.route(req.World)
 	if err != nil {
 		return domain.PublishResult{}, err
 	}
-	return gw.Publish(ctx, w, path, body, meta, expectedVersion)
+	return gw.Publish(ctx, req)
 }
 
 // Append routes the "add to" write to the world's transport (Phase 3).

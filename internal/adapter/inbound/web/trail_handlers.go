@@ -194,7 +194,9 @@ func (h *ReadingHandler) Trail(c *echo.Context) error {
 			if i == t.Meta {
 				metaDoc, metaAddr, haveMetaDoc = doc, addr, true
 			}
-			vm.Panes[i] = h.paneView(ctx, t, i, addr, doc, authed, overlayNone)
+			vm.Panes[i] = h.paneView(ctx, &paneRequest{
+				trail: t, index: i, addr: addr, doc: doc, authed: authed, overlay: overlayNone,
+			})
 		}
 	}
 
@@ -228,7 +230,9 @@ func (h *ReadingHandler) Trail(c *echo.Context) error {
 	// overlay (reader=true); ✕/backdrop/Esc close to trailURL(t), which keeps
 	// the original focus.
 	if t.Reader >= 0 && haveReaderDoc {
-		rp := h.paneView(ctx, t, t.Reader, readerAddr, readerDoc, authed, overlayReader)
+		rp := h.paneView(ctx, &paneRequest{
+			trail: t, index: t.Reader, addr: readerAddr, doc: readerDoc, authed: authed, overlay: overlayReader,
+		})
 		vm.Reader = &rp
 		vm.CloseURL = trailURL(t)
 	}
@@ -237,7 +241,9 @@ func (h *ReadingHandler) Trail(c *echo.Context) error {
 	// card, reusing its already-fetched document like the reader does — no
 	// extra world read, no re-recorded edges.
 	if t.Meta >= 0 && haveMetaDoc {
-		mp := h.paneView(ctx, t, t.Meta, metaAddr, metaDoc, authed, overlayMeta)
+		mp := h.paneView(ctx, &paneRequest{
+			trail: t, index: t.Meta, addr: metaAddr, doc: metaDoc, authed: authed, overlay: overlayMeta,
+		})
 		if mp.HasMargin {
 			mp.MetaOpen = true // the fold arrives expanded — this overlay IS the ask
 			vm.MetaPane = &mp
@@ -270,10 +276,25 @@ func isEdgeSource(overlay string, addr paneAddr, path string) bool {
 		!domain.IsListingPath(addr.Value) && !domain.IsVersionPath(path)
 }
 
+// paneRequest is one pane's render input: where it sits on the trail, what it
+// addresses, the document to draw, and the mode it renders in (overlayNone for
+// an ordinary canvas pane). Passed by pointer — the embedded Document makes it
+// heavy, and paneView only reads it.
+type paneRequest struct {
+	trail   trail
+	index   int
+	addr    paneAddr
+	doc     domain.Document
+	authed  bool
+	overlay string
+}
+
 // paneView builds one pane's view model: mode by distance from focus (decision
 // 3), hrefs carrying their post-click state, margin only where attention is. A
 // lens pane keeps the full margin but records no edges — the canvas build did.
-func (h *ReadingHandler) paneView(ctx context.Context, t trail, i int, addr paneAddr, doc domain.Document, authed bool, overlay string) paneVM {
+func (h *ReadingHandler) paneView(ctx context.Context, req *paneRequest) paneVM {
+	t, i, addr, doc := req.trail, req.index, req.addr, req.doc
+	overlay := req.overlay
 	focused := i == t.Focus
 	reader := overlay == overlayReader
 
@@ -361,7 +382,7 @@ func (h *ReadingHandler) paneView(ctx context.Context, t trail, i int, addr pane
 		// mode, not a trail chunk); only behind the turnstile. The affordances
 		// carry the trail as return context so save/cancel land back here
 		// instead of stranding the reader on the standalone document page.
-		if authed {
+		if req.authed {
 			ret := editReturnQuery(t, i)
 			vm.EditURL = "/w/" + url.PathEscape(addr.World) + "/edit" + addr.Value + "?" + ret
 			vm.NewURL = "/w/" + url.PathEscape(addr.World) + "/new?dir=" + url.QueryEscape(dirOf(addr.Value)) + "&" + ret

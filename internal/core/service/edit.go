@@ -50,21 +50,21 @@ func (s *ReadingService) Preview(markdown string) (domain.Rendered, error) {
 
 // Publish writes the document. On a clean write it re-reads live (refreshing
 // the cache, focused-live) and returns the Document with a nil candidate.
-// expectedVersion guards the write; a stale non-zero version yields a
+// req.ExpectedVersion guards the write; a stale non-zero version yields a
 // *domain.MergeCandidate (nothing written) for the desk to review and
 // re-publish at its PublishAtVersion. A create (version 0) hitting an existing
 // path is domain.ErrConflict, not a candidate (the gateway picks on_conflict by
 // the version).
-func (s *ReadingService) Publish(ctx context.Context, world, path, body string, meta domain.PublishMeta, expectedVersion int) (domain.Document, *domain.MergeCandidate, error) {
-	res, err := s.world.Publish(ctx, world, path, body, meta, expectedVersion)
+func (s *ReadingService) Publish(ctx context.Context, req domain.PublishRequest) (domain.Document, *domain.MergeCandidate, error) {
+	res, err := s.world.Publish(ctx, req)
 	if err != nil {
 		return domain.Document{}, nil, err
 	}
 	if res.Merge != nil {
 		return domain.Document{}, res.Merge, nil
 	}
-	s.invalidateTopology(world)
-	doc, err := s.Read(ctx, world, path)
+	s.invalidateTopology(req.World)
+	doc, err := s.Read(ctx, req.World, req.Path)
 	return doc, nil, err
 }
 

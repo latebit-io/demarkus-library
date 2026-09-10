@@ -198,12 +198,13 @@ func (f *fakeReading) Preview(markdown string) (domain.Rendered, error) {
 	return domain.Rendered{Title: title, HTML: "<p>" + markdown + "</p>"}, nil
 }
 
-func (f *fakeReading) Publish(_ context.Context, _, path, body string, meta domain.PublishMeta, expectedVersion int) (domain.Document, *domain.MergeCandidate, error) {
+func (f *fakeReading) Publish(_ context.Context, req domain.PublishRequest) (domain.Document, *domain.MergeCandidate, error) {
+	path, body := req.Path, req.Body
 	f.called = "Publish"
 	f.calls = append(f.calls, "Publish "+path)
 	f.gotBody = body
-	f.gotMeta = meta
-	f.gotVersion = expectedVersion
+	f.gotMeta = req.Meta
+	f.gotVersion = req.ExpectedVersion
 	if e := f.publishErrFor[path]; e != nil {
 		return domain.Document{}, nil, e
 	}

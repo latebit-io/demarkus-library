@@ -113,13 +113,13 @@ type Editor interface {
 	// live preview — the same renderer the reader uses, so what you see is what
 	// publishes. No fetch, no write.
 	Preview(markdown string) (domain.Rendered, error)
-	// Publish writes the document at (world, path). On a clean write it re-reads
+	// Publish writes the document at req's address. On a clean write it re-reads
 	// live (focused-live: refreshes the cache) and returns the display-ready
-	// Document with a nil candidate. expectedVersion guards the write: 0 creates
-	// (a path-taken conflict is domain.ErrConflict); a non-zero stale version
-	// returns a *domain.MergeCandidate (nothing committed) for the desk to review
-	// and re-publish at its PublishAtVersion.
-	Publish(ctx context.Context, world, path, body string, meta domain.PublishMeta, expectedVersion int) (domain.Document, *domain.MergeCandidate, error)
+	// Document with a nil candidate. req.ExpectedVersion guards the write: 0
+	// creates (a path-taken conflict is domain.ErrConflict); a non-zero stale
+	// version returns a *domain.MergeCandidate (nothing committed) for the desk
+	// to review and re-publish at its PublishAtVersion.
+	Publish(ctx context.Context, req domain.PublishRequest) (domain.Document, *domain.MergeCandidate, error)
 	// Append adds body to the end of the document at (world, path) and returns
 	// the re-read result (focused-live). The lightweight "add to" — metadata is
 	// preserved, the version auto-resolves.
@@ -146,15 +146,12 @@ type WorldGateway interface {
 	Fetch(ctx context.Context, world, path string) (domain.RawDocument, error)
 	List(ctx context.Context, world, path string) (domain.RawDocument, error)
 	Versions(ctx context.Context, world, path string) (domain.RawDocument, error)
-	// Lookup queries the catalog for query under scope. filter is the
-	// catalog's comma-separated key=value predicate string ("" for none) —
-	// tag pages use tag=<tag>. The query "*" is the match-all form (whole
-	// catalog under scope, importance order) on servers ≥ the match-all
-	// release; older servers reject it. limit caps the rows returned; <= 0
-	// lets the server apply its default (10) — the match-all callers (floor,
-	// world map, palette index) pass an explicit cap so the catalog isn't
-	// silently truncated to that default.
-	Lookup(ctx context.Context, world, scope, query, filter string, limit int) (domain.RawDocument, error)
+	// Lookup queries one world's catalog. The match-all query "*" (whole
+	// catalog under scope, importance order) works on servers ≥ the match-all
+	// release; older servers reject it. The match-all callers (floor, world
+	// map, palette index) pass an explicit Limit so the catalog isn't silently
+	// truncated to the server default.
+	Lookup(ctx context.Context, req domain.LookupRequest) (domain.RawDocument, error)
 	// LookupAll queries every readable world under the same server-relative
 	// scope. Result paths are qualified mark:// URLs in broker mode.
 	LookupAll(ctx context.Context, scope, query, filter string, limit int) (domain.RawDocument, error)
@@ -164,16 +161,16 @@ type WorldGateway interface {
 	// empty or single-element answer is correct there, not degraded.
 	Worlds(ctx context.Context) ([]domain.WorldInfo, error)
 
-	// Publish writes (creates or updates) the document at (world, path) — the
+	// Publish writes (creates or updates) the document at req's address — the
 	// cataloging desk's write path (Phase 3), over mark_publish in broker mode.
-	// body is pure markdown; meta is the out-of-band metadata (never a body
-	// fence). expectedVersion guards the write (0 to create). The result is
-	// either a committed Version or a Merge candidate: a create (version 0) that
-	// hits an existing path is domain.ErrConflict, while a stale non-zero version
-	// returns a PublishResult with Merge set (the broker three-way-merged rather
-	// than failing). Gateways with no write path (direct QUIC, no write token)
-	// return domain.ErrWriteUnsupported.
-	Publish(ctx context.Context, world, path, body string, meta domain.PublishMeta, expectedVersion int) (domain.PublishResult, error)
+	// req.Body is pure markdown; req.Meta is the out-of-band metadata (never a
+	// body fence). req.ExpectedVersion guards the write (0 to create). The
+	// result is either a committed Version or a Merge candidate: a create
+	// (version 0) that hits an existing path is domain.ErrConflict, while a
+	// stale non-zero version returns a PublishResult with Merge set (the broker
+	// three-way-merged rather than failing). Gateways with no write path (direct
+	// QUIC, no write token) return domain.ErrWriteUnsupported.
+	Publish(ctx context.Context, req domain.PublishRequest) (domain.PublishResult, error)
 
 	// Append concatenates body onto the end of the document at (world, path) —
 	// the cataloging desk's lightweight "add to" (Phase 3), over mark_append.

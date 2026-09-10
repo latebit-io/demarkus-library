@@ -76,6 +76,30 @@ type PublishMeta struct {
 	Importance string
 }
 
+// PublishRequest is one write: the address it lands at, the markdown body, the
+// out-of-band metadata, and the version the write expects to replace.
+// ExpectedVersion 0 creates (a path-taken conflict is ErrConflict); a stale
+// non-zero version yields a MergeCandidate instead of committing.
+type PublishRequest struct {
+	World           string
+	Path            string
+	Body            string
+	Meta            PublishMeta
+	ExpectedVersion int
+}
+
+// LookupRequest is one catalog query. Query "*" is the match-all form; Filter
+// is the catalog's comma-separated key=value predicate ("" for none) and tag
+// pages pass tag=<tag>. Limit <= 0 lets the server apply its default (10), so
+// match-all callers pass an explicit cap.
+type LookupRequest struct {
+	World  string
+	Scope  string
+	Query  string
+	Filter string
+	Limit  int
+}
+
 // EditDraft is the source view the cataloging desk edits: a document's raw
 // markdown body plus its current out-of-band metadata and version, fetched to
 // pre-fill the edit form. Version guards the write (expected_version); Status is

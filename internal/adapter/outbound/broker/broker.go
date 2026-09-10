@@ -95,17 +95,32 @@ func (g *Gateway) Close() {
 // `status: unchanged` with no body, which parseToolResult rejects as
 // unreachable.
 func (g *Gateway) Fetch(ctx context.Context, world, path string) (domain.RawDocument, error) {
-	return g.read(ctx, "mark_fetch", world, path, map[string]any{"url": markURL(world, path), "force": true})
+	return g.read(ctx, toolRead{
+		Tool:  "mark_fetch",
+		World: world,
+		Path:  path,
+		Args:  map[string]any{"url": markURL(world, path), "force": true},
+	})
 }
 
 // List reads a directory listing (the stacks) through mark_list.
 func (g *Gateway) List(ctx context.Context, world, path string) (domain.RawDocument, error) {
-	return g.read(ctx, "mark_list", world, path, map[string]any{"url": markURL(world, path)})
+	return g.read(ctx, toolRead{
+		Tool:  "mark_list",
+		World: world,
+		Path:  path,
+		Args:  map[string]any{"url": markURL(world, path)},
+	})
 }
 
 // Versions reads the edition history through mark_versions.
 func (g *Gateway) Versions(ctx context.Context, world, path string) (domain.RawDocument, error) {
-	return g.read(ctx, "mark_versions", world, path, map[string]any{"url": markURL(world, path)})
+	return g.read(ctx, toolRead{
+		Tool:  "mark_versions",
+		World: world,
+		Path:  path,
+		Args:  map[string]any{"url": markURL(world, path)},
+	})
 }
 
 // Worlds enumerates the knowledge system's worlds through mark_worlds —
@@ -163,20 +178,20 @@ func parseWorldsTable(text string) []domain.WorldInfo {
 	return out
 }
 
-// Lookup queries the catalog under scope through mark_lookup. A non-empty
+// Lookup queries the catalog under req.Scope through mark_lookup. A non-empty
 // filter rides along as the tool's comma-separated key=value predicate.
-func (g *Gateway) Lookup(ctx context.Context, world, scope, query, filter string, limit int) (domain.RawDocument, error) {
+func (g *Gateway) Lookup(ctx context.Context, req domain.LookupRequest) (domain.RawDocument, error) {
 	args := map[string]any{
-		"url":   markURL(world, scope),
-		"query": query,
+		"url":   markURL(req.World, req.Scope),
+		"query": req.Query,
 	}
-	if filter != "" {
-		args["filter"] = filter
+	if req.Filter != "" {
+		args["filter"] = req.Filter
 	}
-	if limit > 0 {
-		args["limit"] = limit
+	if req.Limit > 0 {
+		args["limit"] = req.Limit
 	}
-	return g.read(ctx, "mark_lookup", world, scope, args)
+	return g.read(ctx, toolRead{Tool: "mark_lookup", World: req.World, Path: req.Scope, Args: args})
 }
 
 // LookupAll queries the same scope across every world readable by the bearer.
@@ -191,7 +206,12 @@ func (g *Gateway) LookupAll(ctx context.Context, scope, query, filter string, li
 	if limit > 0 {
 		args["limit"] = limit
 	}
-	return g.read(ctx, "mark_lookup_all", "", scope, args, "partial")
+	return g.read(ctx, toolRead{
+		Tool:               "mark_lookup_all",
+		Path:               scope,
+		Args:               args,
+		AdditionalStatuses: []string{"partial"},
+	})
 }
 
 // Publish writes a document through mark_publish — the cataloging desk's write
@@ -199,33 +219,33 @@ func (g *Gateway) LookupAll(ctx context.Context, scope, query, filter string, li
 // fence; ADR 0005 decision 11). on_conflict is "fail" so an expected_version
 // mismatch returns a strict conflict the desk surfaces as a reload prompt
 // (the structural-merge flow is a later slice). Returns the new version.
-func (g *Gateway) Publish(ctx context.Context, world, path, body string, meta domain.PublishMeta, expectedVersion int) (domain.PublishResult, error) {
+func (g *Gateway) Publish(ctx context.Context, req domain.PublishRequest) (domain.PublishResult, error) {
 	token := bearer.FromContext(ctx)
 	if token == "" {
 		return domain.PublishResult{}, domain.ErrUnauthorized
 	}
 	metadata := map[string]any{}
-	if meta.Title != "" {
-		metadata["title"] = meta.Title
+	if req.Meta.Title != "" {
+		metadata["title"] = req.Meta.Title
 	}
-	if len(meta.Tags) > 0 {
-		metadata["tags"] = strings.Join(meta.Tags, ",")
+	if len(req.Meta.Tags) > 0 {
+		metadata["tags"] = strings.Join(req.Meta.Tags, ",")
 	}
-	if meta.Importance != "" {
-		metadata["importance"] = meta.Importance
+	if req.Meta.Importance != "" {
+		metadata["importance"] = req.Meta.Importance
 	}
 	// on_conflict by intent: a create (version 0) wants a path-taken conflict to
 	// be a hard error ("already exists"), so "fail"; an edit (non-zero version)
 	// wants the broker to three-way-merge a stale write into a candidate the
 	// desk can review, so "merge".
 	onConflict := "merge"
-	if expectedVersion == 0 {
+	if req.ExpectedVersion == 0 {
 		onConflict = "fail"
 	}
 	args := map[string]any{
-		"url":              markURL(world, path),
-		"body":             body,
-		"expected_version": expectedVersion,
+		"url":              markURL(req.World, req.Path),
+		"body":             req.Body,
+		"expected_version": req.ExpectedVersion,
 		"on_conflict":      onConflict,
 	}
 	if len(metadata) > 0 {
@@ -345,8 +365,19 @@ func parsePublishedVersion(text string) int {
 	return 0
 }
 
+// toolRead is one mark_* read: the tool to call, the (world, path) the result
+// is attributed to, the tool arguments, and any non-ok statuses the caller
+// accepts (mark_lookup_all's "partial").
+type toolRead struct {
+	Tool               string
+	World              string
+	Path               string
+	Args               map[string]any
+	AdditionalStatuses []string
+}
+
 // read runs one tool call and maps the outcome into the domain.
-func (g *Gateway) read(ctx context.Context, tool, world, path string, args map[string]any, additionalStatuses ...string) (domain.RawDocument, error) {
+func (g *Gateway) read(ctx context.Context, call toolRead) (domain.RawDocument, error) {
 	token := bearer.FromContext(ctx)
 	if token == "" {
 		// No identity on the request: in broker mode every read sits
@@ -355,7 +386,7 @@ func (g *Gateway) read(ctx context.Context, tool, world, path string, args map[s
 		return domain.RawDocument{}, domain.ErrUnauthorized
 	}
 
-	text, isToolError, err := g.caller.callTool(ctx, token, tool, args)
+	text, isToolError, err := g.caller.callTool(ctx, token, call.Tool, call.Args)
 	if err != nil {
 		if errors.Is(err, transport.ErrUnauthorized) {
 			// The broker's gatewayAuth refused the bearer (expired or
@@ -364,12 +395,12 @@ func (g *Gateway) read(ctx context.Context, tool, world, path string, args map[s
 			// error so the web layer re-runs login.
 			return domain.RawDocument{}, domain.ErrUnauthorized
 		}
-		return domain.RawDocument{}, fmt.Errorf("broker: %s: %w", tool, err)
+		return domain.RawDocument{}, fmt.Errorf("broker: %s: %w", call.Tool, err)
 	}
 	if isToolError {
 		return domain.RawDocument{}, mapToolError(text)
 	}
-	return parseToolResult(world, path, text, additionalStatuses...)
+	return parseToolResult(call.World, call.Path, text, call.AdditionalStatuses...)
 }
 
 // markURL builds the mark://<world><path> tool argument. path always starts

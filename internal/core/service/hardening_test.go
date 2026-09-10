@@ -86,7 +86,7 @@ func TestWriteInvalidatesTopology(t *testing.T) {
 	t.Run("publish", func(t *testing.T) {
 		s := NewReadingService(fakeGateway{raw: raw, publishVersion: 2}, fakeRenderer{html: "x"}, nil)
 		prime(s)
-		if _, merge, err := s.Publish(t.Context(), "w", "/p.md", "x", domain.PublishMeta{}, 1); err != nil || merge != nil {
+		if _, merge, err := s.Publish(t.Context(), domain.PublishRequest{World: "w", Path: "/p.md", Body: "x", ExpectedVersion: 1}); err != nil || merge != nil {
 			t.Fatalf("Publish: merge=%v err=%v", merge, err)
 		}
 		cachesCleared(t, s)
@@ -105,7 +105,7 @@ func TestWriteInvalidatesTopology(t *testing.T) {
 		gw := fakeGateway{raw: raw, publishMerge: &domain.MergeCandidate{Body: "merged", PublishAtVersion: 5}}
 		s := NewReadingService(gw, fakeRenderer{html: "x"}, nil)
 		prime(s)
-		_, merge, err := s.Publish(t.Context(), "w", "/p.md", "x", domain.PublishMeta{}, 1)
+		_, merge, err := s.Publish(t.Context(), domain.PublishRequest{World: "w", Path: "/p.md", Body: "x", ExpectedVersion: 1})
 		if err != nil || merge == nil {
 			t.Fatalf("expected a merge candidate: merge=%v err=%v", merge, err)
 		}

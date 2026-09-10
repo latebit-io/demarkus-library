@@ -56,7 +56,13 @@ func TestPublishWritesThenRereadsLive(t *testing.T) {
 		raw:    domain.RawDocument{Path: "/x.md", Body: "# X", Metadata: map[string]string{"version": "3"}},
 	}
 	doc, merge, err := NewReadingService(gw, fakeRenderer{html: "<h1>X</h1>"}, nil).
-		Publish(t.Context(), "root", "/x.md", "# X", domain.PublishMeta{Tags: []string{"a"}}, 2)
+		Publish(t.Context(), domain.PublishRequest{
+			World:           "root",
+			Path:            "/x.md",
+			Body:            "# X",
+			Meta:            domain.PublishMeta{Tags: []string{"a"}},
+			ExpectedVersion: 2,
+		})
 	if err != nil {
 		t.Fatalf("Publish: %v", err)
 	}
@@ -76,7 +82,7 @@ func TestPublishWritesThenRereadsLive(t *testing.T) {
 func TestPublishPropagatesConflict(t *testing.T) {
 	gw := fakeGateway{publishErr: domain.ErrConflict}
 	_, _, err := NewReadingService(gw, fakeRenderer{}, nil).
-		Publish(t.Context(), "root", "/x.md", "body", domain.PublishMeta{}, 1)
+		Publish(t.Context(), domain.PublishRequest{World: "root", Path: "/x.md", Body: "body", ExpectedVersion: 1})
 	if err != domain.ErrConflict {
 		t.Errorf("err = %v, want ErrConflict (no re-read, surfaced to the desk)", err)
 	}
@@ -91,7 +97,7 @@ func TestPublishReturnsMergeCandidate(t *testing.T) {
 		publishMerge: &domain.MergeCandidate{Body: "merged", PublishAtVersion: 9, HasMarkers: true},
 	}
 	doc, merge, err := NewReadingService(gw, fakeRenderer{}, nil).
-		Publish(t.Context(), "root", "/x.md", "mine", domain.PublishMeta{}, 7)
+		Publish(t.Context(), domain.PublishRequest{World: "root", Path: "/x.md", Body: "mine", ExpectedVersion: 7})
 	if err != nil {
 		t.Fatalf("Publish: %v", err)
 	}
