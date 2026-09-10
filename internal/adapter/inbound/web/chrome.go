@@ -2,11 +2,8 @@ package web
 
 import "github.com/labstack/echo/v5"
 
-// The shared nav chrome: what every surface's header renders regardless of
-// which surface it is — the turnstile verdict, the signed-in identity, the
-// librarian door, and which room was selected. Assembled once per request by
-// chromeBuilder and embedded in each view model, so a new surface inherits the
-// nav instead of re-deriving it.
+// The nav every surface renders. It lives here, embedded rather than repeated,
+// so adding a surface inherits the nav instead of re-deriving it.
 
 // librarianDoor is the nav's entrance to the librarian: a fresh trail holding
 // just that pane. The canvas replaces it with a trail-carrying door.

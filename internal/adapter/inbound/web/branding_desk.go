@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -252,12 +253,12 @@ func (h *BrandingHandler) publishBrandDoc(ctx context.Context, world string, doc
 		version = draft.Version
 	case errors.Is(err, domain.ErrNotFound):
 	default:
-		return err
+		return fmt.Errorf("read branding draft %s%s: %w", world, doc.path, err)
 	}
 	for range 2 {
 		_, merge, err := h.writer.Publish(ctx, world, doc.path, doc.body, meta, version)
 		if err != nil {
-			return err
+			return fmt.Errorf("publish branding document %s%s: %w", world, doc.path, err)
 		}
 		if merge == nil {
 			return nil

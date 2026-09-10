@@ -2,16 +2,14 @@ package web
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
 	"github.com/latebit-io/demarkus-library/internal/core/port"
 )
 
-// The spatial views as canvas panes (ADR 0005 decision 4): the universe floor,
-// a world's map, and a document's graph neighborhood. The trail canvas composes
-// every pane kind, so it holds one of these rather than growing the map and
-// graph ports itself; SpatialHandler holds one too, which is why the ports and
-// the display vocabulary are declared here once.
+// The spatial views as canvas panes (ADR 0005 decision 4). Both the canvas and
+// SpatialHandler build them, so the ports are declared here once.
 
 // spatialPanes builds the floor, world-map and graph panes.
 type spatialPanes struct {
@@ -34,7 +32,7 @@ func (h spatialPanes) worldMapPane(ctx context.Context, t trail, i int, addr pan
 		wm, err = h.maps.WorldMapCached(ctx, addr.World)
 	}
 	if err != nil {
-		return paneVM{}, err
+		return paneVM{}, fmt.Errorf("build world map %s: %w", addr.World, err)
 	}
 
 	mode := "spine"
@@ -75,7 +73,7 @@ func (h spatialPanes) floorPane(ctx context.Context, t trail, i int, mapView boo
 		floor, err = h.maps.FloorCached(ctx)
 	}
 	if err != nil {
-		return paneVM{}, err
+		return paneVM{}, fmt.Errorf("build universe floor: %w", err)
 	}
 
 	mode := "spine"
@@ -133,10 +131,9 @@ func (h spatialPanes) graphPane(t trail, i int, addr paneAddr) paneVM {
 	return vm
 }
 
-// graphOverlay builds the focused document's reference neighborhood for the
-// on-demand overlay (ADR 0006 §4), summoned by `g`. Node clicks are trail jumps
-// from the focus, so the overlay replaces the in-trail graph pane rather than
-// docking beside it.
+// graphOverlay builds the focused document's neighborhood for the on-demand
+// overlay (ADR 0006 §4). Node clicks jump from the focus, so it replaces the
+// in-trail graph pane rather than docking beside it.
 func (h spatialPanes) graphOverlay(t trail, addr paneAddr) graphOverlayVM {
 	n := h.graph.Neighborhood(addr.World, addr.Value)
 	return graphOverlayVM{

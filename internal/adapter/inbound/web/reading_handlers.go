@@ -2,10 +2,8 @@
 // the reading room through the inbound port. It depends on port.ReadingService,
 // never on the concrete service or any outbound adapter.
 //
-// One handler per surface family — reading, editing, graph and map, palette,
-// librarian, branding — each over the slice of the port it drives. Room
-// (room.go) assembles them and registers their routes; the nav they all render
-// is built once per request by chrome.go.
+// One handler per surface family, each over the slice of the port it drives;
+// Room (room.go) assembles them. The nav they share is built by chrome.go.
 //
 // Rendering is SSR-first, htmx-hard (ADR 0003): every response is server-rendered
 // HTML. A boosted navigation gets the full "page"; a targeted htmx swap gets the
@@ -37,20 +35,16 @@ import (
 	"github.com/latebit-io/demarkus-library/internal/core/port"
 )
 
-// readingPorts is the slice of the inbound port the reading surfaces drive:
-// documents and the catalog, plus the render-time links graph the margin, the
-// dock and the graph overlay read back. Maps, writes and the librarian belong
-// to the handlers that own those surfaces.
+// readingPorts narrows the inbound port to what reading drives; maps, writes
+// and the librarian belong to the handlers that own those surfaces.
 type readingPorts interface {
 	port.Reader
 	port.GraphService
 }
 
-// ReadingHandler serves rendered demarkus documents, listings, catalog
-// searches, edition histories, and the trail canvas that composes them. The
-// canvas is the one surface that shows every pane kind, so it holds the pane
-// builders the spatial and librarian surfaces own rather than their ports.
-// Room (room.go) assembles it.
+// ReadingHandler serves documents, listings, catalog searches, editions, and
+// the trail canvas. The canvas shows every pane kind, so it borrows the other
+// families' pane builders rather than their ports.
 type ReadingHandler struct {
 	reading      readingPorts
 	spatial      spatialPanes   // floor, world-map and graph panes (spatial_panes.go)
@@ -267,10 +261,8 @@ func (h *ReadingHandler) present(c *echo.Context, doc domain.Document, err error
 		// version still renders in full; it just never becomes a backlink.
 		h.reading.RecordLinks(opts.world, doc.Path, edges)
 	}
-	// The nav's librarian door is the bare entrance here: interactive doc
-	// navigation lands on the canvas (canvasTrailURL), where the door carries
-	// the trail; the standalone surfaces that render this nav (versions, raw,
-	// fragment escapes) get the bare librarian trail.
+	// The librarian door is the bare entrance here: only the standalone
+	// surfaces reach this nav, and they have no trail for it to carry.
 	vm := page{
 		navChrome: h.chrome.build(c),
 		Title:     doc.Title,

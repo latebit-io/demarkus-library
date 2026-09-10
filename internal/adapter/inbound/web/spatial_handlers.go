@@ -1,10 +1,7 @@
 package web
 
-// The spatial views as standalone permalinks (ADR 0005 decision 12): the
-// universe floor's overlay fragment, a document's graph neighborhood, and a
-// world's map. Each is the chunk-tail source for its canvas pane, and each
-// degrades to a full page without JS. The pane versions live in
-// spatial_panes.go, which this handler embeds for the same narrow ports.
+// The spatial views as standalone permalinks (ADR 0005 decision 12), each the
+// chunk-tail source for its canvas pane in spatial_panes.go.
 
 import (
 	"net/http"

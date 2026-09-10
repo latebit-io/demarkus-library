@@ -270,13 +270,9 @@ func isEdgeSource(overlay string, addr paneAddr, path string) bool {
 		!domain.IsListingPath(addr.Value) && !domain.IsVersionPath(path)
 }
 
-// paneView builds one pane's view model: display mode by distance from focus
-// (decision 3), links trail-ized so every href carries its post-click state,
-// margin only where attention is. overlay marks a pane built for a lens
-// instead of the canvas — it carries the full margin, records no edges (the
-// canvas build already did), and offers no open-overlay affordances (it IS
-// one); the reader lens (R4) additionally persists itself in body and backlink
-// hrefs, while the metadata lens keeps plain trail links.
+// paneView builds one pane's view model: mode by distance from focus (decision
+// 3), hrefs carrying their post-click state, margin only where attention is. A
+// lens pane keeps the full margin but records no edges — the canvas build did.
 func (h *ReadingHandler) paneView(ctx context.Context, t trail, i int, addr paneAddr, doc domain.Document, authed bool, overlay string) paneVM {
 	focused := i == t.Focus
 	reader := overlay == overlayReader
