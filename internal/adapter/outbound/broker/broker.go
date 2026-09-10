@@ -180,35 +180,35 @@ func parseWorldsTable(text string) []domain.WorldInfo {
 
 // Lookup queries the catalog under req.Scope through mark_lookup. A non-empty
 // filter rides along as the tool's comma-separated key=value predicate.
-func (g *Gateway) Lookup(ctx context.Context, req domain.LookupRequest) (domain.RawDocument, error) {
+func (g *Gateway) Lookup(ctx context.Context, world string, q domain.LookupQuery) (domain.RawDocument, error) {
 	args := map[string]any{
-		"url":   markURL(req.World, req.Scope),
-		"query": req.Query,
+		"url":   markURL(world, q.Scope),
+		"query": q.Query,
 	}
-	if req.Filter != "" {
-		args["filter"] = req.Filter
+	if q.Filter != "" {
+		args["filter"] = q.Filter
 	}
-	if req.Limit > 0 {
-		args["limit"] = req.Limit
+	if q.Limit > 0 {
+		args["limit"] = q.Limit
 	}
-	return g.read(ctx, toolRead{Tool: "mark_lookup", World: req.World, Path: req.Scope, Args: args})
+	return g.read(ctx, toolRead{Tool: "mark_lookup", World: world, Path: q.Scope, Args: args})
 }
 
 // LookupAll queries the same scope across every world readable by the bearer.
-func (g *Gateway) LookupAll(ctx context.Context, scope, query, filter string, limit int) (domain.RawDocument, error) {
+func (g *Gateway) LookupAll(ctx context.Context, q domain.LookupQuery) (domain.RawDocument, error) {
 	args := map[string]any{
-		"scope": scope,
-		"query": query,
+		"scope": q.Scope,
+		"query": q.Query,
 	}
-	if filter != "" {
-		args["filter"] = filter
+	if q.Filter != "" {
+		args["filter"] = q.Filter
 	}
-	if limit > 0 {
-		args["limit"] = limit
+	if q.Limit > 0 {
+		args["limit"] = q.Limit
 	}
 	return g.read(ctx, toolRead{
 		Tool:               "mark_lookup_all",
-		Path:               scope,
+		Path:               q.Scope,
 		Args:               args,
 		AdditionalStatuses: []string{"partial"},
 	})

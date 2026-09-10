@@ -24,10 +24,10 @@ func (f *fakeGW) List(_ context.Context, _, _ string) (domain.RawDocument, error
 func (f *fakeGW) Versions(_ context.Context, _, _ string) (domain.RawDocument, error) {
 	return domain.RawDocument{Source: f.name}, nil
 }
-func (f *fakeGW) Lookup(_ context.Context, _ domain.LookupRequest) (domain.RawDocument, error) {
+func (f *fakeGW) Lookup(_ context.Context, _ string, _ domain.LookupQuery) (domain.RawDocument, error) {
 	return domain.RawDocument{Source: f.name}, nil
 }
-func (f *fakeGW) LookupAll(_ context.Context, _, _, _ string, _ int) (domain.RawDocument, error) {
+func (f *fakeGW) LookupAll(_ context.Context, _ domain.LookupQuery) (domain.RawDocument, error) {
 	return domain.RawDocument{Source: f.name}, nil
 }
 
@@ -137,11 +137,11 @@ func TestLookupAllPrefersBrokerUniverse(t *testing.T) {
 	names := &fakeGW{name: "names"}
 	hosts := &fakeGW{name: "hosts"}
 
-	raw, err := New(Config{Names: names, Hosts: hosts}).LookupAll(t.Context(), "/", "*", "", 1000)
+	raw, err := New(Config{Names: names, Hosts: hosts}).LookupAll(t.Context(), domain.LookupQuery{Scope: "/", Query: "*", Limit: 1000})
 	if err != nil || raw.Source != "names" {
 		t.Fatalf("broker LookupAll = (%+v, %v)", raw, err)
 	}
-	raw, err = New(Config{Hosts: hosts}).LookupAll(t.Context(), "/", "*", "", 1000)
+	raw, err = New(Config{Hosts: hosts}).LookupAll(t.Context(), domain.LookupQuery{Scope: "/", Query: "*", Limit: 1000})
 	if err != nil || raw.Source != "hosts" {
 		t.Fatalf("direct LookupAll = (%+v, %v)", raw, err)
 	}

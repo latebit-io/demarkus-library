@@ -39,31 +39,25 @@ const (
 // hover state swaps in (islands.js adds .edge-hot to a hovered node's edges).
 const arrowMarker = `<defs><marker id="arrow" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto" markerUnits="userSpaceOnUse"><path class="edge-arrow" d="M0,0 L9,4.5 L0,9 z"/></marker><marker id="arrow-hot" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto" markerUnits="userSpaceOnUse"><path class="edge-arrow-hot" d="M0,0 L9,4.5 L0,9 z"/></marker></defs>`
 
-// edgeEnd is one end of a drawn edge: the node's centre, the visual radius the
-// line is trimmed back by, and the id a hover handler matches its incident
-// edges on.
+// edgeEnd is one end of a drawn edge. id is what a hover handler matches its
+// incident edges on.
 type edgeEnd struct {
 	x, y int
 	r    int
 	id   string
 }
 
-// edgeStyle is a drawn edge's non-geometric treatment. A non-empty rel (a typed
-// relation's predicate) draws dashed with the predicate as its hover tooltip;
-// "" is a plain reference. tier is an extra rest-state class (edge-spine,
-// edge-tree, edge-dim) the world map uses to quiet its hairball; "" adds none.
-// width > 0 overrides the stroke width (a rolled-up bundle of several document
-// edges).
+// edgeStyle is a drawn edge's non-geometric treatment. Empty fields are the
+// plain reference edge; the world map sets tier to quiet its hairball.
 type edgeStyle struct {
-	rel   string
-	tier  string
-	width float64
+	rel   string  // typed relation's predicate: draws dashed, tooltipped
+	tier  string  // rest-state class: edge-spine, edge-tree, edge-dim
+	width float64 // > 0 overrides stroke width (a rolled-up bundle)
 }
 
-// directedEdge draws a reference edge from one node to another as an arrow
-// pointing at the target, trimmed back by each endpoint's radius so the line
-// sits between the rims and the arrowhead lands just outside the target node
-// instead of hiding under it.
+// directedEdge draws a reference edge as an arrow at the target, trimmed back
+// by each endpoint's radius so the head lands outside the target node rather
+// than under it.
 func directedEdge(b *strings.Builder, from, to edgeEnd, style edgeStyle) {
 	dx, dy := float64(to.x-from.x), float64(to.y-from.y)
 	d := math.Hypot(dx, dy)

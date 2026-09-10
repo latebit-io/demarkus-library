@@ -48,23 +48,23 @@ func (f fakeGateway) Versions(context.Context, string, string) (domain.RawDocume
 	f.record("Versions")
 	return f.raw, f.err
 }
-func (f fakeGateway) Lookup(_ context.Context, req domain.LookupRequest) (domain.RawDocument, error) {
+func (f fakeGateway) Lookup(_ context.Context, _ string, q domain.LookupQuery) (domain.RawDocument, error) {
 	f.record("Lookup")
 	if f.filter != nil {
-		*f.filter = req.Filter
+		*f.filter = q.Filter
 	}
 	if f.limit != nil {
-		*f.limit = req.Limit
+		*f.limit = q.Limit
 	}
 	return f.raw, f.err
 }
-func (f fakeGateway) LookupAll(_ context.Context, _, _, filter string, limit int) (domain.RawDocument, error) {
+func (f fakeGateway) LookupAll(_ context.Context, q domain.LookupQuery) (domain.RawDocument, error) {
 	f.record("LookupAll")
 	if f.filter != nil {
-		*f.filter = filter
+		*f.filter = q.Filter
 	}
 	if f.limit != nil {
-		*f.limit = limit
+		*f.limit = q.Limit
 	}
 	return f.raw, f.err
 }

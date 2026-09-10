@@ -143,7 +143,7 @@ func (s *ReadingService) buildFloor(ctx context.Context) (domain.Floor, error) {
 	floor := domain.Floor{Worlds: make([]domain.FloorWorld, 0, len(worlds))}
 	for _, w := range worlds {
 		fw := domain.FloorWorld{World: w}
-		raw, err := s.world.Lookup(ctx, domain.LookupRequest{World: w.Name, Scope: "/", Query: "*", Limit: floorSample})
+		raw, err := s.world.Lookup(ctx, w.Name, domain.LookupQuery{Scope: "/", Query: "*", Limit: floorSample})
 		switch {
 		case errors.Is(err, domain.ErrUnauthorized):
 			// The reader's identity died mid-assembly — that is the

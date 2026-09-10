@@ -87,7 +87,7 @@ func TestVerbsAndArgs(t *testing.T) {
 		},
 			"mark_versions", "mark://soul/x.md"},
 		{"Lookup", func(g *Gateway, ctx context.Context) (domain.RawDocument, error) {
-			return g.Lookup(ctx, domain.LookupRequest{World: "soul", Scope: "/", Query: "hex"})
+			return g.Lookup(ctx, "soul", domain.LookupQuery{Scope: "/", Query: "hex"})
 		},
 			"mark_lookup", "mark://soul/"},
 	}
@@ -111,7 +111,7 @@ func TestVerbsAndArgs(t *testing.T) {
 	// entirely so the broker applies its own default.
 	fc := &fakeCaller{text: "status: ok\n\nbody"}
 	g := &Gateway{caller: fc}
-	if _, err := g.Lookup(authedCtx(t), domain.LookupRequest{World: "soul", Scope: "/", Query: "hexagonal"}); err != nil {
+	if _, err := g.Lookup(authedCtx(t), "soul", domain.LookupQuery{Scope: "/", Query: "hexagonal"}); err != nil {
 		t.Fatalf("Lookup: %v", err)
 	}
 	if got := fc.gotArgs["query"]; got != "hexagonal" {
@@ -128,7 +128,7 @@ func TestVerbsAndArgs(t *testing.T) {
 	// the match-all index/map callers cap the catalog explicitly).
 	fc = &fakeCaller{text: "status: ok\n\nbody"}
 	g = &Gateway{caller: fc}
-	if _, err := g.Lookup(authedCtx(t), domain.LookupRequest{World: "soul", Scope: "/", Query: "adr", Filter: "tag=adr", Limit: 500}); err != nil {
+	if _, err := g.Lookup(authedCtx(t), "soul", domain.LookupQuery{Scope: "/", Query: "adr", Filter: "tag=adr", Limit: 500}); err != nil {
 		t.Fatalf("Lookup with filter: %v", err)
 	}
 	if got := fc.gotArgs["filter"]; got != "tag=adr" {
@@ -143,7 +143,7 @@ func TestLookupAllBuildsArgsAndAcceptsPartial(t *testing.T) {
 	fc := &fakeCaller{text: "status: partial\nworlds: 3\nfailed: 1\n\n| Path | Importance | Title | Tags |\n|---|---|---|---|\n| mark://root/index.md | 0.90 | Root | hub |"}
 	g := &Gateway{caller: fc}
 
-	raw, err := g.LookupAll(authedCtx(t), "/docs/", "architecture", "tag=guide", 250)
+	raw, err := g.LookupAll(authedCtx(t), domain.LookupQuery{Scope: "/docs/", Query: "architecture", Filter: "tag=guide", Limit: 250})
 	if err != nil {
 		t.Fatalf("LookupAll: %v", err)
 	}

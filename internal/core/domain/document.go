@@ -76,10 +76,9 @@ type PublishMeta struct {
 	Importance string
 }
 
-// PublishRequest is one write: the address it lands at, the markdown body, the
-// out-of-band metadata, and the version the write expects to replace.
-// ExpectedVersion 0 creates (a path-taken conflict is ErrConflict); a stale
-// non-zero version yields a MergeCandidate instead of committing.
+// PublishRequest is one write. ExpectedVersion 0 creates (a path-taken
+// conflict is ErrConflict); a stale non-zero version yields a MergeCandidate
+// instead of committing.
 type PublishRequest struct {
 	World           string
 	Path            string
@@ -88,15 +87,13 @@ type PublishRequest struct {
 	ExpectedVersion int
 }
 
-// LookupRequest is one catalog query. Query "*" is the match-all form; Filter
-// is the catalog's comma-separated key=value predicate ("" for none) and tag
-// pages pass tag=<tag>. Limit <= 0 lets the server apply its default (10), so
-// match-all callers pass an explicit cap.
-type LookupRequest struct {
-	World  string
+// LookupQuery is one catalog query, aimed at a world by Lookup or at every
+// readable world by LookupAll. Query "*" is the match-all form; Limit <= 0
+// lets the server apply its default, so match-all callers pass a cap.
+type LookupQuery struct {
 	Scope  string
 	Query  string
-	Filter string
+	Filter string // comma-separated key=value predicate; tag pages pass tag=<tag>
 	Limit  int
 }
 

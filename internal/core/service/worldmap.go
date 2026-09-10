@@ -96,7 +96,7 @@ func (c *worldMapCache) invalidate(world string) {
 // world rather than dropping the whole map. The unreadable result is not
 // cached, so a transient failure self-heals on the next read.
 func (s *ReadingService) WorldMap(ctx context.Context, world string) (domain.WorldMap, error) {
-	raw, err := s.world.Lookup(ctx, domain.LookupRequest{World: world, Scope: "/", Query: "*", Limit: worldMapMaxDocs})
+	raw, err := s.world.Lookup(ctx, world, domain.LookupQuery{Scope: "/", Query: "*", Limit: worldMapMaxDocs})
 	if err != nil {
 		// Propagate, never degrade: the reader's identity dying (re-login) and
 		// request cancellation/timeout — a canceled or timed-out read must

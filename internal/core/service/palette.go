@@ -34,7 +34,7 @@ func (s *ReadingService) NameIndex(ctx context.Context, scope, world string) ([]
 		return s.worldNameIndex(ctx, world, worldOrphans(world, host2name, topo))
 	}
 
-	raw, err := s.world.LookupAll(ctx, "/", "*", "", nameIndexMax)
+	raw, err := s.world.LookupAll(ctx, domain.LookupQuery{Scope: "/", Query: "*", Limit: nameIndexMax})
 	if err != nil {
 		return nil, err
 	}
@@ -72,7 +72,7 @@ func (s *ReadingService) NameIndex(ctx context.Context, scope, world string) ([]
 // nil). A read failure returns the error (the caller decides whether to degrade
 // or propagate); a canceled/timed-out context always propagates.
 func (s *ReadingService) worldNameIndex(ctx context.Context, world string, orphans map[string]bool) ([]domain.IndexEntry, error) {
-	raw, err := s.world.Lookup(ctx, domain.LookupRequest{World: world, Scope: "/", Query: "*", Limit: nameIndexMax})
+	raw, err := s.world.Lookup(ctx, world, domain.LookupQuery{Scope: "/", Query: "*", Limit: nameIndexMax})
 	if err != nil {
 		return nil, err
 	}

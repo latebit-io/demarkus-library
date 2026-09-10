@@ -147,7 +147,7 @@ func (h *ReadingHandler) Trail(c *echo.Context) error {
 				pane, err = h.spatial.floorPane(ctx, t, i, c.QueryParam("view") == "map")
 			} else {
 				scope = addr.World
-				pane, err = h.spatial.worldMapPane(ctx, t, i, addr, authed)
+				pane, err = h.spatial.worldMapPane(ctx, paneSlot{trail: t, index: i, addr: addr, authed: authed})
 			}
 			if err != nil {
 				if focused {
@@ -195,7 +195,9 @@ func (h *ReadingHandler) Trail(c *echo.Context) error {
 				metaDoc, metaAddr, haveMetaDoc = doc, addr, true
 			}
 			vm.Panes[i] = h.paneView(ctx, &paneRequest{
-				trail: t, index: i, addr: addr, doc: doc, authed: authed, overlay: overlayNone,
+				paneSlot: paneSlot{trail: t, index: i, addr: addr, authed: authed},
+				doc:      doc,
+				overlay:  overlayNone,
 			})
 		}
 	}
@@ -231,7 +233,9 @@ func (h *ReadingHandler) Trail(c *echo.Context) error {
 	// the original focus.
 	if t.Reader >= 0 && haveReaderDoc {
 		rp := h.paneView(ctx, &paneRequest{
-			trail: t, index: t.Reader, addr: readerAddr, doc: readerDoc, authed: authed, overlay: overlayReader,
+			paneSlot: paneSlot{trail: t, index: t.Reader, addr: readerAddr, authed: authed},
+			doc:      readerDoc,
+			overlay:  overlayReader,
 		})
 		vm.Reader = &rp
 		vm.CloseURL = trailURL(t)
@@ -242,7 +246,9 @@ func (h *ReadingHandler) Trail(c *echo.Context) error {
 	// extra world read, no re-recorded edges.
 	if t.Meta >= 0 && haveMetaDoc {
 		mp := h.paneView(ctx, &paneRequest{
-			trail: t, index: t.Meta, addr: metaAddr, doc: metaDoc, authed: authed, overlay: overlayMeta,
+			paneSlot: paneSlot{trail: t, index: t.Meta, addr: metaAddr, authed: authed},
+			doc:      metaDoc,
+			overlay:  overlayMeta,
 		})
 		if mp.HasMargin {
 			mp.MetaOpen = true // the fold arrives expanded — this overlay IS the ask
@@ -276,16 +282,21 @@ func isEdgeSource(overlay string, addr paneAddr, path string) bool {
 		!domain.IsListingPath(addr.Value) && !domain.IsVersionPath(path)
 }
 
-// paneRequest is one pane's render input: where it sits on the trail, what it
-// addresses, the document to draw, and the mode it renders in (overlayNone for
-// an ordinary canvas pane). Passed by pointer — the embedded Document makes it
-// heavy, and paneView only reads it.
+// paneSlot is where a pane sits on the trail and who is asking — what every
+// pane builder needs before it has a document.
+type paneSlot struct {
+	trail  trail
+	index  int
+	addr   paneAddr
+	authed bool
+}
+
+// paneRequest adds the fetched document and the overlay mode (overlayNone for
+// an ordinary canvas pane). Taken by pointer: the embedded Document is heavy
+// and paneView only reads it.
 type paneRequest struct {
-	trail   trail
-	index   int
-	addr    paneAddr
+	paneSlot
 	doc     domain.Document
-	authed  bool
 	overlay string
 }
 
@@ -293,9 +304,9 @@ type paneRequest struct {
 // 3), hrefs carrying their post-click state, margin only where attention is. A
 // lens pane keeps the full margin but records no edges — the canvas build did.
 func (h *ReadingHandler) paneView(ctx context.Context, req *paneRequest) paneVM {
-	t, i, addr, doc := req.trail, req.index, req.addr, req.doc
-	overlay := req.overlay
-	focused := i == t.Focus
+	trailState, paneIndex := req.trail, req.index
+	addr, doc, overlay := req.addr, req.doc, req.overlay
+	focused := paneIndex == trailState.Focus
 	reader := overlay == overlayReader
 
 	mode := "spine"
@@ -304,14 +315,14 @@ func (h *ReadingHandler) paneView(ctx context.Context, req *paneRequest) paneVM 
 		mode = overlay
 	case focused:
 		mode = "focused"
-	case i == t.Focus-1:
+	case paneIndex == trailState.Focus-1:
 		mode = "body"
 	}
 
 	vm := paneVM{
 		Mode:      mode,
 		Kind:      addr.Kind,
-		FocusURL:  trailURL(trailFocused(t, i)),
+		FocusURL:  trailURL(trailFocused(trailState, paneIndex)),
 		Title:     doc.Title,
 		World:     addr.World,
 		WorldPath: url.PathEscape(addr.World),
@@ -323,13 +334,13 @@ func (h *ReadingHandler) paneView(ctx context.Context, req *paneRequest) paneVM 
 	// kind anyway so a future caller can't mint a reader link to a non-prose
 	// pane that parseTrail would reject.
 	if overlay == "" && (addr.Kind == paneDoc || addr.Kind == paneTag) {
-		vm.ReaderURL = trailReaderURL(t, i)
+		vm.ReaderURL = trailReaderURL(trailState, paneIndex)
 	}
 	// In the pane-scroll room the margin is summoned, not docked: the head
 	// offers "meta" beside "reader", the record opens as an overlay, and the
 	// status chip keeps the room's one at-rest trust signal visible.
 	if h.chrome.paneScroll && overlay == "" && addr.Kind == paneDoc && !domain.IsListingPath(addr.Value) {
-		vm.MetaURL = trailMetaURL(t, i)
+		vm.MetaURL = trailMetaURL(trailState, paneIndex)
 		vm.HeadStatus = doc.Status
 	}
 	if mode == "spine" {
@@ -352,7 +363,7 @@ func (h *ReadingHandler) paneView(ctx context.Context, req *paneRequest) paneVM 
 	// previewize runs on /w/ hrefs (it derives each card's source from them),
 	// then trailizeLinks rewrites those hrefs to post-click trail URLs — in the
 	// overlay (reader=true) those become reader-persisting URLs.
-	vm.Content = template.HTML(trailizeLinks(previewize(content), t, i, reader)) //nolint:gosec // sanitized in the markdown adapter; these passes only rewrite/wrap links, adding no unescaped content
+	vm.Content = template.HTML(trailizeLinks(previewize(content), trailState, paneIndex, reader)) //nolint:gosec // sanitized in the markdown adapter; these passes only rewrite/wrap links, adding no unescaped content
 
 	// An overlay shows the addressed pane's full margin even when it is not
 	// the focused pane — a lens is not a dead-end.
@@ -383,13 +394,13 @@ func (h *ReadingHandler) paneView(ctx context.Context, req *paneRequest) paneVM 
 		// carry the trail as return context so save/cancel land back here
 		// instead of stranding the reader on the standalone document page.
 		if req.authed {
-			ret := editReturnQuery(t, i)
+			ret := editReturnQuery(trailState, paneIndex)
 			vm.EditURL = "/w/" + url.PathEscape(addr.World) + "/edit" + addr.Value + "?" + ret
 			vm.NewURL = "/w/" + url.PathEscape(addr.World) + "/new?dir=" + url.QueryEscape(dirOf(addr.Value)) + "&" + ret
 			vm.AppendURL = "/w/" + url.PathEscape(addr.World) + "/append" + addr.Value + "?" + ret
 		}
 		vm.Backlinks = backlinkLinks(h.reading.Backlinks(addr.World, addr.Value), func(r domain.Ref) string {
-			next := trailAfterClick(t, i, paneAddr{Kind: paneDoc, World: r.World, Value: r.Path})
+			next := trailAfterClick(trailState, paneIndex, paneAddr{Kind: paneDoc, World: r.World, Value: r.Path})
 			if reader {
 				return trailReaderURL(next, next.Focus)
 			}

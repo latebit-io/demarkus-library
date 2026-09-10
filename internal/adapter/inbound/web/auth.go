@@ -57,10 +57,8 @@ func emailFromIDToken(token string) string {
 	return claims.Email
 }
 
-// LoginStart is one sign-in's server-minted state: the broker authorize URL to
-// bounce the reader to, plus the state and PKCE verifier to stash until the
-// callback comes back. Named fields, because all three are opaque strings a
-// positional return would let a caller transpose silently.
+// LoginStart is one sign-in's server-minted state. Named fields, because all
+// three are opaque strings a positional return would let a caller transpose.
 type LoginStart struct {
 	AuthURL  string
 	State    string

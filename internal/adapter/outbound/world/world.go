@@ -94,30 +94,24 @@ func (g *Gateway) Versions(_ context.Context, world, path string) (domain.RawDoc
 
 // Lookup queries the world's catalog for req.Query under req.Scope, optionally
 // narrowed by a comma-separated key=value filter (tag pages use tag=<tag>).
-func (g *Gateway) Lookup(_ context.Context, req domain.LookupRequest) (domain.RawDocument, error) {
-	host := NormalizeHost(req.World)
+func (g *Gateway) Lookup(_ context.Context, world string, q domain.LookupQuery) (domain.RawDocument, error) {
+	host := NormalizeHost(world)
 	res, err := g.client.Lookup(lookupCall{
 		Host:    host,
-		Scope:   req.Scope,
-		Query:   req.Query,
+		Scope:   q.Scope,
+		Query:   q.Query,
 		Token:   g.tokenFor(host),
-		Options: fetch.LookupOptions{Filter: req.Filter, Limit: req.Limit},
+		Options: fetch.LookupOptions{Filter: q.Filter, Limit: q.Limit},
 	})
-	return g.toRawDocument(res, host, req.Scope, err)
+	return g.toRawDocument(res, host, q.Scope, err)
 }
 
 // LookupAll is the direct gateway's one-world universe.
-func (g *Gateway) LookupAll(ctx context.Context, scope, query, filter string, limit int) (domain.RawDocument, error) {
+func (g *Gateway) LookupAll(ctx context.Context, q domain.LookupQuery) (domain.RawDocument, error) {
 	if g.home == "" {
 		return domain.RawDocument{}, domain.ErrNotFound
 	}
-	return g.Lookup(ctx, domain.LookupRequest{
-		World:  g.home,
-		Scope:  scope,
-		Query:  query,
-		Filter: filter,
-		Limit:  limit,
-	})
+	return g.Lookup(ctx, g.home, q)
 }
 
 // Worlds returns the single-world universe: the home world, when this

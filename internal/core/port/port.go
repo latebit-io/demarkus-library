@@ -113,12 +113,9 @@ type Editor interface {
 	// live preview — the same renderer the reader uses, so what you see is what
 	// publishes. No fetch, no write.
 	Preview(markdown string) (domain.Rendered, error)
-	// Publish writes the document at req's address. On a clean write it re-reads
-	// live (focused-live: refreshes the cache) and returns the display-ready
-	// Document with a nil candidate. req.ExpectedVersion guards the write: 0
-	// creates (a path-taken conflict is domain.ErrConflict); a non-zero stale
-	// version returns a *domain.MergeCandidate (nothing committed) for the desk
-	// to review and re-publish at its PublishAtVersion.
+	// Publish writes the document, then re-reads it live so the room shows
+	// fresh content (focused-live). A stale non-zero ExpectedVersion returns a
+	// *domain.MergeCandidate instead, with nothing committed.
 	Publish(ctx context.Context, req domain.PublishRequest) (domain.Document, *domain.MergeCandidate, error)
 	// Append adds body to the end of the document at (world, path) and returns
 	// the re-read result (focused-live). The lightweight "add to" — metadata is
@@ -146,30 +143,21 @@ type WorldGateway interface {
 	Fetch(ctx context.Context, world, path string) (domain.RawDocument, error)
 	List(ctx context.Context, world, path string) (domain.RawDocument, error)
 	Versions(ctx context.Context, world, path string) (domain.RawDocument, error)
-	// Lookup queries one world's catalog. The match-all query "*" (whole
-	// catalog under scope, importance order) works on servers ≥ the match-all
-	// release; older servers reject it. The match-all callers (floor, world
-	// map, palette index) pass an explicit Limit so the catalog isn't silently
-	// truncated to the server default.
-	Lookup(ctx context.Context, req domain.LookupRequest) (domain.RawDocument, error)
+	// Lookup queries one world's catalog. The match-all query "*" works only
+	// on servers ≥ the match-all release; older servers reject it.
+	Lookup(ctx context.Context, world string, q domain.LookupQuery) (domain.RawDocument, error)
 	// LookupAll queries every readable world under the same server-relative
 	// scope. Result paths are qualified mark:// URLs in broker mode.
-	LookupAll(ctx context.Context, scope, query, filter string, limit int) (domain.RawDocument, error)
+	LookupAll(ctx context.Context, q domain.LookupQuery) (domain.RawDocument, error)
 	// Worlds enumerates the universe this gateway can reach: the broker's
 	// mark_worlds (authorization-filtered) or the single home world over
 	// QUIC. The non-brokered universe is extensional — one world — so an
 	// empty or single-element answer is correct there, not degraded.
 	Worlds(ctx context.Context) ([]domain.WorldInfo, error)
 
-	// Publish writes (creates or updates) the document at req's address — the
-	// cataloging desk's write path (Phase 3), over mark_publish in broker mode.
-	// req.Body is pure markdown; req.Meta is the out-of-band metadata (never a
-	// body fence). req.ExpectedVersion guards the write (0 to create). The
-	// result is either a committed Version or a Merge candidate: a create
-	// (version 0) that hits an existing path is domain.ErrConflict, while a
-	// stale non-zero version returns a PublishResult with Merge set (the broker
-	// three-way-merged rather than failing). Gateways with no write path (direct
-	// QUIC, no write token) return domain.ErrWriteUnsupported.
+	// Publish writes the document over mark_publish (Phase 3). Metadata travels
+	// out of band, never as a body fence (ADR 0005 decision 11). Gateways with
+	// no write path (direct QUIC) return domain.ErrWriteUnsupported.
 	Publish(ctx context.Context, req domain.PublishRequest) (domain.PublishResult, error)
 
 	// Append concatenates body onto the end of the document at (world, path) —

@@ -77,22 +77,22 @@ func (g *Gateway) Versions(ctx context.Context, w, path string) (domain.RawDocum
 }
 
 // Lookup routes to the world's transport.
-func (g *Gateway) Lookup(ctx context.Context, req domain.LookupRequest) (domain.RawDocument, error) {
-	gw, err := g.route(req.World)
+func (g *Gateway) Lookup(ctx context.Context, w string, q domain.LookupQuery) (domain.RawDocument, error) {
+	gw, err := g.route(w)
 	if err != nil {
 		return domain.RawDocument{}, err
 	}
-	return gw.Lookup(ctx, req)
+	return gw.Lookup(ctx, w, q)
 }
 
 // LookupAll uses the broker universe when available, otherwise the direct
 // gateway's one-world universe.
-func (g *Gateway) LookupAll(ctx context.Context, scope, query, filter string, limit int) (domain.RawDocument, error) {
+func (g *Gateway) LookupAll(ctx context.Context, q domain.LookupQuery) (domain.RawDocument, error) {
 	if g.cfg.Names != nil {
-		return g.cfg.Names.LookupAll(ctx, scope, query, filter, limit)
+		return g.cfg.Names.LookupAll(ctx, q)
 	}
 	if g.cfg.Hosts != nil {
-		return g.cfg.Hosts.LookupAll(ctx, scope, query, filter, limit)
+		return g.cfg.Hosts.LookupAll(ctx, q)
 	}
 	return domain.RawDocument{}, domain.ErrNotFound
 }
