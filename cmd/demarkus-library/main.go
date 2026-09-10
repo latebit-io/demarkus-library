@@ -208,16 +208,16 @@ func main() {
 	brands := web.NewWorldBrands(reading)
 	view.WithWorldBrands(brands)
 	web.WorldThemeRoutes(app, branding, brands)
-	handler := web.NewReadingHandler(reading, defaultWorld, config.DefaultDoc).WithBranding(branding).WithWorldBrands(brands)
+	room := web.NewRoom(reading, defaultWorld, config.DefaultDoc).WithBranding(branding).WithWorldBrands(brands)
 	if lib != nil {
-		handler = handler.WithLibrarian(lib)
+		room = room.WithLibrarian(lib)
 	}
 	if config.PaneScroll {
-		handler = handler.WithPaneScroll()
+		room = room.WithPaneScroll()
 	} else {
 		logger.Info("page-scroll room selected (DEMARKUS_PANE_SCROLL=false)")
 	}
-	web.ReadingRoutes(app, handler, turnstile...)
+	web.RoomRoutes(app, room, turnstile...)
 
 	logger.Info("demarkus Library reading room starting",
 		"port", config.Port, "transport", config.Transport,

@@ -18,22 +18,37 @@ import (
 // and logo from inside the room. Each save is an ordinary publish of the
 // documents WorldBrands reads, gated by the turnstile and the world's authz.
 
+// brandingWriter is the slice of the editor port the desk needs: the version a
+// generated document currently sits at, and a whole-document republish. The
+// desk never reads rendered documents, so it takes neither the reader nor the
+// append side.
+type brandingWriter interface {
+	EditDraft(ctx context.Context, world, path string) (domain.EditDraft, error)
+	Publish(ctx context.Context, world, path, body string, meta domain.PublishMeta, expectedVersion int) (domain.Document, *domain.MergeCandidate, error)
+}
+
+// BrandingHandler serves the desk. It is the whole surface family: two routes
+// over the shared nav chrome and a two-method write port.
+type BrandingHandler struct {
+	writer brandingWriter
+	brands *WorldBrands // read for the current values, invalidated after a save; nil ⇒ nothing current to show
+	chrome chromeBuilder
+}
+
 // brandingVM is the view model of the "branding" template.
 type brandingVM struct {
-	Title         string
-	World         string
-	WorldPath     string
-	Authenticated bool
-	User          string
-	LibrarianURL  string
-	Name          string // current in-world name
-	LogoSVG       string // pasted SVG kept across a failed save (file inputs cannot be refilled)
-	Tokens        []tokenField
-	CSS           string // current in-world stylesheet source
-	LogoURL       string // current in-world logo (empty ⇒ none)
-	Error         string
-	Notice        string
-	CancelURL     string
+	navChrome // the shared nav (chrome.go)
+	Title     string
+	World     string
+	WorldPath string
+	Name      string // current in-world name
+	LogoSVG   string // pasted SVG kept across a failed save (file inputs cannot be refilled)
+	Tokens    []tokenField
+	CSS       string // current in-world stylesheet source
+	LogoURL   string // current in-world logo (empty ⇒ none)
+	Error     string
+	Notice    string
+	CancelURL string
 }
 
 // tokenField is one design-token input on the desk: the token an operator
@@ -69,15 +84,8 @@ type brandDoc struct {
 	restore           func(*brandingVM)
 }
 
-// WithWorldBrands gives the desk the resolver to read current branding from
-// and to invalidate after a save.
-func (h ReadingHandler) WithWorldBrands(w *WorldBrands) ReadingHandler {
-	h.brands = w
-	return h
-}
-
 // BrandingForm serves the desk pre-filled from the world's current documents.
-func (h *ReadingHandler) BrandingForm(c *echo.Context) error {
+func (h *BrandingHandler) BrandingForm(c *echo.Context) error {
 	world := c.Param("world")
 	vm := h.brandingVM(c, world)
 	if c.QueryParam("saved") == "1" {
@@ -86,17 +94,13 @@ func (h *ReadingHandler) BrandingForm(c *echo.Context) error {
 	return c.Render(http.StatusOK, "branding", vm)
 }
 
-func (h *ReadingHandler) brandingVM(c *echo.Context, world string) brandingVM {
+func (h *BrandingHandler) brandingVM(c *echo.Context, world string) brandingVM {
 	vm := brandingVM{
-		Title:         "Branding: " + world,
-		World:         world,
-		WorldPath:     url.PathEscape(world),
-		Authenticated: c.Get(authedKey) != nil,
-		User:          userEmail(c),
-		CancelURL:     "/w/" + url.PathEscape(world) + "/u",
-	}
-	if h.lib != nil {
-		vm.LibrarianURL = "/a"
+		navChrome: h.chrome.build(c),
+		Title:     "Branding: " + world,
+		World:     world,
+		WorldPath: url.PathEscape(world),
+		CancelURL: "/w/" + url.PathEscape(world) + "/u",
 	}
 	var stored brandDesk
 	if h.brands != nil {
@@ -119,7 +123,7 @@ func tokenFields(stored map[string]string) []tokenField {
 // SaveBranding publishes the changed documents. Empty fields leave a document
 // alone; the clear checkboxes publish it without a fence, which the resolver
 // reads as "none". branding.md is always written: it is the anchor.
-func (h *ReadingHandler) SaveBranding(c *echo.Context) error {
+func (h *BrandingHandler) SaveBranding(c *echo.Context) error {
 	world := c.Param("world")
 	ctx := c.Request().Context()
 
@@ -224,7 +228,7 @@ func brandingYAML(form brandingForm) string {
 
 // renderPartialSave re-renders the desk from persisted state after a failed
 // write, naming what saved and what did not so a partial save is never silent.
-func (h *ReadingHandler) renderPartialSave(c *echo.Context, failed brandDoc, saved []string, err error) error {
+func (h *BrandingHandler) renderPartialSave(c *echo.Context, failed brandDoc, saved []string, err error) error {
 	msg := failed.title + " was not saved: " + editErrorMessage(err)
 	if len(saved) > 0 {
 		msg = "Saved " + strings.Join(saved, ", ") + ". " + msg + " Other fields show what is stored now."
@@ -240,10 +244,10 @@ func (h *ReadingHandler) renderPartialSave(c *echo.Context, failed brandDoc, sav
 // publishBrandDoc writes a generated document at its current version. A merge
 // candidate is resolved by taking ours: these documents are regenerated whole
 // from the form, never hand-merged.
-func (h *ReadingHandler) publishBrandDoc(ctx context.Context, world string, doc brandDoc) error {
+func (h *BrandingHandler) publishBrandDoc(ctx context.Context, world string, doc brandDoc) error {
 	meta := domain.PublishMeta{Title: doc.title, Tags: []string{"library", "branding"}, Importance: "0.2"}
 	version := 0
-	switch draft, err := h.reading.EditDraft(ctx, world, doc.path); {
+	switch draft, err := h.writer.EditDraft(ctx, world, doc.path); {
 	case err == nil:
 		version = draft.Version
 	case errors.Is(err, domain.ErrNotFound):
@@ -251,7 +255,7 @@ func (h *ReadingHandler) publishBrandDoc(ctx context.Context, world string, doc 
 		return err
 	}
 	for range 2 {
-		_, merge, err := h.reading.Publish(ctx, world, doc.path, doc.body, meta, version)
+		_, merge, err := h.writer.Publish(ctx, world, doc.path, doc.body, meta, version)
 		if err != nil {
 			return err
 		}

@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/url"
@@ -24,6 +25,20 @@ import (
 // matches, not the whole catalog.
 const paletteMaxRows = 50
 
+// nameIndexer is all the palette needs from the reading core: the catalog's
+// name index. It renders its own fragment, so no document read is involved.
+type nameIndexer interface {
+	NameIndex(ctx context.Context, scope, world string) ([]domain.IndexEntry, error)
+}
+
+// PaletteHandler serves the command palette's htmx active-search fragment
+// (ADR 0006 §3) — one route, one template.
+type PaletteHandler struct {
+	index        nameIndexer
+	defaultWorld string
+	terms        Terms
+}
+
 type paletteRow struct {
 	Title  string
 	Loc    string // world + path, the mono secondary line
@@ -41,7 +56,7 @@ type paletteVM struct {
 // non-htmx request (no JS, or a direct hit) is redirected to /search: the
 // palette is a progressive enhancement, and /search is the durable, fully
 // server-rendered surface it degrades to.
-func (h *ReadingHandler) Palette(c *echo.Context) error {
+func (h *PaletteHandler) Palette(c *echo.Context) error {
 	if c.Request().Header.Get("HX-Request") != "true" {
 		target := "/search"
 		if q := strings.TrimSpace(c.QueryParam("q")); q != "" {
@@ -61,7 +76,7 @@ func (h *ReadingHandler) Palette(c *echo.Context) error {
 		if world == "" {
 			world = paletteWorld(c, t, h.defaultWorld)
 		}
-		entries, err := h.reading.NameIndex(c.Request().Context(), c.QueryParam("scope"), world)
+		entries, err := h.index.NameIndex(c.Request().Context(), c.QueryParam("scope"), world)
 		var partial *domain.PartialLookupError
 		if err != nil && !errors.As(err, &partial) {
 			// Surface real failures (re-login, unreachable world) instead of

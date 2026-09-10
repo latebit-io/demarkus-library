@@ -10,6 +10,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
+	"github.com/latebit-io/demarkus-library/internal/core/port"
 )
 
 // The cataloging desk's web surface (Phase 3; plans/phase-3-cataloging-desk.md).
@@ -24,33 +25,39 @@ import (
 // frontmatter fence — the bug R1 papered over), and a plain POST save that
 // redirects back to the document. Reachable only behind the turnstile.
 
+// EditHandler serves the cataloging desk: edit, create, append, and the live
+// preview. It drives the editor port only — the desk never reads rendered
+// documents, so the reading side stays out of its dependencies.
+type EditHandler struct {
+	editor port.Editor
+	chrome chromeBuilder
+}
+
 // editStatuses is the status: axis vocabulary the form's picker offers
 // (ADR 0005 decision 7). "" (no status) is allowed — absent ⇒ draft on read.
 var editStatuses = []string{"", "draft", "wip", "accepted", "archived"}
 
 // editVM is the view model of the "edit" template.
 type editVM struct {
-	Title         string // page <title>
-	World         string
-	WorldPath     string
-	Path          string
-	Body          string
-	DocTitle      string // metadata title field
-	Tags          string // ordinary tags, comma-joined for the input
-	Importance    string
-	Status        string
-	Version       int
-	Statuses      []string
-	Authenticated bool
-	User          string // signed-in identity's email for the nav (empty ⇒ not shown)
-	LibrarianURL  string // nav door to the librarian (empty ⇒ not configured); the desk keeps the bare entrance
-	Create        bool   // create mode: editable path field, POSTs to /new, version 0
-	Append        bool   // append mode: body-only, POSTs to /append, no metadata
-	Error         string // write-error banner; empty ⇒ none
-	Notice        string // merge-candidate banner (not an error); empty ⇒ none
-	Trail         string // carried trail context (the /t/* remainder); empty ⇒ none
-	TrailPane     string // originating pane index within Trail
-	CancelURL     string // cancel target: back onto the trail, or the standalone page
+	navChrome         // the shared nav (chrome.go); the desk keeps the bare librarian entrance
+	Title      string // page <title>
+	World      string
+	WorldPath  string
+	Path       string
+	Body       string
+	DocTitle   string // metadata title field
+	Tags       string // ordinary tags, comma-joined for the input
+	Importance string
+	Status     string
+	Version    int
+	Statuses   []string
+	Create     bool   // create mode: editable path field, POSTs to /new, version 0
+	Append     bool   // append mode: body-only, POSTs to /append, no metadata
+	Error      string // write-error banner; empty ⇒ none
+	Notice     string // merge-candidate banner (not an error); empty ⇒ none
+	Trail      string // carried trail context (the /t/* remainder); empty ⇒ none
+	TrailPane  string // originating pane index within Trail
+	CancelURL  string // cancel target: back onto the trail, or the standalone page
 }
 
 // returnTrail parses the trail context carried through the edit flow (the
@@ -96,26 +103,25 @@ func afterWriteURL(c *echo.Context, world, path string) string {
 
 // EditForm serves the edit form pre-filled from the document's current source
 // and metadata. GET /w/:world/edit/<path>.
-func (h *ReadingHandler) EditForm(c *echo.Context) error {
+func (h *EditHandler) EditForm(c *echo.Context) error {
 	world := c.Param("world")
 	p := "/" + c.Param("*")
-	draft, err := h.reading.EditDraft(c.Request().Context(), world, p)
+	draft, err := h.editor.EditDraft(c.Request().Context(), world, p)
 	if err != nil {
 		return presentError(c, err, world, p)
 	}
 	vm := editVM{
-		Title:         "Edit: " + p,
-		World:         world,
-		WorldPath:     url.PathEscape(world),
-		Path:          p,
-		Body:          draft.Body,
-		DocTitle:      draft.Title,
-		Tags:          strings.Join(draft.Tags, ", "),
-		Importance:    draft.Importance,
-		Status:        draft.Status,
-		Version:       draft.Version,
-		Statuses:      editStatuses,
-		Authenticated: c.Get(authedKey) != nil, User: userEmail(c),
+		Title:      "Edit: " + p,
+		World:      world,
+		WorldPath:  url.PathEscape(world),
+		Path:       p,
+		Body:       draft.Body,
+		DocTitle:   draft.Title,
+		Tags:       strings.Join(draft.Tags, ", "),
+		Importance: draft.Importance,
+		Status:     draft.Status,
+		Version:    draft.Version,
+		Statuses:   editStatuses,
 	}
 	vm.Trail, vm.TrailPane = trailParams(c.QueryParam("trail"), c.QueryParam("tpane"))
 	return h.renderEdit(c, http.StatusOK, &vm)
@@ -125,16 +131,15 @@ func (h *ReadingHandler) EditForm(c *echo.Context) error {
 // an editable path field, an empty body, and version 0 (the create sentinel).
 // GET /w/:world/new[?dir=/plans/] pre-fills the path with the directory the
 // reader came from, so "new here" lands in the right folder.
-func (h *ReadingHandler) NewForm(c *echo.Context) error {
+func (h *EditHandler) NewForm(c *echo.Context) error {
 	world := c.Param("world")
 	vm := editVM{
-		Title:         "New document",
-		World:         world,
-		WorldPath:     url.PathEscape(world),
-		Path:          newPathPrefill(c.QueryParam("dir")),
-		Statuses:      editStatuses,
-		Authenticated: c.Get(authedKey) != nil, User: userEmail(c),
-		Create: true,
+		Title:     "New document",
+		World:     world,
+		WorldPath: url.PathEscape(world),
+		Path:      newPathPrefill(c.QueryParam("dir")),
+		Statuses:  editStatuses,
+		Create:    true,
 	}
 	vm.Trail, vm.TrailPane = trailParams(c.QueryParam("trail"), c.QueryParam("tpane"))
 	return h.renderEdit(c, http.StatusOK, &vm)
@@ -144,7 +149,7 @@ func (h *ReadingHandler) NewForm(c *echo.Context) error {
 // expected_version 0, then redirects to it. POST /w/:world/new. A path that
 // already exists fails the version-0 guard and re-renders with a clear "already
 // exists" prompt — create never clobbers an existing document.
-func (h *ReadingHandler) CreateDoc(c *echo.Context) error {
+func (h *EditHandler) CreateDoc(c *echo.Context) error {
 	world := c.Param("world")
 	path, ok := normalizeNewPath(c.FormValue("path"))
 	body := c.FormValue("body")
@@ -155,18 +160,17 @@ func (h *ReadingHandler) CreateDoc(c *echo.Context) error {
 	}
 
 	vm := editVM{
-		Title:         "New document",
-		World:         world,
-		WorldPath:     url.PathEscape(world),
-		Path:          strings.TrimSpace(c.FormValue("path")),
-		Body:          body,
-		DocTitle:      meta.Title,
-		Tags:          strings.TrimSpace(c.FormValue("tags")),
-		Importance:    meta.Importance,
-		Status:        c.FormValue("status"),
-		Statuses:      editStatuses,
-		Authenticated: c.Get(authedKey) != nil, User: userEmail(c),
-		Create: true,
+		Title:      "New document",
+		World:      world,
+		WorldPath:  url.PathEscape(world),
+		Path:       strings.TrimSpace(c.FormValue("path")),
+		Body:       body,
+		DocTitle:   meta.Title,
+		Tags:       strings.TrimSpace(c.FormValue("tags")),
+		Importance: meta.Importance,
+		Status:     c.FormValue("status"),
+		Statuses:   editStatuses,
+		Create:     true,
 	}
 	vm.Trail, vm.TrailPane = trailParams(c.FormValue("trail"), c.FormValue("tpane"))
 	if !ok {
@@ -177,7 +181,7 @@ func (h *ReadingHandler) CreateDoc(c *echo.Context) error {
 	// Create publishes at version 0 → on_conflict "fail" (a path-taken conflict
 	// is ErrConflict, never a merge candidate), so the candidate return is
 	// always nil here.
-	if _, _, err := h.reading.Publish(c.Request().Context(), world, path, body, meta, 0); err != nil {
+	if _, _, err := h.editor.Publish(c.Request().Context(), world, path, body, meta, 0); err != nil {
 		vm.Path = path
 		vm.Error = createErrorMessage(err)
 		return h.renderEdit(c, editErrorStatus(err), &vm)
@@ -241,16 +245,15 @@ func createErrorMessage(err error) string {
 // AppendForm serves the append form — the edit template in append mode: a
 // body-only editor (no metadata, no version) that adds to an existing document.
 // GET /w/:world/append/<path>.
-func (h *ReadingHandler) AppendForm(c *echo.Context) error {
+func (h *EditHandler) AppendForm(c *echo.Context) error {
 	world := c.Param("world")
 	p := "/" + c.Param("*")
 	vm := editVM{
-		Title:         "Append: " + p,
-		World:         world,
-		WorldPath:     url.PathEscape(world),
-		Path:          p,
-		Authenticated: c.Get(authedKey) != nil, User: userEmail(c),
-		Append: true,
+		Title:     "Append: " + p,
+		World:     world,
+		WorldPath: url.PathEscape(world),
+		Path:      p,
+		Append:    true,
 	}
 	vm.Trail, vm.TrailPane = trailParams(c.QueryParam("trail"), c.QueryParam("tpane"))
 	return h.renderEdit(c, http.StatusOK, &vm)
@@ -259,7 +262,7 @@ func (h *ReadingHandler) AppendForm(c *echo.Context) error {
 // AppendDoc appends the submitted body to the document, then redirects to it.
 // POST /w/:world/append/<path>. Empty content is rejected — append must add
 // something. Metadata and version are the server's concern (auto-resolved).
-func (h *ReadingHandler) AppendDoc(c *echo.Context) error {
+func (h *EditHandler) AppendDoc(c *echo.Context) error {
 	world := c.Param("world")
 	p := "/" + c.Param("*")
 	body := c.FormValue("body")
@@ -267,17 +270,17 @@ func (h *ReadingHandler) AppendDoc(c *echo.Context) error {
 	if strings.TrimSpace(body) == "" {
 		vm := editVM{
 			Title: "Append: " + p, World: world, WorldPath: url.PathEscape(world),
-			Path: p, Authenticated: c.Get(authedKey) != nil, User: userEmail(c), Append: true,
+			Path: p, Append: true,
 			Error: "Nothing to append — write some content first.",
 		}
 		vm.Trail, vm.TrailPane = trailParams(c.FormValue("trail"), c.FormValue("tpane"))
 		return h.renderEdit(c, http.StatusBadRequest, &vm)
 	}
 
-	if _, err := h.reading.Append(c.Request().Context(), world, p, body); err != nil {
+	if _, err := h.editor.Append(c.Request().Context(), world, p, body); err != nil {
 		vm := editVM{
 			Title: "Append: " + p, World: world, WorldPath: url.PathEscape(world),
-			Path: p, Body: body, Authenticated: c.Get(authedKey) != nil, User: userEmail(c), Append: true,
+			Path: p, Body: body, Append: true,
 			Error: editErrorMessage(err),
 		}
 		vm.Trail, vm.TrailPane = trailParams(c.FormValue("trail"), c.FormValue("tpane"))
@@ -288,8 +291,8 @@ func (h *ReadingHandler) AppendDoc(c *echo.Context) error {
 
 // EditPreview renders the edit buffer to sanitized HTML for the live preview —
 // the same renderer the reader uses. POST /w/:world/preview (htmx fragment).
-func (h *ReadingHandler) EditPreview(c *echo.Context) error {
-	rendered, err := h.reading.Preview(c.FormValue("body"))
+func (h *EditHandler) EditPreview(c *echo.Context) error {
+	rendered, err := h.editor.Preview(c.FormValue("body"))
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "preview failed")
 	}
@@ -308,7 +311,7 @@ func (h *ReadingHandler) EditPreview(c *echo.Context) error {
 // mark_publish metadata object (never a body fence). On a version conflict the
 // form re-renders with the submitted content and a reload prompt — the edit is
 // never silently lost.
-func (h *ReadingHandler) SaveEdit(c *echo.Context) error {
+func (h *EditHandler) SaveEdit(c *echo.Context) error {
 	world := c.Param("world")
 	p := "/" + c.Param("*")
 	// version is the hidden field the edit form rendered from EditDraft, so a
@@ -326,7 +329,7 @@ func (h *ReadingHandler) SaveEdit(c *echo.Context) error {
 		Importance: strings.TrimSpace(c.FormValue("importance")),
 	}
 
-	_, merge, err := h.reading.Publish(c.Request().Context(), world, p, body, meta, version)
+	_, merge, err := h.editor.Publish(c.Request().Context(), world, p, body, meta, version)
 	if err == nil && merge == nil {
 		// Real POST (the form opts out of hx-boost), so a 303 is a normal
 		// browser redirect — back onto the carried trail, or the document.
@@ -334,18 +337,17 @@ func (h *ReadingHandler) SaveEdit(c *echo.Context) error {
 	}
 
 	vm := editVM{
-		Title:         "Edit: " + p,
-		World:         world,
-		WorldPath:     url.PathEscape(world),
-		Path:          p,
-		Body:          body,
-		DocTitle:      meta.Title,
-		Tags:          strings.TrimSpace(c.FormValue("tags")),
-		Importance:    meta.Importance,
-		Status:        c.FormValue("status"),
-		Version:       version,
-		Statuses:      editStatuses,
-		Authenticated: c.Get(authedKey) != nil, User: userEmail(c),
+		Title:      "Edit: " + p,
+		World:      world,
+		WorldPath:  url.PathEscape(world),
+		Path:       p,
+		Body:       body,
+		DocTitle:   meta.Title,
+		Tags:       strings.TrimSpace(c.FormValue("tags")),
+		Importance: meta.Importance,
+		Status:     c.FormValue("status"),
+		Version:    version,
+		Statuses:   editStatuses,
 	}
 	vm.Trail, vm.TrailPane = trailParams(c.FormValue("trail"), c.FormValue("tpane"))
 	if merge != nil {
@@ -424,12 +426,10 @@ func editErrorStatus(err error) int {
 }
 
 // renderEdit is the single seam every edit-form render goes through: it stamps
-// the shared nav fields (the librarian door) and the cancel target so the nine
-// construction sites don't each repeat them.
-func (h *ReadingHandler) renderEdit(c *echo.Context, status int, vm *editVM) error {
-	if h.lib != nil {
-		vm.LibrarianURL = "/a"
-	}
+// the shared nav chrome and the cancel target so the nine construction sites
+// don't each repeat them.
+func (h *EditHandler) renderEdit(c *echo.Context, status int, vm *editVM) error {
+	vm.navChrome = h.chrome.build(c)
 	vm.CancelURL = editCancelURL(vm)
 	return c.Render(status, "edit", vm)
 }

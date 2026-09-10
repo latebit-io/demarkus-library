@@ -32,7 +32,7 @@ func librarianApp(t *testing.T, lib *fakeLibrarian) *echo.Echo {
 	}
 	app.Renderer = view
 	svc := &fakeReading{doc: domain.Document{Title: "X", Path: "/x.md", HTML: "<p>x</p>"}}
-	ReadingRoutes(app, NewReadingHandler(svc, "soul.demarkus.io", "/index.md").WithLibrarian(lib))
+	RoomRoutes(app, NewRoom(svc, "soul.demarkus.io", "/index.md").WithLibrarian(lib))
 	return app
 }
 

@@ -2,6 +2,11 @@
 // the reading room through the inbound port. It depends on port.ReadingService,
 // never on the concrete service or any outbound adapter.
 //
+// One handler per surface family — reading, editing, graph and map, palette,
+// librarian, branding — each over the slice of the port it drives. Room
+// (room.go) assembles them and registers their routes; the nav they all render
+// is built once per request by chrome.go.
+//
 // Rendering is SSR-first, htmx-hard (ADR 0003): every response is server-rendered
 // HTML. A boosted navigation gets the full "page"; a targeted htmx swap gets the
 // "content" fragment. One handler, one template — no duplicate render path — and
@@ -32,51 +37,28 @@ import (
 	"github.com/latebit-io/demarkus-library/internal/core/port"
 )
 
-// ReadingHandler serves rendered demarkus documents, listings, catalog searches,
-// and edition histories. It depends on the inbound port, not the concrete service.
+// readingPorts is the slice of the inbound port the reading surfaces drive:
+// documents and the catalog, plus the render-time links graph the margin, the
+// dock and the graph overlay read back. Maps, writes and the librarian belong
+// to the handlers that own those surfaces.
+type readingPorts interface {
+	port.Reader
+	port.GraphService
+}
+
+// ReadingHandler serves rendered demarkus documents, listings, catalog
+// searches, edition histories, and the trail canvas that composes them. The
+// canvas is the one surface that shows every pane kind, so it holds the pane
+// builders the spatial and librarian surfaces own rather than their ports.
+// Room (room.go) assembles it.
 type ReadingHandler struct {
-	reading      port.ReadingService
-	lib          port.Librarian // nil = librarian not configured (feature-dark)
-	asks         *pendingAsks   // POST /a/ask → SSE handoff tokens (librarian_asks.go)
+	reading      readingPorts
+	spatial      spatialPanes   // floor, world-map and graph panes (spatial_panes.go)
+	librarian    librarianPanes // the librarian pane and its render pipeline (librarian_pane.go)
 	defaultWorld string
 	defaultDoc   string
-	paneScroll   bool         // the pane-scroll room, ADR 0007 (DEMARKUS_PANE_SCROLL opts out)
-	terms        Terms        // display vocabulary (Branding.Terms); handler-built labels read it
-	brands       *WorldBrands // in-world branding resolver (ADR 0008); nil ⇒ desk shows nothing current
-}
-
-// NewReadingHandler binds the reading service, the world served at /, and the
-// document shown there.
-func NewReadingHandler(reading port.ReadingService, defaultWorld, defaultDoc string) ReadingHandler {
-	return ReadingHandler{reading: reading, asks: newPendingAsks(), defaultWorld: defaultWorld, defaultDoc: defaultDoc, terms: DefaultTerms()}
-}
-
-// WithBranding adopts the operator's vocabulary for labels the handlers
-// build in Go (floor titles, dock anchor, palette rows); the templates read
-// the same Branding through the view.
-func (h ReadingHandler) WithBranding(b Branding) ReadingHandler {
-	if b.Terms.Universe != "" {
-		h.terms = b.Terms
-	}
-	return h
-}
-
-// WithLibrarian wires the Phase 4 librarian into the reading room (the
-// composition root calls it when an LLM provider resolved). Without it the
-// librarian pane renders its not-on-duty state and asks are rejected.
-func (h ReadingHandler) WithLibrarian(lib port.Librarian) ReadingHandler {
-	h.lib = lib
-	return h
-}
-
-// WithPaneScroll selects the pane-scroll room (ADR 0007 — the default; the
-// composition root skips it only when DEMARKUS_PANE_SCROLL opts out): the
-// canvas is a fixed-viewport room where each pane scrolls internally
-// (the sliding-panes model). Presentation only — a body class the stylesheet
-// keys off; routes, trail state, and the no-JS room are untouched.
-func (h ReadingHandler) WithPaneScroll() ReadingHandler {
-	h.paneScroll = true
-	return h
+	chrome       chromeBuilder // the shared nav, built once per request (chrome.go)
+	terms        Terms         // display vocabulary (Branding.Terms); handler-built labels read it
 }
 
 // tagLink is one clickable tag in the margin — the lateral-nav exit to a
@@ -88,15 +70,13 @@ type tagLink struct {
 
 // page is the view model shared by the "page" layout and the "content" partial.
 type page struct {
-	Title         string
-	Host          string
-	Path          string
-	Content       template.HTML // sanitized by the markdown adapter, links rewritten here
-	World         string        // current world (display)
-	WorldPath     string        // current world, path-escaped for URL building
-	Authenticated bool          // behind the turnstile (broker mode) — shows sign-out
-	User          string        // signed-in identity's email for the nav (empty ⇒ not shown)
-	LibrarianURL  string        // nav door to the librarian pane (empty ⇒ not configured)
+	navChrome // the shared nav (chrome.go)
+	Title     string
+	Host      string
+	Path      string
+	Content   template.HTML // sanitized by the markdown adapter, links rewritten here
+	World     string        // current world (display)
+	WorldPath string        // current world, path-escaped for URL building
 
 	// The margin (documents only — listings and catalog views render
 	// without one; an empty margin is correct, ADR 0005 decision 8).
@@ -153,26 +133,6 @@ type viewOpts struct {
 func (h *ReadingHandler) Root(c *echo.Context) error {
 	home := trail{Panes: []paneAddr{{Kind: paneFloor}}, Focus: 0}
 	return c.Redirect(http.StatusFound, trailURL(home))
-}
-
-// FloorPage serves the universe floor for the on-demand overlay (ADR 0006 §6):
-// ?overlay=1 returns the bare universe-map SVG fragment, htmx-loaded into
-// #universe-canvas when the reader pulls up the floor's "view as map" link. The
-// floor has no standalone permalink (its home is pane zero, /t/u), so a direct
-// hit without ?overlay=1 is sent to the canvas floor. Nodes extend the reader's
-// current trail (from HX-Current-URL), so a click in the overlay continues the
-// walk and the navigation dismisses the overlay.
-func (h *ReadingHandler) FloorPage(c *echo.Context) error {
-	if c.QueryParam("overlay") != "1" {
-		home := trail{Panes: []paneAddr{{Kind: paneFloor}}, Focus: 0}
-		return c.Redirect(http.StatusSeeOther, trailURL(home))
-	}
-	floor, err := h.reading.Floor(c.Request().Context())
-	if err != nil {
-		return presentError(c, err, "universe", "/")
-	}
-	t := currentTrail(c)
-	return c.HTML(http.StatusOK, string(floorSVG(floor, t, t.Focus, h.terms)))
 }
 
 // canvasTrailURL returns the canonical /t/ trail URL for a single pane, or ""
@@ -307,22 +267,18 @@ func (h *ReadingHandler) present(c *echo.Context, doc domain.Document, err error
 		// version still renders in full; it just never becomes a backlink.
 		h.reading.RecordLinks(opts.world, doc.Path, edges)
 	}
+	// The nav's librarian door is the bare entrance here: interactive doc
+	// navigation lands on the canvas (canvasTrailURL), where the door carries
+	// the trail; the standalone surfaces that render this nav (versions, raw,
+	// fragment escapes) get the bare librarian trail.
 	vm := page{
-		Title:         doc.Title,
-		Host:          doc.Source,
-		Path:          doc.Path,
-		Content:       template.HTML(content), //nolint:gosec // sanitized in the markdown adapter; rewriteLinks/linkify only edit links
-		World:         opts.world,
-		WorldPath:     url.PathEscape(opts.world),
-		Authenticated: c.Get(authedKey) != nil, // set by RequireSession in broker mode
-		User:          userEmail(c),
-	}
-	if h.lib != nil {
-		// The nav's librarian door. Interactive doc navigation always lands
-		// on the canvas (canvasTrailURL), where the door carries the trail;
-		// the standalone page surfaces that render this nav (versions, raw,
-		// fragment escapes) get the bare librarian trail.
-		vm.LibrarianURL = "/a"
+		navChrome: h.chrome.build(c),
+		Title:     doc.Title,
+		Host:      doc.Source,
+		Path:      doc.Path,
+		Content:   template.HTML(content), //nolint:gosec // sanitized in the markdown adapter; rewriteLinks/linkify only edit links
+		World:     opts.world,
+		WorldPath: url.PathEscape(opts.world),
 	}
 	if opts.doc {
 		vm.IsDoc = true
@@ -350,7 +306,7 @@ func (h *ReadingHandler) present(c *echo.Context, doc domain.Document, err error
 			return docRoute(r.World, r.Path)
 		})
 	}
-	return c.Render(http.StatusOK, h.templateFor(c), vm)
+	return c.Render(http.StatusOK, templateFor(c), vm)
 }
 
 // presentError maps domain errors to HTTP errors — shared by the rendered
@@ -394,8 +350,9 @@ func tagLinks(world string, tags []string) []tagLink {
 
 // templateFor returns the fragment for a targeted htmx swap and the full page
 // otherwise. A boosted navigation wants the whole document, so it gets the
-// full page; only non-boosted htmx requests get the bare fragment.
-func (h *ReadingHandler) templateFor(c *echo.Context) string {
+// full page; only non-boosted htmx requests get the bare fragment. Shared by
+// every surface that renders the "page" view model.
+func templateFor(c *echo.Context) string {
 	if wantsFragment(c.Request()) {
 		return "content"
 	}
