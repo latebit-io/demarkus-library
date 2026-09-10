@@ -29,7 +29,7 @@ func authedApp(t *testing.T, svc *fakeReading) *echo.Echo {
 			return next(c)
 		}
 	}
-	ReadingRoutes(app, NewReadingHandler(svc, "soul.demarkus.io", "/index.md"), mark)
+	RoomRoutes(app, NewRoom(svc, "soul.demarkus.io", "/index.md"), mark)
 	return app
 }
 

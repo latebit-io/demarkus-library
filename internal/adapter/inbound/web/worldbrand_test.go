@@ -44,7 +44,7 @@ func inWorldApp(t *testing.T, svc *fakeReading) (*echo.Echo, *WorldBrands) {
 	brands := NewWorldBrands(svc)
 	app.Renderer = view.WithBranding(branding).WithWorldBrands(brands)
 	WorldThemeRoutes(app, branding, brands)
-	ReadingRoutes(app, NewReadingHandler(svc, "soul.demarkus.io", "/index.md").WithBranding(branding))
+	RoomRoutes(app, NewRoom(svc, "soul.demarkus.io", "/index.md").WithBranding(branding))
 	return app, brands
 }
 

@@ -5,20 +5,19 @@ import (
 	"html"
 	"html/template"
 	"math"
-	"net/http"
-	"net/url"
 	"strings"
 
-	"github.com/labstack/echo/v5"
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
 )
 
-// The graph neighborhood pane (R3; ADR 0005 decisions 4/5). One document with
-// its observed outbound links and backlinks, rendered as SSR SVG — same
+// The graph neighborhood renderer (R3; ADR 0005 decisions 4/5). One document
+// with its observed outbound links and backlinks, drawn as SSR SVG — same
 // approach as the floor, so ADR 0003's canvas island stays unspent. Every node
 // is a plain <a> whose href continues the trail (walking the graph IS building
-// a trail). Edges come from the render-time observed-links map, so the pane
+// a trail). Edges come from the render-time observed-links map, so the view
 // works in both transports and is simply sparse until the documents are read.
+// The pane and the standalone page that call this live in spatial_panes.go and
+// spatial_handlers.go.
 const (
 	graphLabel    = 22 // neighbor label length cap
 	graphCenterR  = 9
@@ -77,60 +76,6 @@ func directedEdge(b *strings.Builder, x1, y1, r1, x2, y2, r2 int, fromID, toID, 
 		fmt.Fprintf(b, `<title>%s</title>`, html.EscapeString(rel))
 	}
 	b.WriteString(`</line>`)
-}
-
-// GraphPage renders the graph neighborhood as a standalone permalink —
-// /w/:world/g/<path> — the chunk-tail source and projection escape (decision
-// 12). On the canvas the same neighborhood renders as a trail pane.
-func (h *ReadingHandler) GraphPage(c *echo.Context) error {
-	world := c.Param("world")
-	p := "/" + c.Param("*")
-	if u := canvasTrailURL(c, paneAddr{Kind: paneGraph, World: world, Value: p}); u != "" {
-		return c.Redirect(http.StatusSeeOther, u)
-	}
-	n := h.reading.Neighborhood(world, p)
-	// Single-pane permalink: nodes link to /w/ document permalinks.
-	svg := graphSVG(n, func(r domain.Ref) string { return docRoute(r.World, r.Path) }, nil)
-	vm := page{
-		Title:         "Graph: " + p,
-		Host:          world,
-		Path:          p,
-		Content:       svg,
-		World:         world,
-		WorldPath:     url.PathEscape(world),
-		Authenticated: c.Get(authedKey) != nil,
-		User:          userEmail(c),
-	}
-	return c.Render(http.StatusOK, h.templateFor(c), vm)
-}
-
-// graphPaneView builds the graph pane on the trail canvas: nodes link to
-// post-click trail URLs so a click continues the trail (decision 4). Like the
-// floor, the graph carries no margin — its signals are on the nodes.
-func (h *ReadingHandler) graphPaneView(t trail, i int, addr paneAddr) paneVM {
-	mode := "spine"
-	switch i {
-	case t.Focus:
-		mode = "focused"
-	case t.Focus - 1:
-		mode = "body"
-	}
-	vm := paneVM{
-		Mode:     mode,
-		Kind:     paneGraph,
-		FocusURL: trailURL(trailFocused(t, i)),
-		Title:    "Graph: " + refTitle(domain.Ref{Path: addr.Value}),
-		World:    addr.World,
-		Path:     addr.Value,
-	}
-	if mode == "spine" {
-		return vm
-	}
-	n := h.reading.Neighborhood(addr.World, addr.Value)
-	vm.Content = graphSVG(n, func(r domain.Ref) string {
-		return trailURL(trailAfterClick(t, i, paneAddr{Kind: paneDoc, World: r.World, Value: r.Path}))
-	}, trailDocRefs(t))
-	return vm
 }
 
 // graphSVG lays out the neighborhood deterministically (server-side, no client

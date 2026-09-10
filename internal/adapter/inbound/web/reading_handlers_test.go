@@ -243,7 +243,7 @@ func readingApp(t *testing.T, svc *fakeReading) *echo.Echo {
 		t.Fatalf("NewView: %v", err)
 	}
 	app.Renderer = view
-	ReadingRoutes(app, NewReadingHandler(svc, "soul.demarkus.io", "/index.md"))
+	RoomRoutes(app, NewRoom(svc, "soul.demarkus.io", "/index.md"))
 	return app
 }
 

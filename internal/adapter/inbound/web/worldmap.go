@@ -1,18 +1,15 @@
 package web
 
 import (
-	"context"
 	"fmt"
 	"html"
 	"html/template"
 	"math"
-	"net/http"
 	"net/url"
 	"sort"
 	"strconv"
 	"strings"
 
-	"github.com/labstack/echo/v5"
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
 )
 
@@ -40,65 +37,6 @@ const (
 	wmLabelTrim  = 18   // node label length cap (full title in <title>)
 )
 
-// WorldMapPage renders a world's map as a standalone permalink — /w/:world/u —
-// the chunk-tail source and projection escape (ADR 0005 decision 12). On the
-// canvas the same map renders as a trail pane.
-func (h *ReadingHandler) WorldMapPage(c *echo.Context) error {
-	world := c.Param("world")
-	// A plain navigation to the standalone map lands on the canvas (with the map
-	// pane); the overlay pull-up (?overlay=1) is always served as a fragment.
-	if c.QueryParam("overlay") != "1" {
-		if u := canvasTrailURL(c, paneAddr{Kind: paneFloor, World: world}); u != "" {
-			return c.Redirect(http.StatusSeeOther, u)
-		}
-	}
-	wm, err := h.reading.WorldMap(c.Request().Context(), world)
-	if err != nil {
-		return presentError(c, err, world, "/")
-	}
-	authed := c.Get(authedKey) != nil
-
-	// Overlay mode (ADR 0006 §5): the on-demand map pull-up htmx-loads this with
-	// ?overlay=1. Its nodes extend the reader's trail (from HX-Current-URL), and
-	// it returns a bare SVG fragment to swap into the overlay.
-	if c.QueryParam("overlay") == "1" {
-		t := currentTrail(c)
-		opts := wmOpts{
-			open: strings.Split(c.QueryParam("open"), ","),
-			openURL: func(keys []string) string {
-				return "/w/" + url.PathEscape(world) + "/u?overlay=1&open=" + url.QueryEscape(strings.Join(keys, ","))
-			},
-		}
-		svg := worldMapRender(wm, func(p string) string {
-			if len(t.Panes) > 0 {
-				return trailURL(trailAfterClick(t, t.Focus, paneAddr{Kind: paneDoc, World: world, Value: p}))
-			}
-			return docRoute(world, p)
-		}, worldNewURL(world, authed), opts)
-		return c.HTML(http.StatusOK, string(svg))
-	}
-
-	// Single-pane permalink: nodes link to /w/ permalinks.
-	svg := worldMapSVG(wm,
-		func(p string) string { return docRoute(world, p) },
-		worldNewURL(world, authed))
-	vm := page{
-		Title:         "Map: " + world,
-		Host:          world,
-		Path:          "/",
-		Content:       svg,
-		World:         world,
-		WorldPath:     url.PathEscape(world),
-		Authenticated: c.Get(authedKey) != nil,
-		User:          userEmail(c),
-	}
-	return c.Render(http.StatusOK, h.templateFor(c), vm)
-}
-
-// worldMapPaneView builds the world-map pane on the trail canvas (focused-live
-// like every pane): nodes link to post-click trail URLs so a click continues
-// the trail (decision 4). Like the floor, the map carries no margin — its
-// signals are on the nodes (status strokes, importance sizing).
 // worldNewURL is the world-map's "new document" affordance target — create at
 // the world root — or "" for an unauthenticated reader (writes are gated on a
 // session, same posture as the doc-margin "new").
@@ -107,44 +45,6 @@ func worldNewURL(world string, authed bool) string {
 		return ""
 	}
 	return "/w/" + url.PathEscape(world) + "/new?dir=" + url.QueryEscape("/")
-}
-
-func (h *ReadingHandler) worldMapPaneView(ctx context.Context, t trail, i int, addr paneAddr, authed bool) (paneVM, error) {
-	focused := i == t.Focus
-	var wm domain.WorldMap
-	var err error
-	if focused {
-		wm, err = h.reading.WorldMap(ctx, addr.World)
-	} else {
-		wm, err = h.reading.WorldMapCached(ctx, addr.World)
-	}
-	if err != nil {
-		return paneVM{}, err
-	}
-
-	mode := "spine"
-	switch {
-	case focused:
-		mode = "focused"
-	case i == t.Focus-1:
-		mode = "body"
-	}
-	vm := paneVM{
-		Mode:     mode,
-		Kind:     paneFloor,
-		FocusURL: trailURL(trailFocused(t, i)),
-		Title:    "Map: " + addr.World,
-		World:    addr.World,
-	}
-	if mode == "spine" {
-		return vm, nil
-	}
-	vm.Content = worldMapSVG(wm,
-		func(p string) string {
-			return trailURL(trailAfterClick(t, i, paneAddr{Kind: paneDoc, World: addr.World, Value: p}))
-		},
-		worldNewURL(addr.World, authed))
-	return vm, nil
 }
 
 // wmOpts carries the aggregation view state (plans/world-map-aggregation.md).

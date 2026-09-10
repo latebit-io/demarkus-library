@@ -31,7 +31,7 @@ func deskApp(t *testing.T, svc *fakeReading) (*echo.Echo, *WorldBrands) {
 			return next(c)
 		}
 	}
-	ReadingRoutes(app, NewReadingHandler(svc, "soul.demarkus.io", "/index.md").WithWorldBrands(brands), mark)
+	RoomRoutes(app, NewRoom(svc, "soul.demarkus.io", "/index.md").WithWorldBrands(brands), mark)
 	return app, brands
 }
 

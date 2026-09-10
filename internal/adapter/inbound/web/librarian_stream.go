@@ -49,7 +49,7 @@ const soakCap = 120
 // handlerTimeout and survive proxies/ingress between client and pod —
 // re-run it whenever the deployment topology changes. Anything else has
 // nothing to stream and says so.
-func (h *ReadingHandler) LibrarianStream(c *echo.Context) error {
+func (h *LibrarianHandler) LibrarianStream(c *echo.Context) error {
 	// An ask costs model tokens and appends to the reader's conversation;
 	// EventSource can't carry a CSRF token, so reject cross-site fetches at
 	// the metadata level (absent header = older client or direct curl: allow).
@@ -162,7 +162,7 @@ func streamSoak(ctx context.Context, slow int, send func(event, data string) boo
 // SSE vocabulary. The pending ask carries the question and the pane's trail
 // context (server-side, via the token) so the rendered answer's citations
 // continue the trail.
-func (h *ReadingHandler) streamAsk(ctx context.Context, c *echo.Context, pa pendingAsk, send, sendHTML func(event, data string) bool) error {
+func (h *LibrarianHandler) streamAsk(ctx context.Context, c *echo.Context, pa pendingAsk, send, sendHTML func(event, data string) bool) error {
 	t := pa.t
 
 	events, err := h.lib.Ask(ctx, pa.convKey, pa.question, pa.context)

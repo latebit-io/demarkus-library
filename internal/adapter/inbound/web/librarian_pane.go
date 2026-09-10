@@ -14,19 +14,16 @@ package web
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"html/template"
-	"net/http"
-	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
-	"time"
 	"unicode/utf8"
 
 	"github.com/labstack/echo/v5"
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
+	"github.com/latebit-io/demarkus-library/internal/core/port"
 	"golang.org/x/net/html"
 	"golang.org/x/net/html/atom"
 )
@@ -34,6 +31,30 @@ import (
 // maxQuestionBytes bounds one question (plan D7) — well under the global
 // body limit; a question is a question, not a document.
 const maxQuestionBytes = 4 * 1024
+
+// librarianReader is what the librarian needs from the reading core: the
+// renderer documents go through (so an answer is rendered the same way) and
+// the cached reads that build the reader's context without spending the
+// focused-live budget.
+type librarianReader interface {
+	Preview(markdown string) (domain.Rendered, error)
+	OpenCached(ctx context.Context, world, path string) (domain.Document, error)
+}
+
+// librarianPanes builds everything the librarian contributes to a rendered
+// page: its canvas pane, the answer HTML, and the reader-context block an ask
+// carries. The canvas holds one (it composes every pane kind) and so does
+// LibrarianHandler, so the ports and the render pipeline are declared once.
+type librarianPanes struct {
+	lib          port.Librarian // nil = not configured; the pane says so and asks are rejected
+	reader       librarianReader
+	defaultWorld string
+	terms        Terms
+}
+
+// enabled reports whether a librarian is on duty — the nav door and the ask
+// form hang off it.
+func (h librarianPanes) enabled() bool { return h.lib != nil }
 
 // librarianAskVM feeds the pane's ask form: the current trail context rides
 // as hidden fields so the POST can rebuild post-ask URLs and the stream can
@@ -61,10 +82,10 @@ type librarianPaneVM struct {
 	Ask       *librarianAskVM // nil unless the pane is focused and enabled
 }
 
-// librarianPaneView builds the librarian pane: transcript from History,
-// rendered like any pane body, ask form when focused. No world read, never
-// errors — a librarian problem is a notice, not a tombstone.
-func (h *ReadingHandler) librarianPaneView(c *echo.Context, t trail, i int) paneVM {
+// pane builds the librarian pane: transcript from History, rendered like any
+// pane body, ask form when focused. No world read, never errors — a librarian
+// problem is a notice, not a tombstone.
+func (h librarianPanes) pane(c *echo.Context, t trail, i int) paneVM {
 	focused := i == t.Focus
 	mode := "spine"
 	switch {
@@ -111,8 +132,8 @@ func (h *ReadingHandler) librarianPaneView(c *echo.Context, t trail, i int) pane
 // render + sanitize (the model's output is untrusted input), resolve links to
 // in-app routes, wrap hover previews, and trailize so a cited document
 // continues the trail from the librarian pane.
-func (h *ReadingHandler) renderAnswer(markdown string, t trail, i int) template.HTML {
-	rendered, err := h.reading.Preview(markdown)
+func (h librarianPanes) renderAnswer(markdown string, t trail, i int) template.HTML {
+	rendered, err := h.reader.Preview(markdown)
 	if err != nil {
 		// Render failure degrades to escaped plain text — never raw model
 		// output into the page.
@@ -120,101 +141,6 @@ func (h *ReadingHandler) renderAnswer(markdown string, t trail, i int) template.
 	}
 	content, _ := rewriteLinks(rendered.HTML, h.defaultWorld, "/")
 	return template.HTML(trailizeLinks(previewize(content), t, i, false)) //nolint:gosec // sanitized by Preview; the passes only rewrite/wrap links
-}
-
-// LibrarianEntrance is GET /a — the door into the librarian: a fresh trail
-// holding just the librarian pane. Linkable from anywhere (nav, docs).
-func (h *ReadingHandler) LibrarianEntrance(c *echo.Context) error {
-	return c.Redirect(http.StatusSeeOther, "/t/"+paneLibrarian)
-}
-
-// AskLibrarian is POST /a/ask — the pane's form target. htmx requests get the
-// exchange fragment (question + SSE block streaming the answer); plain form
-// posts run the ask to completion and redirect back to the trail, where the
-// finished exchange renders from History.
-func (h *ReadingHandler) AskLibrarian(c *echo.Context) error {
-	if h.lib == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "the librarian is not on duty")
-	}
-	question := strings.TrimSpace(c.FormValue("question"))
-	if question == "" || len(question) > maxQuestionBytes {
-		return echo.NewHTTPError(http.StatusBadRequest, "ask a question (under 4KB)")
-	}
-	idx, _ := strconv.Atoi(c.FormValue("idx"))
-
-	// The trail rides along for URL-building only (parseTrail clamps a junk
-	// idx to a real pane); a junk trail degrades to the bare librarian trail
-	// rather than failing the ask.
-	t, err := parseTrail(c.FormValue("trail"), strconv.Itoa(idx), "")
-	if err != nil || t.Panes[t.Focus].Kind != paneLibrarian {
-		t = trail{Panes: []paneAddr{{Kind: paneLibrarian}}, Focus: 0, Reader: -1}
-	}
-	// The reader's URL focus (which pane their attention was on when they
-	// asked) rides separately from idx — idx addresses the librarian pane
-	// for link algebra; focus decides whose text goes into the context.
-	focus, _ := strconv.Atoi(c.FormValue("focus"))
-	focus = max(0, min(focus, len(t.Panes)-1))
-	trailContext := h.trailContext(c.Request().Context(), t, focus)
-
-	if c.Request().Header.Get("HX-Request") != "" {
-		// htmx: park the ask under a one-shot token and hand back the live
-		// exchange; the SSE GET presents the token and starts the run. The
-		// question and trail stay out of the URL (history/log/Referer
-		// hygiene + URL length limits); the token binds to this session.
-		// t carries the CLAMPED focus, so a junk idx can't leak through.
-		token, err := h.asks.put(pendingAsk{
-			question: question,
-			context:  trailContext,
-			convKey:  conversationKey(c),
-			t:        t,
-			expires:  time.Now().Add(askTokenTTL),
-		})
-		if err != nil {
-			c.Logger().Error("librarian ask handoff failed", "err", err)
-			return echo.NewHTTPError(http.StatusServiceUnavailable, "the librarian is overwhelmed — try again shortly")
-		}
-		return c.Render(http.StatusOK, "librarian-exchange", librarianExchangeVM{
-			Question:  question,
-			StreamURL: LibrarianStreamPath + "?ask=" + token,
-		})
-	}
-
-	// No JS: run the ask synchronously (events drained, tokens unused) and
-	// PRG back to the trail — the pane re-renders the answer from History.
-	notice := ""
-	events, err := h.lib.Ask(c.Request().Context(), conversationKey(c), question, trailContext)
-	switch {
-	case errors.Is(err, domain.ErrLibrarianBusy):
-		notice = "the librarian is still answering your previous question"
-	case err != nil:
-		c.Logger().Error("librarian ask failed", "err", err)
-		notice = "the librarian could not take that question — try again"
-	default:
-		sawAnswer := false
-		for ev := range events {
-			switch ev.Kind {
-			case domain.LibrarianAnswer:
-				sawAnswer = true
-			case domain.LibrarianError:
-				c.Logger().Error("librarian run failed", "err", ev.Text)
-				notice = "the librarian hit an error answering — the transcript may be incomplete"
-			}
-		}
-		if !sawAnswer && notice == "" {
-			// The run ended without an answer (interrupted, or every turn
-			// was tool calls) — say so rather than rendering a silent blank.
-			notice = "the answer was interrupted — ask again"
-		}
-	}
-	dest := trailURL(t)
-	if notice != "" {
-		sep := "?"
-		if strings.Contains(dest, "?") {
-			sep = "&"
-		}
-		dest += sep + "notice=" + url.QueryEscape(notice)
-	}
-	return c.Redirect(http.StatusSeeOther, dest)
 }
 
 // conversationKey names the reader's conversation: the session cookie in
@@ -236,7 +162,7 @@ const trailContextBudget = 8 * 1024
 // trail = context): every pane's label, plus the focused document's text
 // extracted from its CACHED render — zero extra world reads. Best-effort
 // throughout: a cold cache just means less context, never a failed ask.
-func (h *ReadingHandler) trailContext(ctx context.Context, t trail, focus int) string {
+func (h librarianPanes) trailContext(ctx context.Context, t trail, focus int) string {
 	var b strings.Builder
 	b.WriteString("<reader-context>\nThe reader's open panes (their trail), oldest first:\n")
 	for i, p := range t.Panes {
@@ -248,7 +174,7 @@ func (h *ReadingHandler) trailContext(ctx context.Context, t trail, focus int) s
 		b.WriteByte('\n')
 	}
 	if fa := t.Panes[focus]; fa.Kind == paneDoc && !domain.IsListingPath(fa.Value) {
-		if doc, err := h.reading.OpenCached(ctx, fa.World, fa.Value); err == nil {
+		if doc, err := h.reader.OpenCached(ctx, fa.World, fa.Value); err == nil {
 			text := truncateRunes(neutralizeContextTags(htmlText(doc.HTML)), trailContextBudget)
 			fmt.Fprintf(&b, "\nThe focused document (mark://%s%s — %q) as the reader sees it:\n\"\"\"\n%s\n\"\"\"\n", fa.World, fa.Value, neutralizeContextTags(doc.Title), text)
 		}
@@ -258,7 +184,7 @@ func (h *ReadingHandler) trailContext(ctx context.Context, t trail, focus int) s
 }
 
 // paneContextLabel names one pane for the context block.
-func (h *ReadingHandler) paneContextLabel(ctx context.Context, p paneAddr) string {
+func (h librarianPanes) paneContextLabel(ctx context.Context, p paneAddr) string {
 	switch p.Kind {
 	case paneLibrarian:
 		return "this librarian conversation"
@@ -273,7 +199,7 @@ func (h *ReadingHandler) paneContextLabel(ctx context.Context, p paneAddr) strin
 		return "tag page #" + p.Value + " in world " + p.World
 	default:
 		label := "mark://" + p.World + p.Value
-		if doc, err := h.reading.OpenCached(ctx, p.World, p.Value); err == nil && doc.Title != "" {
+		if doc, err := h.reader.OpenCached(ctx, p.World, p.Value); err == nil && doc.Title != "" {
 			label += " — " + strconv.Quote(neutralizeContextTags(doc.Title))
 		}
 		return label

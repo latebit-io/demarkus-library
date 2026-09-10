@@ -26,17 +26,15 @@ const (
 
 // canvasVM is the view model of the "canvas" template.
 type canvasVM struct {
-	Title         string // focused pane's title (the <title>)
-	World         string // focused pane's world (nav context)
-	Authenticated bool
-	User          string // signed-in identity's email for the nav (empty ⇒ not shown)
-	LibrarianURL  string // nav door: append the librarian pane to THIS trail (empty ⇒ not configured)
-	Panes         []paneVM
-	Reader        *paneVM        // the reader overlay (R4); nil when closed
-	MetaPane      *paneVM        // the metadata overlay (the record lens); nil when closed
-	CloseURL      string         // ✕ / backdrop / Esc target: the bare trail (no overlay)
-	Dock          dockVM         // the bottom orientation strip (ADR 0006 §2)
-	Graph         graphOverlayVM // the on-demand graph overlay (ADR 0006 §4)
+	navChrome        // the shared nav (chrome.go); LibrarianURL is re-pointed at THIS trail
+	Title     string // focused pane's title (the <title>)
+	World     string // focused pane's world (nav context)
+	Panes     []paneVM
+	Reader    *paneVM        // the reader overlay (R4); nil when closed
+	MetaPane  *paneVM        // the metadata overlay (the record lens); nil when closed
+	CloseURL  string         // ✕ / backdrop / Esc target: the bare trail (no overlay)
+	Dock      dockVM         // the bottom orientation strip (ADR 0006 §2)
+	Graph     graphOverlayVM // the on-demand graph overlay (ADR 0006 §4)
 
 	// The world-map overlay shell (ADR 0006 §5, on-demand discovery): empty
 	// until summoned, then htmx-loaded lazily so an unopened map costs no read.
@@ -48,10 +46,6 @@ type canvasVM struct {
 	// floor is on the canvas, where its "view as map" trigger lives. Lazy — the
 	// floorSVG htmx-loads only when the reader pulls it up.
 	FloorHas bool
-
-	// PaneScroll marks the pane-scroll room (ADR 0007, the default): the
-	// canvas template adds a body class and the stylesheet does the rest.
-	PaneScroll bool
 }
 
 // graphOverlayVM is the focused doc's graph overlay (ADR 0006 §4): summoned by
@@ -116,15 +110,13 @@ func (h *ReadingHandler) Trail(c *echo.Context) error {
 	}
 	t = t.withMeta(c.QueryParam("meta"))
 	ctx := c.Request().Context()
-	authed := c.Get(authedKey) != nil
 
 	vm := canvasVM{
-		Authenticated: authed,
-		User:          userEmail(c),
-		Panes:         make([]paneVM, len(t.Panes)),
-		PaneScroll:    h.paneScroll,
+		navChrome: h.chrome.build(c),
+		Panes:     make([]paneVM, len(t.Panes)),
 	}
-	if h.lib != nil {
+	authed := vm.Authenticated
+	if h.librarian.enabled() {
 		// The nav's librarian door appends the pane to the CURRENT trail —
 		// the conversation arrives with the reader's context, and the click
 		// algebra focuses an already-present librarian instead of duplicating.
@@ -152,10 +144,10 @@ func (h *ReadingHandler) Trail(c *echo.Context) error {
 				// The universe floor is on the canvas → its "view as map"
 				// trigger exists, so render the overlay shell (ADR 0006 §6).
 				vm.FloorHas = true
-				pane, err = h.floorPaneView(ctx, t, i, c.QueryParam("view") == "map")
+				pane, err = h.spatial.floorPane(ctx, t, i, c.QueryParam("view") == "map")
 			} else {
 				scope = addr.World
-				pane, err = h.worldMapPaneView(ctx, t, i, addr, authed)
+				pane, err = h.spatial.worldMapPane(ctx, t, i, addr, authed)
 			}
 			if err != nil {
 				if focused {
@@ -171,14 +163,14 @@ func (h *ReadingHandler) Trail(c *echo.Context) error {
 		if addr.Kind == paneGraph {
 			// The graph pane is store-only (no world read), so it never errors
 			// and needs no live/cached split — it renders the same in both.
-			vm.Panes[i] = h.graphPaneView(t, i, addr)
+			vm.Panes[i] = h.spatial.graphPane(t, i, addr)
 			continue
 		}
 		if addr.Kind == paneLibrarian {
 			// The librarian pane renders from server-side conversation state —
 			// no world read, never a tombstone (a librarian problem is a
 			// notice inside the pane, not a Gone spine).
-			vm.Panes[i] = h.librarianPaneView(c, t, i)
+			vm.Panes[i] = h.librarian.pane(c, t, i)
 			continue
 		}
 		doc, err := h.readPane(ctx, addr, focused)
@@ -227,14 +219,7 @@ func (h *ReadingHandler) Trail(c *echo.Context) error {
 	// summoned by `g`. Built here (links observed), embedded hidden — it replaces
 	// the in-trail graph pane. Node clicks are trail jumps from the focus.
 	if fa := t.Panes[t.Focus]; fa.Kind == paneDoc && !domain.IsListingPath(fa.Value) {
-		n := h.reading.Neighborhood(fa.World, fa.Value)
-		vm.Graph = graphOverlayVM{
-			Has:   true,
-			Title: refTitle(n.Center),
-			Content: graphSVG(n, func(r domain.Ref) string {
-				return trailURL(trailAfterClick(t, t.Focus, paneAddr{Kind: paneDoc, World: r.World, Value: r.Path}))
-			}, trailDocRefs(t)),
-		}
+		vm.Graph = h.spatial.graphOverlay(t, fa)
 	}
 
 	// The reader overlay reuses the addressed pane's already-fetched document —
@@ -262,48 +247,6 @@ func (h *ReadingHandler) Trail(c *echo.Context) error {
 	return c.Render(http.StatusOK, "canvas", vm)
 }
 
-// floorPaneView builds the universe pane: floor data (focused-live like
-// every pane), rendered as trail-aware SVG. The floor has no margin — its
-// trust signals are ON the nodes (status strokes, importance sizing).
-func (h *ReadingHandler) floorPaneView(ctx context.Context, t trail, i int, mapView bool) (paneVM, error) {
-	focused := i == t.Focus
-	var floor domain.Floor
-	var err error
-	if focused {
-		floor, err = h.reading.Floor(ctx)
-	} else {
-		floor, err = h.reading.FloorCached(ctx)
-	}
-	if err != nil {
-		return paneVM{}, err
-	}
-
-	mode := "spine"
-	switch {
-	case focused:
-		mode = "focused"
-	case i == t.Focus-1:
-		mode = "body"
-	}
-	vm := paneVM{
-		Mode:     mode,
-		Kind:     paneFloor,
-		FocusURL: trailURL(trailFocused(t, i)),
-		Title:    h.terms.Universe,
-		World:    h.terms.UniverseLower(),
-	}
-	if mode != "spine" {
-		// Worlds-only door cards by default (ADR 0006 §5); the SVG topology is
-		// the deliberate "view as map" secondary view.
-		body := floorCards(floor, t, i, h.terms)
-		if mapView {
-			body = floorSVG(floor, t, i, h.terms)
-		}
-		vm.Content = floorViewToggle(t, mapView) + body
-	}
-	return vm, nil
-}
-
 // readPane reads one pane address: live for the focused pane, cached for
 // the rest (ADR 0005 decision 9).
 func (h *ReadingHandler) readPane(ctx context.Context, addr paneAddr, live bool) (domain.Document, error) {
@@ -319,14 +262,6 @@ func (h *ReadingHandler) readPane(ctx context.Context, addr paneAddr, live bool)
 	}
 }
 
-// paneView builds one pane's view model: display mode by distance from
-// focus (decision 3), links trail-ized so every href carries its post-click
-// state, margin only where attention is.
-// overlay marks a pane built for a lens instead of the canvas: the reader
-// overlay (R4) persists itself in body/backlink hrefs, the metadata overlay
-// keeps plain trail links (a record click is a navigation, not more lens).
-// Either way the pane carries the full margin, records no edges (the canvas
-// build already did), and offers no open-overlay affordances (it IS one).
 // isEdgeSource reports whether a rendered pane may feed the observed-links map
 // (R3). Only real document panes qualify: listings, tag pages, and pinned
 // editions are not edge sources, and overlays reuse panes already recorded.
@@ -335,6 +270,9 @@ func isEdgeSource(overlay string, addr paneAddr, path string) bool {
 		!domain.IsListingPath(addr.Value) && !domain.IsVersionPath(path)
 }
 
+// paneView builds one pane's view model: mode by distance from focus (decision
+// 3), hrefs carrying their post-click state, margin only where attention is. A
+// lens pane keeps the full margin but records no edges — the canvas build did.
 func (h *ReadingHandler) paneView(ctx context.Context, t trail, i int, addr paneAddr, doc domain.Document, authed bool, overlay string) paneVM {
 	focused := i == t.Focus
 	reader := overlay == overlayReader
@@ -369,7 +307,7 @@ func (h *ReadingHandler) paneView(ctx context.Context, t trail, i int, addr pane
 	// In the pane-scroll room the margin is summoned, not docked: the head
 	// offers "meta" beside "reader", the record opens as an overlay, and the
 	// status chip keeps the room's one at-rest trust signal visible.
-	if h.paneScroll && overlay == "" && addr.Kind == paneDoc && !domain.IsListingPath(addr.Value) {
+	if h.chrome.paneScroll && overlay == "" && addr.Kind == paneDoc && !domain.IsListingPath(addr.Value) {
 		vm.MetaURL = trailMetaURL(t, i)
 		vm.HeadStatus = doc.Status
 	}

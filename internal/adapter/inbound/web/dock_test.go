@@ -14,7 +14,7 @@ func TestBuildDock(t *testing.T) {
 		"/index.md":   {Out: []domain.Ref{{World: "world-a", Path: "/mission.md"}}},
 		"/mission.md": {Out: []domain.Ref{{World: "world-a", Path: "/vision.md"}}},
 	}}
-	h := NewReadingHandler(svc, "world-a", "/index.md")
+	h := NewRoom(svc, "world-a", "/index.md").readingHandler()
 	tr := trail{Panes: []paneAddr{
 		{Kind: paneFloor},
 		{Kind: paneDoc, World: "world-a", Value: "/index.md"},
@@ -56,7 +56,7 @@ func TestBuildDockChipsSkipPanesAlreadyOnTrail(t *testing.T) {
 	svc := &fakeReading{neighbor: map[string]domain.Neighborhood{
 		"/mission.md": {Out: []domain.Ref{{World: "world-a", Path: "/index.md"}}},
 	}}
-	h := NewReadingHandler(svc, "world-a", "/index.md")
+	h := NewRoom(svc, "world-a", "/index.md").readingHandler()
 	tr := trail{Panes: []paneAddr{
 		{Kind: paneDoc, World: "world-a", Value: "/index.md"},
 		{Kind: paneDoc, World: "world-a", Value: "/mission.md"},

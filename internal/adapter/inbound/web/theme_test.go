@@ -35,7 +35,7 @@ func brandedApp(t *testing.T, svc *fakeReading) *echo.Echo {
 		t.Fatalf("ThemeRoutes: %v", err)
 	}
 	app.Renderer = view.WithBranding(branding)
-	ReadingRoutes(app, NewReadingHandler(svc, "soul.demarkus.io", "/index.md"))
+	RoomRoutes(app, NewRoom(svc, "soul.demarkus.io", "/index.md"))
 	return app
 }
 
@@ -160,7 +160,7 @@ worlds:
 	}
 	app.Renderer = view.WithBranding(branding)
 	WorldThemeRoutes(app, branding, nil)
-	ReadingRoutes(app, NewReadingHandler(svc, "soul.demarkus.io", "/index.md").WithBranding(branding))
+	RoomRoutes(app, NewRoom(svc, "soul.demarkus.io", "/index.md").WithBranding(branding))
 	return app
 }
 
