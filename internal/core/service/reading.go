@@ -170,7 +170,7 @@ func (s *ReadingService) History(ctx context.Context, world, path string) (domai
 
 // Search renders the card catalog (LOOKUP) results for query under scope.
 func (s *ReadingService) Search(ctx context.Context, world, scope, query string) (domain.Document, error) {
-	raw, err := s.world.Lookup(ctx, world, scope, query, "", 0)
+	raw, err := s.world.Lookup(ctx, world, domain.LookupQuery{Scope: scope, Query: query})
 	if err != nil {
 		return domain.Document{}, err
 	}
@@ -181,7 +181,7 @@ func (s *ReadingService) Search(ctx context.Context, world, scope, query string)
 // page (ADR 0005 decision 5). The tag rides as both query and filter: the
 // filter does the exact narrowing, the query keeps ranking sensible.
 func (s *ReadingService) Tag(ctx context.Context, world, tag string) (domain.Document, error) {
-	raw, err := s.world.Lookup(ctx, world, "/", tag, "tag="+tag, 0)
+	raw, err := s.world.Lookup(ctx, world, domain.LookupQuery{Scope: "/", Query: tag, Filter: "tag=" + tag})
 	if err != nil {
 		return domain.Document{}, err
 	}

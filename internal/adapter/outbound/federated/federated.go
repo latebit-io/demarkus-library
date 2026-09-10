@@ -50,49 +50,49 @@ func New(cfg Config) *Gateway {
 }
 
 // Fetch routes to the world's transport.
-func (g *Gateway) Fetch(ctx context.Context, w, path string) (domain.RawDocument, error) {
-	gw, err := g.route(w)
+func (g *Gateway) Fetch(ctx context.Context, worldID, path string) (domain.RawDocument, error) {
+	gw, err := g.route(worldID)
 	if err != nil {
 		return domain.RawDocument{}, err
 	}
-	return gw.Fetch(ctx, w, path)
+	return gw.Fetch(ctx, worldID, path)
 }
 
 // List routes to the world's transport.
-func (g *Gateway) List(ctx context.Context, w, path string) (domain.RawDocument, error) {
-	gw, err := g.route(w)
+func (g *Gateway) List(ctx context.Context, worldID, path string) (domain.RawDocument, error) {
+	gw, err := g.route(worldID)
 	if err != nil {
 		return domain.RawDocument{}, err
 	}
-	return gw.List(ctx, w, path)
+	return gw.List(ctx, worldID, path)
 }
 
 // Versions routes to the world's transport.
-func (g *Gateway) Versions(ctx context.Context, w, path string) (domain.RawDocument, error) {
-	gw, err := g.route(w)
+func (g *Gateway) Versions(ctx context.Context, worldID, path string) (domain.RawDocument, error) {
+	gw, err := g.route(worldID)
 	if err != nil {
 		return domain.RawDocument{}, err
 	}
-	return gw.Versions(ctx, w, path)
+	return gw.Versions(ctx, worldID, path)
 }
 
 // Lookup routes to the world's transport.
-func (g *Gateway) Lookup(ctx context.Context, w, scope, query, filter string, limit int) (domain.RawDocument, error) {
-	gw, err := g.route(w)
+func (g *Gateway) Lookup(ctx context.Context, worldID string, q domain.LookupQuery) (domain.RawDocument, error) {
+	gw, err := g.route(worldID)
 	if err != nil {
 		return domain.RawDocument{}, err
 	}
-	return gw.Lookup(ctx, w, scope, query, filter, limit)
+	return gw.Lookup(ctx, worldID, q)
 }
 
 // LookupAll uses the broker universe when available, otherwise the direct
 // gateway's one-world universe.
-func (g *Gateway) LookupAll(ctx context.Context, scope, query, filter string, limit int) (domain.RawDocument, error) {
+func (g *Gateway) LookupAll(ctx context.Context, q domain.LookupQuery) (domain.RawDocument, error) {
 	if g.cfg.Names != nil {
-		return g.cfg.Names.LookupAll(ctx, scope, query, filter, limit)
+		return g.cfg.Names.LookupAll(ctx, q)
 	}
 	if g.cfg.Hosts != nil {
-		return g.cfg.Hosts.LookupAll(ctx, scope, query, filter, limit)
+		return g.cfg.Hosts.LookupAll(ctx, q)
 	}
 	return domain.RawDocument{}, domain.ErrNotFound
 }
@@ -100,21 +100,21 @@ func (g *Gateway) LookupAll(ctx context.Context, scope, query, filter string, li
 // Publish routes the write to the world's transport (Phase 3): knowledge-system
 // names go to the broker (mark_publish), bare hosts to the QUIC side (which
 // degrades to ErrWriteUnsupported — read-only).
-func (g *Gateway) Publish(ctx context.Context, w, path, body string, meta domain.PublishMeta, expectedVersion int) (domain.PublishResult, error) {
-	gw, err := g.route(w)
+func (g *Gateway) Publish(ctx context.Context, req domain.PublishRequest) (domain.PublishResult, error) {
+	gw, err := g.route(req.World)
 	if err != nil {
 		return domain.PublishResult{}, err
 	}
-	return gw.Publish(ctx, w, path, body, meta, expectedVersion)
+	return gw.Publish(ctx, req)
 }
 
 // Append routes the "add to" write to the world's transport (Phase 3).
-func (g *Gateway) Append(ctx context.Context, w, path, body string) (int, error) {
-	gw, err := g.route(w)
+func (g *Gateway) Append(ctx context.Context, worldID, path, body string) (int, error) {
+	gw, err := g.route(worldID)
 	if err != nil {
 		return 0, err
 	}
-	return gw.Append(ctx, w, path, body)
+	return gw.Append(ctx, worldID, path, body)
 }
 
 // Worlds enumerates the universe: the broker's authorization-filtered list
@@ -132,8 +132,8 @@ func (g *Gateway) Worlds(ctx context.Context) ([]domain.WorldInfo, error) {
 // route picks the transport for a world identifier. No route → ErrNotFound:
 // to the reader an unroutable world is indistinguishable from a world with
 // nothing at that path, and the error page already speaks that language.
-func (g *Gateway) route(w string) (port.WorldGateway, error) {
-	if !IsHostShaped(w) {
+func (g *Gateway) route(worldID string) (port.WorldGateway, error) {
+	if !IsHostShaped(worldID) {
 		if g.cfg.Names == nil {
 			return nil, domain.ErrNotFound
 		}
@@ -142,7 +142,7 @@ func (g *Gateway) route(w string) (port.WorldGateway, error) {
 	if g.cfg.Hosts == nil {
 		return nil, domain.ErrNotFound
 	}
-	if !g.cfg.AllowExternal && (g.home == "" || world.NormalizeHost(w) != g.home) {
+	if !g.cfg.AllowExternal && (g.home == "" || world.NormalizeHost(worldID) != g.home) {
 		return nil, domain.ErrNotFound
 	}
 	return g.cfg.Hosts, nil
@@ -154,6 +154,6 @@ func (g *Gateway) route(w string) (port.WorldGateway, error) {
 // themselves — plus bare "localhost", the one portless dotless host the
 // stack accepts elsewhere. Exported because the web adapter applies the same
 // test when rewriting mark:// links.
-func IsHostShaped(w string) bool {
-	return w == "localhost" || strings.ContainsAny(w, ".:")
+func IsHostShaped(worldID string) bool {
+	return worldID == "localhost" || strings.ContainsAny(worldID, ".:")
 }

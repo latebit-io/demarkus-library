@@ -176,6 +176,11 @@ type wmItem struct {
 	x, y, r  int     // placed centre and visual radius
 }
 
+// end is the item as one end of a drawn edge.
+func (it *wmItem) end() edgeEnd {
+	return edgeEnd{x: it.x, y: it.y, r: it.r, id: it.id}
+}
+
 // wmPt is an unstretched offset from a group's centre.
 type wmPt struct{ x, y float64 }
 
@@ -227,7 +232,7 @@ func wmPack(children []*wmItem, reserve float64) (pos []wmPt, foot float64) {
 // rest-state auto-expansion, and returns it with the map from document path
 // to the item that represents it (itself, its "more" chunk, or its nearest
 // collapsed ancestor).
-func wmVisible(root *wmGroup, open wmOpenSet, rank, degree map[string]int, chunk int) (tree *wmItem, owner map[string]*wmItem) {
+func wmVisible(root *wmGroup, open wmOpenSet, ranking wmRanking, chunk int) (tree *wmItem, owner map[string]*wmItem) {
 	expanded := map[string]bool{"": true}
 	for k := range open.open {
 		if !open.closed[k] {
@@ -303,14 +308,14 @@ func wmVisible(root *wmGroup, open wmOpenSet, rank, degree map[string]int, chunk
 			}
 		}
 		docs := append([]domain.FloorDoc(nil), g.docs...)
-		sort.SliceStable(docs, func(i, j int) bool { return rank[docs[i].Path] < rank[docs[j].Path] })
+		sort.SliceStable(docs, func(i, j int) bool { return ranking.rank[docs[i].Path] < ranking.rank[docs[j].Path] })
 		shown := min(len(docs), page(g)*chunk)
 		for i, d := range docs[:shown] {
 			c := &wmItem{id: d.Path, kind: wmItemDoc, doc: d, count: 1}
 			owner[d.Path] = c
 			// The top-ranked member is the group's hub when it links to at
 			// least half its siblings; it goes first so it lands at the centre.
-			if i == 0 && len(docs) > 2 && degree[d.Path] >= len(docs)/2 {
+			if i == 0 && len(docs) > 2 && ranking.degree[d.Path] >= len(docs)/2 {
 				c.hub = true
 				it.children = append([]*wmItem{c}, it.children...)
 				continue
@@ -407,7 +412,7 @@ func wmPlace(it *wmItem, cx, cy int) {
 					wmPlace(c, cx, cy)
 					continue
 				}
-				x, y := ellipseAt(cx, cy, j, n, rx, int(ry))
+				x, y := ellipseAt(ellipse{cx: cx, cy: cy, rx: rx, ry: int(ry)}, j, n)
 				j++
 				wmPlace(c, x, y)
 			}
@@ -457,11 +462,17 @@ func wmRingRadius(n int) float64 {
 	return math.Max(wmPitch*1.4, float64(n)*wmPitch/(2*math.Pi))
 }
 
-// ellipseAt places slot j of n on an ellipse of radii (rx, ry) around (cx, cy),
-// starting at the top and going clockwise.
-func ellipseAt(cx, cy, j, n, rx, ry int) (x, y int) {
+// ellipse is a centre and its two radii: the shape the map's world rings and
+// the graph's neighbour arcs are both placed on.
+type ellipse struct {
+	cx, cy int
+	rx, ry int
+}
+
+// ellipseAt places slot j of n on e, starting at the top and going clockwise.
+func ellipseAt(e ellipse, j, n int) (x, y int) {
 	angle := 2*math.Pi*float64(j)/float64(n) - math.Pi/2
-	return cx + int(float64(rx)*math.Cos(angle)), cy + int(float64(ry)*math.Sin(angle))
+	return e.cx + int(float64(e.rx)*math.Cos(angle)), e.cy + int(float64(e.ry)*math.Sin(angle))
 }
 
 // wmFlatten lists every placed item in draw order.

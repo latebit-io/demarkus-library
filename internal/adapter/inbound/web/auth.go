@@ -57,13 +57,21 @@ func emailFromIDToken(token string) string {
 	return claims.Email
 }
 
+// LoginStart is one sign-in's server-minted state. Named fields, because all
+// three are opaque strings a positional return would let a caller transpose.
+type LoginStart struct {
+	AuthURL  string
+	State    string
+	Verifier string
+}
+
 // LoginFlow is the slice of the broker OAuth dance the web adapter drives.
 // The composition root implements it over the oauth adapter; the web package
 // stays free of broker specifics (same pattern as session.Authority).
 type LoginFlow interface {
-	// Begin mints a fresh state + PKCE verifier and returns the broker
-	// authorize URL to redirect the reader to.
-	Begin(ctx context.Context) (authURL, state, verifier string, err error)
+	// Begin mints a fresh state + PKCE verifier and returns them with the
+	// broker authorize URL to redirect the reader to.
+	Begin(ctx context.Context) (LoginStart, error)
 	// Exchange redeems the callback code with the stashed verifier.
 	Exchange(ctx context.Context, code, verifier string) (session.Tokens, error)
 }

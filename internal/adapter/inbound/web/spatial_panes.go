@@ -22,8 +22,9 @@ type spatialPanes struct {
 // like every pane): nodes link to post-click trail URLs so a click continues
 // the trail (decision 4). Like the floor, the map carries no margin — its
 // signals are on the nodes (status strokes, importance sizing).
-func (h spatialPanes) worldMapPane(ctx context.Context, t trail, i int, addr paneAddr, authed bool) (paneVM, error) {
-	focused := i == t.Focus
+func (h spatialPanes) worldMapPane(ctx context.Context, slot paneSlot) (paneVM, error) {
+	trailState, paneIndex, addr := slot.trail, slot.index, slot.addr
+	focused := paneIndex == trailState.Focus
 	var wm domain.WorldMap
 	var err error
 	if focused {
@@ -39,13 +40,13 @@ func (h spatialPanes) worldMapPane(ctx context.Context, t trail, i int, addr pan
 	switch {
 	case focused:
 		mode = "focused"
-	case i == t.Focus-1:
+	case paneIndex == trailState.Focus-1:
 		mode = "body"
 	}
 	vm := paneVM{
 		Mode:     mode,
 		Kind:     paneFloor,
-		FocusURL: trailURL(trailFocused(t, i)),
+		FocusURL: trailURL(trailFocused(trailState, paneIndex)),
 		Title:    "Map: " + addr.World,
 		World:    addr.World,
 	}
@@ -54,9 +55,9 @@ func (h spatialPanes) worldMapPane(ctx context.Context, t trail, i int, addr pan
 	}
 	vm.Content = worldMapSVG(wm,
 		func(p string) string {
-			return trailURL(trailAfterClick(t, i, paneAddr{Kind: paneDoc, World: addr.World, Value: p}))
+			return trailURL(trailAfterClick(trailState, paneIndex, paneAddr{Kind: paneDoc, World: addr.World, Value: p}))
 		},
-		worldNewURL(addr.World, authed))
+		worldNewURL(addr.World, slot.authed))
 	return vm, nil
 }
 

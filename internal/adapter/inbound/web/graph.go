@@ -39,41 +39,50 @@ const (
 // hover state swaps in (islands.js adds .edge-hot to a hovered node's edges).
 const arrowMarker = `<defs><marker id="arrow" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto" markerUnits="userSpaceOnUse"><path class="edge-arrow" d="M0,0 L9,4.5 L0,9 z"/></marker><marker id="arrow-hot" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto" markerUnits="userSpaceOnUse"><path class="edge-arrow-hot" d="M0,0 L9,4.5 L0,9 z"/></marker></defs>`
 
-// directedEdge draws a reference edge from (x1,y1) to (x2,y2) as an arrow
-// pointing at the target, trimmed back by each endpoint's node radius so the
-// line sits between the rims and the arrowhead lands just outside the target
-// node instead of hiding under it. fromID/toID tag the edge with its endpoint
-// node ids so a node-hover handler can light up every incident edge. A
-// non-empty rel (a typed relation's predicate) draws dashed with the
-// predicate as its hover tooltip; "" is a plain reference. tier is an extra
-// rest-state class (edge-spine, edge-tree, edge-dim) the world map uses to
-// quiet its hairball; "" adds none. width > 0 overrides the stroke width
-// (a rolled-up bundle of several document edges).
-func directedEdge(b *strings.Builder, x1, y1, r1, x2, y2, r2 int, fromID, toID, rel, tier string, width float64) {
-	dx, dy := float64(x2-x1), float64(y2-y1)
+// edgeEnd is one end of a drawn edge. id is what a hover handler matches its
+// incident edges on.
+type edgeEnd struct {
+	x, y int
+	r    int
+	id   string
+}
+
+// edgeStyle is a drawn edge's non-geometric treatment. Empty fields are the
+// plain reference edge; the world map sets tier to quiet its hairball.
+type edgeStyle struct {
+	rel   string  // typed relation's predicate: draws dashed, tooltipped
+	tier  string  // rest-state class: edge-spine, edge-tree, edge-dim
+	width float64 // > 0 overrides stroke width (a rolled-up bundle)
+}
+
+// directedEdge draws a reference edge as an arrow at the target, trimmed back
+// by each endpoint's radius so the head lands outside the target node rather
+// than under it.
+func directedEdge(b *strings.Builder, from, to edgeEnd, style edgeStyle) {
+	dx, dy := float64(to.x-from.x), float64(to.y-from.y)
 	d := math.Hypot(dx, dy)
 	if d == 0 {
 		return
 	}
 	ux, uy := dx/d, dy/d
 	const gap = 3.0 // breathing room between arrow tip and target rim
-	sx, sy := x1+int(ux*float64(r1)), y1+int(uy*float64(r1))
-	ex, ey := x2-int(ux*(float64(r2)+gap)), y2-int(uy*(float64(r2)+gap))
+	sx, sy := from.x+int(ux*float64(from.r)), from.y+int(uy*float64(from.r))
+	ex, ey := to.x-int(ux*(float64(to.r)+gap)), to.y-int(uy*(float64(to.r)+gap))
 	cls := "graph-edge"
-	if tier != "" {
-		cls += " " + tier
+	if style.tier != "" {
+		cls += " " + style.tier
 	}
-	if rel != "" {
+	if style.rel != "" {
 		cls += " edge-rel"
 	}
-	style := ""
-	if width > 0 {
-		style = fmt.Sprintf(` style="stroke-width:%.1f"`, width)
+	stroke := ""
+	if style.width > 0 {
+		stroke = fmt.Sprintf(` style="stroke-width:%.1f"`, style.width)
 	}
 	fmt.Fprintf(b, `<line class="%s" x1="%d" y1="%d" x2="%d" y2="%d" data-from="%s" data-to="%s" marker-end="url(#arrow)"%s>`,
-		cls, sx, sy, ex, ey, html.EscapeString(fromID), html.EscapeString(toID), style)
-	if rel != "" {
-		fmt.Fprintf(b, `<title>%s</title>`, html.EscapeString(rel))
+		cls, sx, sy, ex, ey, html.EscapeString(from.id), html.EscapeString(to.id), stroke)
+	if style.rel != "" {
+		fmt.Fprintf(b, `<title>%s</title>`, html.EscapeString(style.rel))
 	}
 	b.WriteString(`</line>`)
 }
@@ -108,15 +117,20 @@ func graphSVG(n domain.Neighborhood, urlFor func(domain.Ref) string, onTrail map
 
 	// Place backlinks across the left half (π/2 … 3π/2) and outbound links
 	// across the right half (-π/2 … π/2); a lone node sits at the pole.
-	placed := append(arcNodes(in, cx, cy, rx, ry, true), arcNodes(out, cx, cy, rx, ry, false)...)
+	arc := ellipse{cx: cx, cy: cy, rx: rx, ry: ry}
+	placed := append(arcNodes(in, arc, true), arcNodes(out, arc, false)...)
 
 	// Edges first, so nodes draw on top. Direction follows the reference: an
 	// outbound link points center→neighbor, a backlink points neighbor→center.
 	for _, pn := range placed {
 		if pn.inbound {
-			directedEdge(&b, pn.x, pn.y, graphNodeR, cx, cy, graphCenterR, pn.ref.Path, n.Center.Path, "", "", 0)
+			directedEdge(&b,
+				edgeEnd{x: pn.x, y: pn.y, r: graphNodeR, id: pn.ref.Path},
+				edgeEnd{x: cx, y: cy, r: graphCenterR, id: n.Center.Path}, edgeStyle{})
 		} else {
-			directedEdge(&b, cx, cy, graphCenterR, pn.x, pn.y, graphNodeR, n.Center.Path, pn.ref.Path, "", "", 0)
+			directedEdge(&b,
+				edgeEnd{x: cx, y: cy, r: graphCenterR, id: n.Center.Path},
+				edgeEnd{x: pn.x, y: pn.y, r: graphNodeR, id: pn.ref.Path}, edgeStyle{})
 		}
 	}
 	// Center node (data-node so hovering it lights up all its edges).
@@ -173,10 +187,9 @@ type placedNode struct {
 	inbound bool
 }
 
-// arcNodes spreads refs over a half-ellipse: the left arc for backlinks, the
-// right arc for outbound links, radii (rx, ry). A single node sits on the pole
-// of its side.
-func arcNodes(refs []domain.Ref, cx, cy, rx, ry int, inbound bool) []placedNode {
+// arcNodes spreads refs over half of arc: the left half for backlinks, the
+// right half for outbound links. A single node sits on the pole of its side.
+func arcNodes(refs []domain.Ref, arc ellipse, inbound bool) []placedNode {
 	out := make([]placedNode, 0, len(refs))
 	for j, r := range refs {
 		var frac float64
@@ -192,8 +205,8 @@ func arcNodes(refs []domain.Ref, cx, cy, rx, ry int, inbound bool) []placedNode 
 		}
 		out = append(out, placedNode{
 			ref:     r,
-			x:       cx + int(float64(rx)*math.Cos(angle)),
-			y:       cy + int(float64(ry)*math.Sin(angle)),
+			x:       arc.cx + int(float64(arc.rx)*math.Cos(angle)),
+			y:       arc.cy + int(float64(arc.ry)*math.Sin(angle)),
 			inbound: inbound,
 		})
 	}

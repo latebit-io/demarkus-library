@@ -48,13 +48,13 @@ func (h *AuthHandler) Login(c *echo.Context) error {
 // by state, and bounce the reader to the broker. POST — minting login state
 // is a side effect, and a form keeps it a deliberate action.
 func (h *AuthHandler) Start(c *echo.Context) error {
-	authURL, state, verifier, err := h.flow.Begin(c.Request().Context())
+	start, err := h.flow.Begin(c.Request().Context())
 	if err != nil {
 		c.Logger().Error("login begin failed", "err", err)
 		return c.Redirect(http.StatusSeeOther, "/login?err=failed")
 	}
-	h.pending.Put(state, verifier, sanitizeReturnTo(c.FormValue("return_to")))
-	return c.Redirect(http.StatusSeeOther, authURL)
+	h.pending.Put(start.State, start.Verifier, sanitizeReturnTo(c.FormValue("return_to")))
+	return c.Redirect(http.StatusSeeOther, start.AuthURL)
 }
 
 // Callback is the broker's authorization-code redirect target. The state must

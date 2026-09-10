@@ -17,7 +17,7 @@ type fakeClient struct {
 func (f fakeClient) Fetch(string, string, string) (fetch.Result, error)    { return f.res, f.err }
 func (f fakeClient) List(string, string, string) (fetch.Result, error)     { return f.res, f.err }
 func (f fakeClient) Versions(string, string, string) (fetch.Result, error) { return f.res, f.err }
-func (f fakeClient) Lookup(_, _, _, _ string, _ fetch.LookupOptions) (fetch.Result, error) {
+func (f fakeClient) Lookup(lookupCall) (fetch.Result, error) {
 	return f.res, f.err
 }
 
@@ -71,7 +71,7 @@ func TestFetchPropagatesTransportError(t *testing.T) {
 
 func TestLookupAllUsesHomeWorld(t *testing.T) {
 	g := newGateway(protocol.StatusOK, "| Path | Importance | Title | Tags |", nil)
-	raw, err := g.LookupAll(t.Context(), "/", "*", "", 1000)
+	raw, err := g.LookupAll(t.Context(), domain.LookupQuery{Scope: "/", Query: "*", Limit: 1000})
 	if err != nil {
 		t.Fatalf("LookupAll: %v", err)
 	}
@@ -80,7 +80,7 @@ func TestLookupAllUsesHomeWorld(t *testing.T) {
 	}
 
 	homeless := NewGateway(fakeClient{}, "", "")
-	if _, err := homeless.LookupAll(t.Context(), "/", "*", "", 1000); !errors.Is(err, domain.ErrNotFound) {
+	if _, err := homeless.LookupAll(t.Context(), domain.LookupQuery{Scope: "/", Query: "*", Limit: 1000}); !errors.Is(err, domain.ErrNotFound) {
 		t.Errorf("homeless LookupAll error = %v, want ErrNotFound", err)
 	}
 }

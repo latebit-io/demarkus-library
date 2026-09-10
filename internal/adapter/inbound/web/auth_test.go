@@ -48,11 +48,11 @@ type fakeFlow struct {
 	gotVerifier string
 }
 
-func (f *fakeFlow) Begin(_ context.Context) (authURL, state, verifier string, err error) {
+func (f *fakeFlow) Begin(_ context.Context) (LoginStart, error) {
 	if f.beginErr != nil {
-		return "", "", "", f.beginErr
+		return LoginStart{}, f.beginErr
 	}
-	return f.authURL, f.state, f.verifier, nil
+	return LoginStart{AuthURL: f.authURL, State: f.state, Verifier: f.verifier}, nil
 }
 
 func (f *fakeFlow) Exchange(_ context.Context, code, verifier string) (session.Tokens, error) {

@@ -26,7 +26,26 @@ type fetchClient interface {
 	Fetch(host, path, token string) (fetch.Result, error)
 	List(host, path, token string) (fetch.Result, error)
 	Versions(host, path, token string) (fetch.Result, error)
-	Lookup(host, scope, query, token string, opts fetch.LookupOptions) (fetch.Result, error)
+	Lookup(call lookupCall) (fetch.Result, error)
+}
+
+// lookupCall is one catalog query against the client: the host dialed, the
+// credential it carries, and the query itself.
+type lookupCall struct {
+	Host    string
+	Scope   string
+	Query   string
+	Token   string
+	Options fetch.LookupOptions
+}
+
+// directClient adapts the demarkus fetch client to fetchClient. It exists to
+// bundle Lookup's arguments — the client's own five-argument form stays at
+// this one call site — and promotes the rest unchanged.
+type directClient struct{ *fetch.Client }
+
+func (d directClient) Lookup(call lookupCall) (fetch.Result, error) {
+	return d.Client.Lookup(call.Host, call.Scope, call.Query, call.Token, call.Options)
 }
 
 // Gateway adapts demarkus worlds (addressed by host) to the WorldGateway port.
@@ -44,6 +63,12 @@ var _ port.WorldGateway = (*Gateway)(nil)
 // then tokenless.
 func NewGateway(client fetchClient, home, token string) *Gateway {
 	return &Gateway{client: client, home: NormalizeHost(home), token: token}
+}
+
+// NewDirectGateway is the composition root's constructor: the demarkus QUIC
+// fetch client, wrapped so its Lookup arrives as one call value.
+func NewDirectGateway(client *fetch.Client, home, token string) *Gateway {
+	return NewGateway(directClient{client}, home, token)
 }
 
 // Fetch reads a document and maps demarkus status to domain errors.
@@ -67,20 +92,26 @@ func (g *Gateway) Versions(_ context.Context, world, path string) (domain.RawDoc
 	return g.toRawDocument(res, host, path, err)
 }
 
-// Lookup queries the world's catalog for query under scope, optionally
+// Lookup queries the world's catalog for req.Query under req.Scope, optionally
 // narrowed by a comma-separated key=value filter (tag pages use tag=<tag>).
-func (g *Gateway) Lookup(_ context.Context, world, scope, query, filter string, limit int) (domain.RawDocument, error) {
+func (g *Gateway) Lookup(_ context.Context, world string, q domain.LookupQuery) (domain.RawDocument, error) {
 	host := NormalizeHost(world)
-	res, err := g.client.Lookup(host, scope, query, g.tokenFor(host), fetch.LookupOptions{Filter: filter, Limit: limit})
-	return g.toRawDocument(res, host, scope, err)
+	res, err := g.client.Lookup(lookupCall{
+		Host:    host,
+		Scope:   q.Scope,
+		Query:   q.Query,
+		Token:   g.tokenFor(host),
+		Options: fetch.LookupOptions{Filter: q.Filter, Limit: q.Limit},
+	})
+	return g.toRawDocument(res, host, q.Scope, err)
 }
 
 // LookupAll is the direct gateway's one-world universe.
-func (g *Gateway) LookupAll(ctx context.Context, scope, query, filter string, limit int) (domain.RawDocument, error) {
+func (g *Gateway) LookupAll(ctx context.Context, q domain.LookupQuery) (domain.RawDocument, error) {
 	if g.home == "" {
 		return domain.RawDocument{}, domain.ErrNotFound
 	}
-	return g.Lookup(ctx, g.home, scope, query, filter, limit)
+	return g.Lookup(ctx, g.home, q)
 }
 
 // Worlds returns the single-world universe: the home world, when this
@@ -98,7 +129,7 @@ func (g *Gateway) Worlds(_ context.Context) ([]domain.WorldInfo, error) {
 // Publish has no path on this adapter: the library's QUIC fetch client is
 // read-only (no write token wired), so writes degrade honestly rather than
 // silently failing (Phase 3; broker-mode worlds write through mark_publish).
-func (g *Gateway) Publish(_ context.Context, _, _, _ string, _ domain.PublishMeta, _ int) (domain.PublishResult, error) {
+func (g *Gateway) Publish(_ context.Context, _ domain.PublishRequest) (domain.PublishResult, error) {
 	return domain.PublishResult{}, domain.ErrWriteUnsupported
 }
 

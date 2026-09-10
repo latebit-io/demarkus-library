@@ -25,7 +25,7 @@ import (
 // append side.
 type brandingWriter interface {
 	EditDraft(ctx context.Context, world, path string) (domain.EditDraft, error)
-	Publish(ctx context.Context, world, path, body string, meta domain.PublishMeta, expectedVersion int) (domain.Document, *domain.MergeCandidate, error)
+	Publish(ctx context.Context, req domain.PublishRequest) (domain.Document, *domain.MergeCandidate, error)
 }
 
 // BrandingHandler serves the desk. It is the whole surface family: two routes
@@ -256,7 +256,13 @@ func (h *BrandingHandler) publishBrandDoc(ctx context.Context, world string, doc
 		return fmt.Errorf("read branding draft %s%s: %w", world, doc.path, err)
 	}
 	for range 2 {
-		_, merge, err := h.writer.Publish(ctx, world, doc.path, doc.body, meta, version)
+		_, merge, err := h.writer.Publish(ctx, domain.PublishRequest{
+			World:           world,
+			Path:            doc.path,
+			Body:            doc.body,
+			Meta:            meta,
+			ExpectedVersion: version,
+		})
 		if err != nil {
 			return fmt.Errorf("publish branding document %s%s: %w", world, doc.path, err)
 		}

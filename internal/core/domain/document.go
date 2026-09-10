@@ -76,6 +76,27 @@ type PublishMeta struct {
 	Importance string
 }
 
+// PublishRequest is one write. ExpectedVersion 0 creates (a path-taken
+// conflict is ErrConflict); a stale non-zero version yields a MergeCandidate
+// instead of committing.
+type PublishRequest struct {
+	World           string
+	Path            string
+	Body            string
+	Meta            PublishMeta
+	ExpectedVersion int
+}
+
+// LookupQuery is one catalog query, aimed at a world by Lookup or at every
+// readable world by LookupAll. Query "*" is the match-all form; Limit <= 0
+// lets the server apply its default, so match-all callers pass a cap.
+type LookupQuery struct {
+	Scope  string
+	Query  string
+	Filter string // comma-separated key=value predicate; tag pages pass tag=<tag>
+	Limit  int
+}
+
 // EditDraft is the source view the cataloging desk edits: a document's raw
 // markdown body plus its current out-of-band metadata and version, fetched to
 // pre-fill the edit form. Version guards the write (expected_version); Status is

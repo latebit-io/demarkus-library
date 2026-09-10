@@ -98,7 +98,9 @@ func floorSVG(floor domain.Floor, t trail, idx int, terms Terms) template.HTML {
 	b.WriteString(arrowMarker)
 	wmDrawEdges(&b, rolled, vrank, spine)
 	for i := range floor.Worlds {
-		floorWorldNode(&b, &floor.Worlds[i], byName[floor.Worlds[i].World.Name], t, idx)
+		fw := &floor.Worlds[i]
+		href := trailURL(trailAfterClick(t, idx, paneAddr{Kind: paneDoc, World: fw.World.Name, Value: "/"}))
+		floorWorldNode(&b, fw, byName[fw.World.Name], href)
 	}
 	b.WriteString(`</svg>`)
 	return template.HTML(b.String()) //nolint:gosec // built here from escaped parts; node text/attrs all pass html.EscapeString
@@ -112,28 +114,36 @@ func plural(n int, noun string) string {
 	return fmt.Sprintf("%d %ss", n, noun)
 }
 
-// floorRing is the universe's ring geometry: how many worlds sit on the ring
-// (all but a hub), the largest world radius, and the vertical ring radius
+// floorRingGeom is the universe ring's geometry: how many worlds sit on the
+// ring (all but a hub), the largest world radius, and the vertical ring radius
 // that keeps the largest diameter plus padding between neighbours.
-func floorRing(byRank []*wmItem) (n, maxR, ry int) {
+type floorRingGeom struct {
+	count int
+	maxR  int
+	ry    int
+}
+
+// floorRing measures the ring the universe's worlds sit on.
+func floorRing(byRank []*wmItem) floorRingGeom {
+	var g floorRingGeom
 	for _, it := range byRank {
-		maxR = max(maxR, it.r)
+		g.maxR = max(g.maxR, it.r)
 		if !it.hub {
-			n++
+			g.count++
 		}
 	}
-	ry = int(math.Max(wmRingRadius(n), float64(n)*float64(2*maxR+wmAggPad)/(2*math.Pi)))
-	return n, maxR, ry
+	g.ry = int(math.Max(wmRingRadius(g.count), float64(g.count)*float64(2*g.maxR+wmAggPad)/(2*math.Pi)))
+	return g
 }
 
 // floorLayout returns the vertical radius the universe needs: a ring for up
 // to wmRingMax worlds (the hub, if any, at the centre), a sunflower beyond.
 func floorLayout(byRank []*wmItem) int {
-	_, maxR, ry := floorRing(byRank)
+	g := floorRing(byRank)
 	if len(byRank) > wmRingMax {
-		return wmSpiralRadius(len(byRank)) + maxR
+		return wmSpiralRadius(len(byRank)) + g.maxR
 	}
-	return ry + maxR + 24
+	return g.ry + g.maxR + 24
 }
 
 // floorPlace positions the worlds around (cx, cy) per floorLayout.
@@ -151,24 +161,23 @@ func floorPlace(byRank []*wmItem, cx, cy int) {
 		}
 		return
 	}
-	n, _, ry := floorRing(byRank)
-	rx := int(float64(ry) * wmTierRatio)
+	g := floorRing(byRank)
+	ring := ellipse{cx: cx, cy: cy, rx: int(float64(g.ry) * wmTierRatio), ry: g.ry}
 	j := 0
 	for _, it := range byRank {
 		if it.hub {
 			it.x, it.y = cx, cy
 			continue
 		}
-		it.x, it.y = ellipseAt(cx, cy, j, n, rx, ry)
+		it.x, it.y = ellipseAt(ring, j, g.count)
 		j++
 	}
 }
 
-// floorWorldNode draws one world: an aggregate circle (a dashed rim node for
-// a portal, dimmed when unreadable) that enters the world at its stacks, its
-// name, and its URL and sampled size in the tooltip.
-func floorWorldNode(b *strings.Builder, fw *domain.FloorWorld, it *wmItem, t trail, idx int) {
-	href := trailURL(trailAfterClick(t, idx, paneAddr{Kind: paneDoc, World: fw.World.Name, Value: "/"}))
+// floorWorldNode draws one world at href: an aggregate circle (a dashed rim
+// node for a portal, dimmed when unreadable) that enters the world at its
+// stacks, its name, and its URL and sampled size in the tooltip.
+func floorWorldNode(b *strings.Builder, fw *domain.FloorWorld, it *wmItem, href string) {
 	cls, label := "floor-world", "floor-world-label"
 	if fw.Portal {
 		cls, label = "floor-portal-node", "floor-doc-label"

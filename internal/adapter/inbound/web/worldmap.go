@@ -57,6 +57,23 @@ type wmOpts struct {
 	chunk   int
 }
 
+// wmDraw is the context every aggregate node shares: how a path becomes a URL,
+// the open set a click transitions from, and the view options that decide
+// whether aggregates are htmx-clickable at all.
+type wmDraw struct {
+	docURL func(string) string
+	open   wmOpenSet
+	opts   wmOpts
+}
+
+// wmAgg is what distinguishes one aggregate node from another: the glyph in
+// its circle, its label, and the open-set transition a click performs.
+type wmAgg struct {
+	glyph  string
+	label  string
+	action wmOpenAction
+}
+
 // wmNodeStyle is a document node's rest-state treatment.
 type wmNodeStyle struct {
 	lod    bool // label only on zoom/hover
@@ -99,7 +116,7 @@ func worldMapRender(wm domain.WorldMap, docURL func(string) string, newURL strin
 		return template.HTML(msg) //nolint:gosec // newURL is server-constructed (/w/<escaped world>/new), text is static
 	}
 
-	degree, rank, linked := wmRankDocs(docs, wm.Edges)
+	ranking, linked := wmRankDocs(docs, wm.Edges)
 
 	chunk := opts.chunk
 	if chunk <= 0 {
@@ -107,7 +124,7 @@ func worldMapRender(wm domain.WorldMap, docURL func(string) string, newURL strin
 	}
 	open := wmParseOpen(opts.open)
 	tree := wmBuildTree(docs)
-	root, owner := wmVisible(tree, open, rank, degree, chunk)
+	root, owner := wmVisible(tree, open, ranking, chunk)
 	outerRy := int(wmMeasure(root))
 	outerRx := int(float64(outerRy) * wmTierRatio)
 	// The viewBox fits the content tightly — wide enough for the layout (plus
@@ -119,7 +136,7 @@ func worldMapRender(wm domain.WorldMap, docURL func(string) string, newURL strin
 	items := wmFlatten(root, nil)
 
 	rolled := wmRollup(wm.Edges, owner)
-	vrank, spine := wmVisibleRank(items, rolled, rank)
+	vrank, spine := wmVisibleRank(items, rolled, ranking.rank)
 
 	var b strings.Builder
 	fmt.Fprintf(&b, `<svg class="floor world-map" viewBox="0 0 %d %d" width="%d" height="%d" role="img" aria-label="%s map">`,
@@ -136,9 +153,9 @@ func worldMapRender(wm domain.WorldMap, docURL func(string) string, newURL strin
 	// of a structured world (its landmarks, whatever their degree). A flat
 	// world has no landmarks, only rank.
 	landmarks := len(tree.subs) > 0
-	wmDrawItems(&b, items, docURL, open, opts, func(it *wmItem) wmNodeStyle {
+	wmDrawItems(&b, items, wmDraw{docURL: docURL, open: open, opts: opts}, func(it *wmItem) wmNodeStyle {
 		rootDoc := landmarks && !strings.Contains(strings.TrimPrefix(it.doc.Path, "/"), "/")
-		return wmNodeStyle{lod: vrank[it] >= wmLabelTop && !rootDoc && !it.ringed, orphan: degree[it.doc.Path] == 0}
+		return wmNodeStyle{lod: vrank[it] >= wmLabelTop && !rootDoc && !it.ringed, orphan: ranking.degree[it.doc.Path] == 0}
 	})
 	b.WriteString(`</svg>`)
 	if newURL != "" {
@@ -151,12 +168,19 @@ func worldMapRender(wm domain.WorldMap, docURL func(string) string, newURL strin
 	return template.HTML(b.String()) //nolint:gosec // built from escaped parts; all node text/attrs pass html.EscapeString
 }
 
+// wmRanking is how a world's documents rank against each other: each path's
+// drawn-edge degree and its position in the layout order.
+type wmRanking struct {
+	degree map[string]int
+	rank   map[string]int
+}
+
 // wmRankDocs ranks documents by degree (hubs first), then importance, then
 // path, and counts the linked ones. Connectivity is by drawn edges, not the
 // hub's orphan verdict: keying off d.Orphan silently flags nothing whenever
 // the durable hub graph is sparse. Deterministic, so the layout is cacheable.
-func wmRankDocs(docs []domain.FloorDoc, edges []domain.Edge) (degree, rank map[string]int, linked int) {
-	degree = make(map[string]int, len(docs))
+func wmRankDocs(docs []domain.FloorDoc, edges []domain.Edge) (ranking wmRanking, linked int) {
+	degree := make(map[string]int, len(docs))
 	for _, e := range edges {
 		degree[e.From.Path]++
 		degree[e.To.Path]++
@@ -172,14 +196,14 @@ func wmRankDocs(docs []domain.FloorDoc, edges []domain.Edge) (degree, rank map[s
 		}
 		return ordered[i].Path < ordered[j].Path
 	})
-	rank = make(map[string]int, len(ordered))
+	rank := make(map[string]int, len(ordered))
 	for i, d := range ordered {
 		rank[d.Path] = i
 		if degree[d.Path] > 0 {
 			linked++
 		}
 	}
-	return degree, rank, linked
+	return wmRanking{degree: degree, rank: rank}, linked
 }
 
 // wmVisibleRank ranks the visible items by rolled-up degree (ties: document
@@ -233,21 +257,29 @@ func wmDrawEdges(b *strings.Builder, rolled []*wmRolled, vrank map[*wmItem]int, 
 			tier += " edge-bundle"
 			width = math.Min(4, 1.5+0.3*float64(e.count))
 		}
-		directedEdge(b, e.from.x, e.from.y, e.from.r, e.to.x, e.to.y, e.to.r, e.from.id, e.to.id, e.rel, tier, width)
+		directedEdge(b, e.from.end(), e.to.end(), edgeStyle{rel: e.rel, tier: tier, width: width})
 	}
 }
 
 // wmDrawItems draws every visible item; style decides a document's label
 // and orphan treatment.
-func wmDrawItems(b *strings.Builder, items []*wmItem, docURL func(string) string, open wmOpenSet, opts wmOpts, style func(*wmItem) wmNodeStyle) {
+func wmDrawItems(b *strings.Builder, items []*wmItem, draw wmDraw, style func(*wmItem) wmNodeStyle) {
 	for _, it := range items {
 		switch it.kind {
 		case wmItemDoc:
-			wmDocNode(b, it.doc, it.x, it.y, it.r, docURL, style(it))
+			wmDocNode(b, it, draw.docURL, style(it))
 		case wmItemGroup:
-			wmAggNode(b, it, "+", it.group.key+" ("+strconv.Itoa(it.count)+")", docURL, open, opts, wmOpenExpand)
+			wmAggNode(b, it, wmAgg{
+				glyph:  "+",
+				label:  it.group.key + " (" + strconv.Itoa(it.count) + ")",
+				action: wmOpenExpand,
+			}, draw)
 		case wmItemMore:
-			wmAggNode(b, it, "…", strconv.Itoa(it.count)+" more", docURL, open, opts, wmOpenMore)
+			wmAggNode(b, it, wmAgg{
+				glyph:  "…",
+				label:  strconv.Itoa(it.count) + " more",
+				action: wmOpenMore,
+			}, draw)
 		case wmItemAnchor:
 			for _, c := range it.children {
 				if c.hub { // the hub holds the centre; the anchor sits just above it
@@ -255,7 +287,7 @@ func wmDrawItems(b *strings.Builder, items []*wmItem, docURL func(string) string
 					break
 				}
 			}
-			wmAggNode(b, it, "−", it.group.key, docURL, open, opts, wmOpenCollapse)
+			wmAggNode(b, it, wmAgg{glyph: "−", label: it.group.key, action: wmOpenCollapse}, draw)
 		case wmItemRoot:
 		}
 	}
@@ -274,7 +306,8 @@ func wmShownDocs(items []*wmItem) int {
 
 // wmDocNode draws one document node — a status-coded circle linking to the doc,
 // labeled, with its full title in <title>.
-func wmDocNode(b *strings.Builder, doc domain.FloorDoc, x, y, r int, docURL func(string) string, style wmNodeStyle) {
+func wmDocNode(b *strings.Builder, it *wmItem, docURL func(string) string, style wmNodeStyle) {
+	doc := it.doc
 	cls := "floor-doc status-" + doc.Status
 	label := "floor-doc-label"
 	if style.orphan {
@@ -284,9 +317,9 @@ func wmDocNode(b *strings.Builder, doc domain.FloorDoc, x, y, r int, docURL func
 		label += " label-lod"
 	}
 	fmt.Fprintf(b, `<a href="%s" data-node="%s"><circle class="%s" cx="%d" cy="%d" r="%d"/>`,
-		html.EscapeString(docURL(doc.Path)), html.EscapeString(doc.Path), html.EscapeString(cls), x, y, r)
+		html.EscapeString(docURL(doc.Path)), html.EscapeString(doc.Path), html.EscapeString(cls), it.x, it.y, it.r)
 	fmt.Fprintf(b, `<text class="%s" x="%d" y="%d" text-anchor="middle">%s</text>`,
-		label, x, y+r+13, html.EscapeString(trimRunes(doc.Title, wmLabelTrim)))
+		label, it.x, it.y+it.r+13, html.EscapeString(trimRunes(doc.Title, wmLabelTrim)))
 	fmt.Fprintf(b, `<title>%s — %s</title></a>`, html.EscapeString(doc.Title), html.EscapeString(doc.Path))
 }
 
@@ -294,7 +327,7 @@ func wmDocNode(b *strings.Builder, doc domain.FloorDoc, x, y, r int, docURL func
 // listing (the no-JS and trail-pane behaviour); with an openURL the click is
 // an htmx swap of the map fragment with the group expanded, paged or
 // collapsed.
-func wmAggNode(b *strings.Builder, it *wmItem, glyph, label string, docURL func(string) string, open wmOpenSet, opts wmOpts, action wmOpenAction) {
+func wmAggNode(b *strings.Builder, it *wmItem, agg wmAgg, draw wmDraw) {
 	cls := "floor-agg"
 	switch it.kind {
 	case wmItemMore:
@@ -303,13 +336,13 @@ func wmAggNode(b *strings.Builder, it *wmItem, glyph, label string, docURL func(
 		cls += " floor-agg-anchor"
 	case wmItemDoc, wmItemGroup, wmItemRoot:
 	}
-	fmt.Fprintf(b, `<a href="%s" data-node="%s"`, html.EscapeString(docURL(it.group.list)), html.EscapeString(it.id))
-	if opts.openURL != nil {
+	fmt.Fprintf(b, `<a href="%s" data-node="%s"`, html.EscapeString(draw.docURL(it.group.list)), html.EscapeString(it.id))
+	if draw.opts.openURL != nil {
 		fmt.Fprintf(b, ` hx-get="%s" hx-target="#map-canvas" hx-swap="innerHTML"`,
-			html.EscapeString(opts.openURL(open.with(it.group.key, action))))
+			html.EscapeString(draw.opts.openURL(draw.open.with(it.group.key, agg.action))))
 	}
 	fmt.Fprintf(b, `><circle class="%s" cx="%d" cy="%d" r="%d"/>`, cls, it.x, it.y, it.r)
-	fmt.Fprintf(b, `<text class="floor-agg-glyph" x="%d" y="%d" text-anchor="middle">%s</text>`, it.x, it.y+4, glyph)
+	fmt.Fprintf(b, `<text class="floor-agg-glyph" x="%d" y="%d" text-anchor="middle">%s</text>`, it.x, it.y+4, agg.glyph)
 	// An anchor's label goes above it: below is the group's centre (a hub or
 	// the first spiral member) and its label.
 	ly := it.y + it.r + 13
@@ -317,7 +350,7 @@ func wmAggNode(b *strings.Builder, it *wmItem, glyph, label string, docURL func(
 		ly = it.y - it.r - 5
 	}
 	fmt.Fprintf(b, `<text class="floor-doc-label" x="%d" y="%d" text-anchor="middle">%s</text>`,
-		it.x, ly, html.EscapeString(trimRunes(label, wmLabelTrim+6)))
+		it.x, ly, html.EscapeString(trimRunes(agg.label, wmLabelTrim+6)))
 	fmt.Fprintf(b, `<title>%s — %d documents</title></a>`, html.EscapeString(it.group.list), it.count)
 }
 

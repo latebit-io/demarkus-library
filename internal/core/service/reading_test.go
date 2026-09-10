@@ -48,23 +48,23 @@ func (f fakeGateway) Versions(context.Context, string, string) (domain.RawDocume
 	f.record("Versions")
 	return f.raw, f.err
 }
-func (f fakeGateway) Lookup(_ context.Context, _, _, _, filter string, limit int) (domain.RawDocument, error) {
+func (f fakeGateway) Lookup(_ context.Context, _ string, q domain.LookupQuery) (domain.RawDocument, error) {
 	f.record("Lookup")
 	if f.filter != nil {
-		*f.filter = filter
+		*f.filter = q.Filter
 	}
 	if f.limit != nil {
-		*f.limit = limit
+		*f.limit = q.Limit
 	}
 	return f.raw, f.err
 }
-func (f fakeGateway) LookupAll(_ context.Context, _, _, filter string, limit int) (domain.RawDocument, error) {
+func (f fakeGateway) LookupAll(_ context.Context, q domain.LookupQuery) (domain.RawDocument, error) {
 	f.record("LookupAll")
 	if f.filter != nil {
-		*f.filter = filter
+		*f.filter = q.Filter
 	}
 	if f.limit != nil {
-		*f.limit = limit
+		*f.limit = q.Limit
 	}
 	return f.raw, f.err
 }
@@ -72,7 +72,7 @@ func (f fakeGateway) Worlds(context.Context) ([]domain.WorldInfo, error) {
 	f.record("Worlds")
 	return f.worlds, f.worldsErr
 }
-func (f fakeGateway) Publish(_ context.Context, _, _, _ string, _ domain.PublishMeta, _ int) (domain.PublishResult, error) {
+func (f fakeGateway) Publish(_ context.Context, _ domain.PublishRequest) (domain.PublishResult, error) {
 	f.record("Publish")
 	return domain.PublishResult{Version: f.publishVersion, Merge: f.publishMerge}, f.publishErr
 }

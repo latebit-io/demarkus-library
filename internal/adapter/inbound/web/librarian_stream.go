@@ -126,7 +126,7 @@ func (h *LibrarianHandler) LibrarianStream(c *echo.Context) error {
 			send("done", "∎")
 			return nil
 		}
-		return h.streamAsk(ctx, c, pa, send, sendHTML)
+		return h.streamAsk(ctx, c, pa, sseSink{send: send, sendHTML: sendHTML})
 	}
 	streamSoak(ctx, slow, send)
 	return nil
@@ -158,12 +158,19 @@ func streamSoak(ctx context.Context, slow int, send func(event, data string) boo
 	send("done", fmt.Sprintf("soak survived %ds — stream outlived the handler timeout", slow))
 }
 
+// sseSink is the pair of writers one ask streams through: plain events and
+// pre-rendered HTML fragments.
+type sseSink struct {
+	send     func(event, data string) bool
+	sendHTML func(event, data string) bool
+}
+
 // streamAsk runs one real librarian ask and maps the domain events onto the
-// SSE vocabulary. The pending ask carries the question and the pane's trail
-// context (server-side, via the token) so the rendered answer's citations
-// continue the trail.
-func (h *LibrarianHandler) streamAsk(ctx context.Context, c *echo.Context, pa pendingAsk, send, sendHTML func(event, data string) bool) error {
+// SSE vocabulary. The pending ask carries the pane's trail context server-side,
+// so the rendered answer's citations continue the trail.
+func (h *LibrarianHandler) streamAsk(ctx context.Context, c *echo.Context, pa pendingAsk, sink sseSink) error {
 	t := pa.t
+	send, sendHTML := sink.send, sink.sendHTML
 
 	events, err := h.lib.Ask(ctx, pa.convKey, pa.question, pa.context)
 	if err != nil {

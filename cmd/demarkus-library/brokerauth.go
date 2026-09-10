@@ -25,14 +25,14 @@ var (
 )
 
 // Begin mints state + PKCE and builds the broker authorize URL (web.LoginFlow).
-func (a brokerAuth) Begin(ctx context.Context) (authURL, state, verifier string, err error) {
-	state = oauth.GenerateState()
-	verifier = oauth.GenerateVerifier()
-	authURL, err = a.client.AuthCodeURL(ctx, state, oauth.Challenge(verifier))
+func (a brokerAuth) Begin(ctx context.Context) (web.LoginStart, error) {
+	state := oauth.GenerateState()
+	verifier := oauth.GenerateVerifier()
+	authURL, err := a.client.AuthCodeURL(ctx, state, oauth.Challenge(verifier))
 	if err != nil {
-		return "", "", "", err
+		return web.LoginStart{}, err
 	}
-	return authURL, state, verifier, nil
+	return web.LoginStart{AuthURL: authURL, State: state, Verifier: verifier}, nil
 }
 
 // Exchange redeems the callback code (web.LoginFlow).
