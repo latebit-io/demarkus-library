@@ -226,8 +226,34 @@ func TestTrailArchivedFocusedPaneIsGone(t *testing.T) {
 	if rec.Code != http.StatusGone {
 		t.Errorf("status = %d, want 410 for an archived focused pane", rec.Code)
 	}
-	if !strings.Contains(rec.Body.String(), "archived") {
-		t.Errorf("body should say archived: %s", rec.Body.String())
+	// The room answers in HTML, never the JSON Echo's default error handler
+	// would emit (ADR 0003).
+	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
+		t.Errorf("content-type = %q, want text/html", ct)
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "<h1>Archived</h1>") || !strings.Contains(body, "retired") {
+		t.Errorf("body should explain the document is retired: %s", body)
+	}
+	if !strings.Contains(body, "/old.md") {
+		t.Errorf("body should name the document: %s", body)
+	}
+}
+
+// A missing document stays a plain 404, and must not borrow the archived
+// wording — the two dead ends mean different things to the reader.
+func TestTrailMissingFocusedPaneIsHTMLNotFound(t *testing.T) {
+	svc := &fakeReading{errs: map[string]error{"/gone.md": domain.ErrNotFound}}
+	rec := get(readingApp(t, svc), "/t/w.io/d/gone.md")
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want 404", rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
+		t.Errorf("content-type = %q, want text/html", ct)
+	}
+	if body := rec.Body.String(); !strings.Contains(body, "<h1>Not found</h1>") ||
+		strings.Contains(body, "retired") {
+		t.Errorf("a missing document must not read as archived: %s", body)
 	}
 }
 
