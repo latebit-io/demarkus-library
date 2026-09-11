@@ -260,6 +260,50 @@ func TestGraphAffordanceShowsDegree(t *testing.T) {
 	}
 }
 
+// The nav and the focused margin must point at the same graph. paneView settles
+// the margin mid-loop, where a pane rendered later can still add the reference
+// that turns the graph on; settleOverlays is the one place that knows.
+func TestSettleOverlaysKeepsNavAndMarginInStep(t *testing.T) {
+	svc := &fakeReading{
+		docs: map[string]domain.Document{"/x.md": {Title: "X", Path: "/x.md", HTML: "<p>x</p>"}},
+		neighbor: map[string]domain.Neighborhood{
+			"/x.md": {Center: domain.Ref{World: "w.io", Path: "/x.md"},
+				In: []domain.Ref{{World: "w.io", Path: "/late.md"}}},
+		},
+	}
+	h := NewRoom(svc, "w.io", "/index.md").readingHandler()
+	trail, err := parseTrail("w.io/d/x.md", "", "")
+	if err != nil {
+		t.Fatalf("parseTrail: %v", err)
+	}
+
+	// The margin arrives with no graph link, as it would when the reference was
+	// recorded after this pane rendered.
+	vm := canvasVM{Panes: []paneVM{{HasMargin: true, World: "w.io", Path: "/x.md"}}}
+	h.settleOverlays(&vm, trail)
+
+	if vm.OverlayGraphURL == "" {
+		t.Fatal("nav should offer the graph once the reference is observed")
+	}
+	if got := vm.Panes[0].GraphURL; got != vm.OverlayGraphURL {
+		t.Errorf("margin graph link = %q, nav = %q; they must not disagree", got, vm.OverlayGraphURL)
+	}
+	if vm.Panes[0].GraphDegree != 1 {
+		t.Errorf("margin degree = %d, want 1", vm.Panes[0].GraphDegree)
+	}
+
+	// The reverse: a margin holding a stale link when the graph is gone.
+	bare := &fakeReading{docs: map[string]domain.Document{"/x.md": {Title: "X", Path: "/x.md"}}}
+	h = NewRoom(bare, "w.io", "/index.md").readingHandler()
+	vm = canvasVM{Panes: []paneVM{{HasMargin: true, World: "w.io", Path: "/x.md",
+		GraphURL: "/w/w.io/g/x.md"}}}
+	h.settleOverlays(&vm, trail)
+	if vm.Panes[0].GraphURL != "" || vm.OverlayGraphURL != "" {
+		t.Errorf("no references should leave no affordance: margin=%q nav=%q",
+			vm.Panes[0].GraphURL, vm.OverlayGraphURL)
+	}
+}
+
 // A focus with no graph (the universe floor) advertises neither overlay.
 func TestNavOmitsOverlayHotkeysOnFloor(t *testing.T) {
 	body := get(readingApp(t, &fakeReading{}), "/t/u").Body.String()

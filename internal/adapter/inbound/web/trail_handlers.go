@@ -267,18 +267,19 @@ func (h *ReadingHandler) settleOverlays(vm *canvasVM, t trail) {
 	if fa := t.Panes[t.Focus]; fa.Kind == paneDoc && !domain.IsListingPath(fa.Value) {
 		vm.Graph = h.spatial.graphOverlay(t, fa)
 	}
-	if fp := &vm.Panes[t.Focus]; fp.HasMargin {
-		fp.GraphDegree = vm.Graph.Degree
-		if !vm.Graph.Has {
-			fp.GraphURL = "" // no references, no affordance
-		}
-	}
-	// The nav reuses the margin's permalinks, so both degrade identically
-	// without JS.
+	// One settled URL for both affordances, so the nav and the margin can never
+	// disagree: a pane rendered after the focus can add the reference that turns
+	// the graph on, or the focus can have lost its only one.
+	graphURL := ""
 	if vm.Graph.Has {
 		fa := t.Panes[t.Focus]
-		vm.OverlayGraphURL = "/w/" + url.PathEscape(fa.World) + "/g" + fa.Value
+		graphURL = "/w/" + url.PathEscape(fa.World) + "/g" + fa.Value
+		vm.OverlayGraphURL = graphURL
 		vm.OverlayGraphDegree = vm.Graph.Degree
+	}
+	if fp := &vm.Panes[t.Focus]; fp.HasMargin {
+		fp.GraphDegree = vm.Graph.Degree
+		fp.GraphURL = graphURL
 	}
 	if vm.MapHas {
 		vm.OverlayMapURL = "/w/" + vm.MapWorldPath + "/u"

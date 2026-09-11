@@ -18,12 +18,10 @@ type navChrome struct {
 	PaneScroll    bool   // the pane-scroll room, ADR 0007 (canvas body class)
 
 	// The overlay pull-ups the nav advertises with their hotkeys (ADR 0006
-	// §4/§5). The keys were only documented inside the overlays, so nothing
-	// told a reader how to summon one; the nav now carries the affordance.
-	// Empty where the overlay does not exist — the single-doc page, a focus
-	// with no graph, the bare universe floor.
+	// §4/§5): the keys were named only inside the overlays they open. Empty
+	// where no such overlay exists.
 	OverlayGraphURL    string
-	OverlayGraphDegree int // reference edges behind the graph key — the "there is something here" signal
+	OverlayGraphDegree int // reference edges behind the graph key
 	OverlayMapURL      string
 }
 
