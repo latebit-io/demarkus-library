@@ -53,6 +53,7 @@ type canvasVM struct {
 // is not a document (then `g` has nothing to show).
 type graphOverlayVM struct {
 	Has     bool
+	Degree  int // reference edges in and out — the affordance's visible count
 	Title   string
 	Content template.HTML
 }
@@ -72,24 +73,25 @@ type paneVM struct {
 	Path      string
 	Content   template.HTML
 
-	HasMargin  bool // focused document pane: render the trust signals
-	Status     string
-	Type       string // OKF `type`: the document kind (grouped with Tags/Modified in doc-meta)
-	Tags       []tagLink
-	Properties []domain.Property
-	Modified   string
-	Version    string
-	Agent      string
-	Meta       []domain.Property // every other out-of-band metadata key, sorted
-	MarkURL    string
-	Librarian  *librarianPaneVM // the librarian pane's transcript + ask form (kind "a" only)
-	ReaderURL  string           // header/margin affordance: open this pane in the reader overlay (R4)
-	GraphURL   string           // margin affordance: open this doc's graph pane
-	MapURL     string           // margin affordance: open this world's map (zoom level 2)
-	EditURL    string           // margin affordance: edit this doc (Phase 3); only when authed
-	NewURL     string           // margin affordance: create a doc in this folder (Phase 3); only when authed
-	AppendURL  string           // margin affordance: append to this doc (Phase 3); only when authed
-	Backlinks  []backlinkVM     // "referenced by" — the observed-links map
+	HasMargin   bool // focused document pane: render the trust signals
+	Status      string
+	Type        string // OKF `type`: the document kind (grouped with Tags/Modified in doc-meta)
+	Tags        []tagLink
+	Properties  []domain.Property
+	Modified    string
+	Version     string
+	Agent       string
+	Meta        []domain.Property // every other out-of-band metadata key, sorted
+	MarkURL     string
+	Librarian   *librarianPaneVM // the librarian pane's transcript + ask form (kind "a" only)
+	ReaderURL   string           // header/margin affordance: open this pane in the reader overlay (R4)
+	GraphURL    string           // margin affordance: open this doc's graph overlay (empty ⇒ no references)
+	GraphDegree int              // reference edges the graph affordance advertises
+	MapURL      string           // margin affordance: open this world's map (zoom level 2)
+	EditURL     string           // margin affordance: edit this doc (Phase 3); only when authed
+	NewURL      string           // margin affordance: create a doc in this folder (Phase 3); only when authed
+	AppendURL   string           // margin affordance: append to this doc (Phase 3); only when authed
+	Backlinks   []backlinkVM     // "referenced by" — the observed-links map
 
 	// The metadata lens (pane-scroll room): MetaURL is the pane-head
 	// affordance that opens this doc's catalog record as an overlay
@@ -219,12 +221,10 @@ func (h *ReadingHandler) Trail(c *echo.Context) error {
 	// connectors and "from here →" chips a graph to read.
 	vm.Dock = h.buildDock(t)
 
-	// The graph overlay (ADR 0006 §4): the focused doc's reference neighborhood,
-	// summoned by `g`. Built here (links observed), embedded hidden — it replaces
-	// the in-trail graph pane. Node clicks are trail jumps from the focus.
-	if fa := t.Panes[t.Focus]; fa.Kind == paneDoc && !domain.IsListingPath(fa.Value) {
-		vm.Graph = h.spatial.graphOverlay(t, fa)
-	}
+	// The graph overlay and the affordances that summon it settle here, after
+	// the pane loop: every pane's links are observed, so a backlink from a pane
+	// rendered later still counts.
+	h.settleOverlays(&vm, t)
 
 	// The reader overlay reuses the addressed pane's already-fetched document —
 	// no extra world read (the overlay is pure presentation), and focus is
@@ -257,6 +257,32 @@ func (h *ReadingHandler) Trail(c *echo.Context) error {
 		}
 	}
 	return c.Render(http.StatusOK, "canvas", vm)
+}
+
+// settleOverlays builds the focused doc's graph overlay (ADR 0006 §4) and
+// points the nav and margin affordances at it. The graph affordance is gated on
+// real references so `g` never opens an empty canvas; the map is available
+// wherever the focus sits in a world.
+func (h *ReadingHandler) settleOverlays(vm *canvasVM, t trail) {
+	if fa := t.Panes[t.Focus]; fa.Kind == paneDoc && !domain.IsListingPath(fa.Value) {
+		vm.Graph = h.spatial.graphOverlay(t, fa)
+	}
+	if fp := &vm.Panes[t.Focus]; fp.HasMargin {
+		fp.GraphDegree = vm.Graph.Degree
+		if !vm.Graph.Has {
+			fp.GraphURL = "" // no references, no affordance
+		}
+	}
+	// The nav reuses the margin's permalinks, so both degrade identically
+	// without JS.
+	if vm.Graph.Has {
+		fa := t.Panes[t.Focus]
+		vm.OverlayGraphURL = "/w/" + url.PathEscape(fa.World) + "/g" + fa.Value
+		vm.OverlayGraphDegree = vm.Graph.Degree
+	}
+	if vm.MapHas {
+		vm.OverlayMapURL = "/w/" + vm.MapWorldPath + "/u"
+	}
 }
 
 // readPane reads one pane address: live for the focused pane, cached for
@@ -384,7 +410,12 @@ func (h *ReadingHandler) paneView(ctx context.Context, req *paneRequest) paneVM 
 		// is the /g/ permalink so it degrades to the standalone graph page when
 		// JS is off (islands.js intercepts it on the canvas, where the overlay
 		// exists). The graph is no longer docked as a trail pane.
-		vm.GraphURL = "/w/" + url.PathEscape(addr.World) + "/g" + addr.Value
+		// It appears only when references exist — an unlinked doc has no graph,
+		// and an affordance that opens an empty canvas teaches nothing.
+		if degree := h.spatial.graphDegree(addr.World, addr.Value); degree > 0 {
+			vm.GraphDegree = degree
+			vm.GraphURL = "/w/" + url.PathEscape(addr.World) + "/g" + addr.Value
+		}
 		// "map" opens the world-map overlay (ADR 0006 §5); the href is the /u
 		// permalink so it degrades to the standalone map page without JS. The
 		// map is no longer docked as a trail pane.

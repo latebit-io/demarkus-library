@@ -45,7 +45,17 @@
     <span class="world">{{ .World }}</span>
     <!-- Search affordance: a real link to the catalog page (works with JS off);
          islands.js intercepts the click to open the ⌃K palette overlay instead. -->
-    <a class="nav-search" href="/search" title="Search (⌃K)" hx-boost="false">Search ⌃K</a>
+    <a class="nav-search nav-key" href="/search" title="Search (⌃K)" hx-boost="false">Search <kbd>⌃K</kbd></a>
+    {{- /* The pull-up overlays, advertised with their hotkeys — the keys used
+           to be named only inside the overlay, so nothing said how to open one.
+           Real permalinks: islands.js intercepts the click on the canvas (where
+           the overlay exists) and they navigate with JS off. */ -}}
+    {{- if .OverlayGraphURL }}
+    <a class="nav-key graph-open" href="{{ .OverlayGraphURL }}" title="Reference graph, {{ .OverlayGraphDegree }} linked (g)" hx-boost="false">Graph <kbd>g</kbd> <span class="degree">{{ .OverlayGraphDegree }}</span></a>
+    {{- end }}
+    {{- if .OverlayMapURL }}
+    <a class="nav-key map-open" href="{{ .OverlayMapURL }}" title="World map (m)" hx-boost="false">Map <kbd>m</kbd></a>
+    {{- end }}
     {{- if .LibrarianURL }}
     <!-- The librarian door: joins the CURRENT trail, so the conversation
          arrives with the reader's context (Phase 4). -->

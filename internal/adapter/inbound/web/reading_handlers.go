@@ -80,21 +80,22 @@ type page struct {
 	// renders Type, Tags, and Modified (OKF `timestamp`) under the OKF caption —
 	// the OKF-native fields. Status/Version/Agent are demarkus catalog/provenance,
 	// not OKF, and render outside that group.
-	Type       string // OKF `type`: the document kind (empty ⇒ untyped)
-	Tags       []tagLink
-	Properties []domain.Property // parsed body frontmatter, rendered friendly
-	Modified   string            // OKF `timestamp`: last meaningful change, verbatim
-	Version    string            // demarkus provenance
-	Agent      string            // demarkus provenance
-	Meta       []domain.Property // every other out-of-band metadata key, sorted (importance, etag, …)
-	MarkURL    string            // canonical protocol address — the escape hatch (decision 12)
-	ReaderURL  string            // unused on the single-doc permalink (reader mode is a trail lens); kept so doc-meta renders for both VMs
-	GraphURL   string            // margin affordance: open this doc's graph neighborhood
-	MapURL     string            // margin affordance: open this world's map (zoom level 2)
-	EditURL    string            // margin affordance: edit this doc (Phase 3); only when authed
-	NewURL     string            // margin affordance: create a doc in this folder (Phase 3); only when authed
-	AppendURL  string            // margin affordance: append to this doc (Phase 3); only when authed
-	Backlinks  []backlinkVM      // "referenced by" — the observed-links map (R3)
+	Type        string // OKF `type`: the document kind (empty ⇒ untyped)
+	Tags        []tagLink
+	Properties  []domain.Property // parsed body frontmatter, rendered friendly
+	Modified    string            // OKF `timestamp`: last meaningful change, verbatim
+	Version     string            // demarkus provenance
+	Agent       string            // demarkus provenance
+	Meta        []domain.Property // every other out-of-band metadata key, sorted (importance, etag, …)
+	MarkURL     string            // canonical protocol address — the escape hatch (decision 12)
+	ReaderURL   string            // unused on the single-doc permalink (reader mode is a trail lens); kept so doc-meta renders for both VMs
+	GraphURL    string            // margin affordance: open this doc's graph neighborhood (empty ⇒ no references)
+	GraphDegree int               // reference edges the graph affordance advertises
+	MapURL      string            // margin affordance: open this world's map (zoom level 2)
+	EditURL     string            // margin affordance: edit this doc (Phase 3); only when authed
+	NewURL      string            // margin affordance: create a doc in this folder (Phase 3); only when authed
+	AppendURL   string            // margin affordance: append to this doc (Phase 3); only when authed
+	Backlinks   []backlinkVM      // "referenced by" — the observed-links map (R3)
 }
 
 // backlinkVM is one entry in the margin's "referenced by" block (R3): a
@@ -285,7 +286,12 @@ func (h *ReadingHandler) present(c *echo.Context, doc domain.Document, err error
 		vm.MarkURL = "mark://" + opts.world + doc.Path
 		// The single-doc permalink view is not a trail, so its backlinks and
 		// graph affordance point at /w/ permalinks rather than trail URLs.
-		vm.GraphURL = "/w/" + vm.WorldPath + "/g" + doc.Path
+		// Gated on real references, like the canvas margin: no graph affordance
+		// where there is no graph.
+		if degree := h.spatial.graphDegree(opts.world, doc.Path); degree > 0 {
+			vm.GraphDegree = degree
+			vm.GraphURL = "/w/" + vm.WorldPath + "/g" + doc.Path
+		}
 		vm.MapURL = "/w/" + vm.WorldPath + "/u"
 		// Edit affordance only behind the turnstile (writes need an identity);
 		// in tokenless QUIC mode it stays hidden — writes are unsupported there.

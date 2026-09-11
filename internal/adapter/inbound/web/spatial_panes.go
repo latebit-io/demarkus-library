@@ -137,11 +137,23 @@ func (h spatialPanes) graphPane(t trail, i int, addr paneAddr) paneVM {
 // in-trail graph pane rather than docking beside it.
 func (h spatialPanes) graphOverlay(t trail, addr paneAddr) graphOverlayVM {
 	n := h.graph.Neighborhood(addr.World, addr.Value)
+	degree := len(n.Out) + len(n.In)
 	return graphOverlayVM{
-		Has:   true,
-		Title: refTitle(n.Center),
+		// A doc nothing links to or from has no graph worth summoning: the
+		// overlay stays out of the page so `g` is a no-op instead of opening
+		// an empty canvas, and the affordances have something to gate on.
+		Has:    degree > 0,
+		Degree: degree,
+		Title:  refTitle(n.Center),
 		Content: graphSVG(n, func(r domain.Ref) string {
 			return trailURL(trailAfterClick(t, t.Focus, paneAddr{Kind: paneDoc, World: r.World, Value: r.Path}))
 		}, trailDocRefs(t)),
 	}
+}
+
+// graphDegree is a doc's reference-edge count — the number the graph affordance
+// shows and the condition it appears on. Store-only, so it costs no world read.
+func (h spatialPanes) graphDegree(world, path string) int {
+	n := h.graph.Neighborhood(world, path)
+	return len(n.Out) + len(n.In)
 }
