@@ -12,8 +12,16 @@ import (
 
 // reloginProbe returns presentError(ErrUnauthorized) from a route, optionally
 // marking the request as having passed the turnstile (broker mode).
-func reloginProbe(authed bool) *echo.Echo {
+func reloginProbe(t *testing.T, authed bool) *echo.Echo {
+	t.Helper()
 	app := echo.New()
+	// presentError renders the HTML error page, so the probe needs the view
+	// every real route already has.
+	view, err := NewView()
+	if err != nil {
+		t.Fatalf("NewView: %v", err)
+	}
+	app.Renderer = view
 	app.GET("/probe", func(c *echo.Context) error {
 		if authed {
 			c.Set(authedKey, true)
@@ -29,7 +37,7 @@ func reloginProbe(authed bool) *echo.Echo {
 func TestPresentError_Unauthorized_AuthedReLogins(t *testing.T) {
 	t.Run("plain redirects 302 to login", func(t *testing.T) {
 		rec := httptest.NewRecorder()
-		reloginProbe(true).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/probe", http.NoBody))
+		reloginProbe(t, true).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/probe", http.NoBody))
 		if rec.Code != http.StatusFound {
 			t.Fatalf("status = %d, want 302", rec.Code)
 		}
@@ -45,7 +53,7 @@ func TestPresentError_Unauthorized_AuthedReLogins(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/probe", http.NoBody)
 		req.Header.Set("HX-Request", "true")
 		rec := httptest.NewRecorder()
-		reloginProbe(true).ServeHTTP(rec, req)
+		reloginProbe(t, true).ServeHTTP(rec, req)
 		if rec.Code != http.StatusUnauthorized {
 			t.Fatalf("status = %d, want 401", rec.Code)
 		}
@@ -63,12 +71,19 @@ func TestPresentError_Unauthorized_AuthedReLogins(t *testing.T) {
 // redirect to a route that doesn't exist.
 func TestPresentError_Unauthorized_NoSessionStays401(t *testing.T) {
 	rec := httptest.NewRecorder()
-	reloginProbe(false).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/probe", http.NoBody))
+	reloginProbe(t, false).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/probe", http.NoBody))
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want 401", rec.Code)
 	}
 	if rec.Header().Get("Location") != "" {
 		t.Fatalf("unexpected redirect Location = %q", rec.Header().Get("Location"))
+	}
+	// And it says so in HTML, like every other read-path dead end (ADR 0003).
+	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
+		t.Errorf("content-type = %q, want text/html", ct)
+	}
+	if !strings.Contains(rec.Body.String(), "<h1>Not authorized</h1>") {
+		t.Errorf("body should name the refusal: %s", rec.Body.String())
 	}
 }
 

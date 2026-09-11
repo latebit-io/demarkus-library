@@ -332,7 +332,8 @@ func presentError(c *echo.Context, err error, world, path string) error {
 			clearSessionCookie(c)
 			return redirectToLogin(c)
 		}
-		return echo.NewHTTPError(http.StatusUnauthorized, path+": not authorized")
+		return renderError(c, errorView{Status: http.StatusUnauthorized, World: world,
+			Title: "Not authorized", Detail: "This world does not permit reading " + path + " here."})
 	default:
 		c.Logger().Error("read failed", "world", world, "path", path, "err", err)
 		return renderError(c, errorView{Status: http.StatusBadGateway, World: world,
