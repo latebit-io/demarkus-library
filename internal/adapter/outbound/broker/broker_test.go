@@ -178,17 +178,34 @@ func TestStatusMapping(t *testing.T) {
 		want   error
 	}{
 		{"not-found", domain.ErrNotFound},
-		{"archived", domain.ErrNotFound},
+		{"archived", domain.ErrArchived},
 		{"unauthorized", domain.ErrUnauthorized},
 		{"not-permitted", domain.ErrUnauthorized},
 	}
 	for _, tc := range cases {
-		fc := &fakeCaller{text: "status: " + tc.status + "\n"}
-		g := &Gateway{caller: fc}
-		if _, err := g.Fetch(authedCtx(t), "soul", "/x.md"); !errors.Is(err, tc.want) {
-			t.Errorf("status %s: err = %v, want %v", tc.status, err, tc.want)
-		}
+		t.Run(tc.status, func(t *testing.T) {
+			fc := &fakeCaller{text: "status: " + tc.status + "\n"}
+			g := &Gateway{caller: fc}
+			if _, err := g.Fetch(authedCtx(t), "soul", "/x.md"); !errors.Is(err, tc.want) {
+				t.Errorf("err = %v, want %v", err, tc.want)
+			}
+		})
 	}
+
+	// The broker maps the two absences the same way the direct gateway does:
+	// archived is a kind of absent, and absent is never reported as archived.
+	t.Run("archived is also absent", func(t *testing.T) {
+		g := &Gateway{caller: &fakeCaller{text: "status: archived\n"}}
+		if _, err := g.Fetch(authedCtx(t), "soul", "/x.md"); !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("archived must still satisfy ErrNotFound, got %v", err)
+		}
+	})
+	t.Run("missing is not archived", func(t *testing.T) {
+		g := &Gateway{caller: &fakeCaller{text: "status: not-found\n"}}
+		if _, err := g.Fetch(authedCtx(t), "soul", "/x.md"); errors.Is(err, domain.ErrArchived) {
+			t.Error("a missing document must not report as archived")
+		}
+	})
 
 	// Unknown status is an explicit failure, not a silent empty document.
 	fc := &fakeCaller{text: "status: weird\n"}

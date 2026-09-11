@@ -57,9 +57,10 @@ curl -sS http://localhost:8099/t/u | grep -o 'href="/t/[^"]*"' | sort -u
 Two overlays hang off query parameters on any trail: `?reader=<pane>` and
 `?meta=<pane>`.
 
-Not every link resolves. The world lists archived documents but refuses to
-serve them, and the room reports that as a 404 saying "not found". A link that
-404s is usually an archived document, not a bug in the room.
+Not every link resolves. The world lists archived documents but refuses to serve
+them, so a focused read of one answers 410 saying "archived"; a genuinely
+missing document is still 404 "not found". An archived document behind the
+focus renders as a gone tombstone rather than failing the trail.
 
 ## Rooms
 

@@ -54,22 +54,28 @@ func TestFetchStatusMapping(t *testing.T) {
 		{protocol.StatusNotPermitted, domain.ErrUnauthorized},
 	}
 	for _, tc := range cases {
-		g := newGateway(tc.status, "", nil)
-		if _, err := g.Fetch(t.Context(), "soul.demarkus.io", "/x.md"); !errors.Is(err, tc.want) {
-			t.Errorf("status %s: err = %v, want %v", tc.status, err, tc.want)
-		}
+		t.Run(tc.status, func(t *testing.T) {
+			g := newGateway(tc.status, "", nil)
+			if _, err := g.Fetch(t.Context(), "soul.demarkus.io", "/x.md"); !errors.Is(err, tc.want) {
+				t.Errorf("err = %v, want %v", err, tc.want)
+			}
+		})
 	}
 
 	// Archived stays absent for every caller that only asks that much, and
 	// not-found must never pass for archived.
-	g := newGateway(protocol.StatusArchived, "", nil)
-	if _, err := g.Fetch(t.Context(), "soul.demarkus.io", "/x.md"); !errors.Is(err, domain.ErrNotFound) {
-		t.Errorf("archived must still satisfy ErrNotFound, got %v", err)
-	}
-	g = newGateway(protocol.StatusNotFound, "", nil)
-	if _, err := g.Fetch(t.Context(), "soul.demarkus.io", "/x.md"); errors.Is(err, domain.ErrArchived) {
-		t.Error("a missing document must not report as archived")
-	}
+	t.Run("archived is also absent", func(t *testing.T) {
+		g := newGateway(protocol.StatusArchived, "", nil)
+		if _, err := g.Fetch(t.Context(), "soul.demarkus.io", "/x.md"); !errors.Is(err, domain.ErrNotFound) {
+			t.Errorf("archived must still satisfy ErrNotFound, got %v", err)
+		}
+	})
+	t.Run("missing is not archived", func(t *testing.T) {
+		g := newGateway(protocol.StatusNotFound, "", nil)
+		if _, err := g.Fetch(t.Context(), "soul.demarkus.io", "/x.md"); errors.Is(err, domain.ErrArchived) {
+			t.Error("a missing document must not report as archived")
+		}
+	})
 }
 
 func TestFetchPropagatesTransportError(t *testing.T) {
