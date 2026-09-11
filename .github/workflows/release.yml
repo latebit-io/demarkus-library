@@ -4,6 +4,18 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      version:
+        # Escape hatch for a computed version that is already taken. A tag
+        # created off main (a manual run from a feature branch, before the
+        # release job's ref guard existed) squats on the number main's history
+        # computes, and every later push then skips the release. Naming the
+        # version here steps over the collision without rewriting the bad tag.
+        # Once the named tag lands on main it becomes the newest reachable one,
+        # so the collision does not recur. Bare semver, no "v".
+        description: "Version to release, overriding the computed one (e.g. 0.28.0)"
+        required: false
+        type: string
 
 # Serialize runs: two pushes landing before the first run tags would both
 # compute the same next version and race at tag creation, dropping the
@@ -56,7 +68,7 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     outputs:
-      new_version: ${{ steps.semver.outputs.version }}
+      new_version: ${{ steps.resolve.outputs.version }}
       should_release: ${{ steps.check.outputs.should_release }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -78,16 +90,35 @@ jobs:
           # avoids).
           bump_each_commit: false
           search_commit_body: true
+      # The dispatch input wins when given; otherwise the computed version
+      # stands, so a normal push to main behaves exactly as before.
+      - name: Resolve version
+        id: resolve
+        env:
+          OVERRIDE: ${{ inputs.version }}
+          COMPUTED: ${{ steps.semver.outputs.version }}
+        run: |
+          VERSION="${OVERRIDE:-$COMPUTED}"
+          # Each component is 0 or digits not starting with 0: "01.2.3" is not
+          # semver, and helm rejects it as a chart version after the tag and the
+          # image are already published.
+          if ! echo "$VERSION" | grep -qE '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'; then
+            echo "::error::version must be bare semver, no leading zeroes (got '$VERSION')"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Computed: $COMPUTED, override: ${OVERRIDE:-none}, releasing: $VERSION"
+
       - name: Check if version changed
         id: check
         run: |
-          TAG="v${{ steps.semver.outputs.version }}"
+          TAG="v${{ steps.resolve.outputs.version }}"
           if git rev-parse "$TAG" >/dev/null 2>&1; then
             echo "should_release=false" >> "$GITHUB_OUTPUT"
           else
             echo "should_release=true" >> "$GITHUB_OUTPUT"
           fi
-          echo "Version: ${{ steps.semver.outputs.version }}, Tag exists: $(git rev-parse --verify "$TAG" 2>/dev/null && echo yes || echo no)"
+          echo "Version: ${{ steps.resolve.outputs.version }}, Tag exists: $(git rev-parse --verify "$TAG" 2>/dev/null && echo yes || echo no)"
 
   release:
     needs: semver
