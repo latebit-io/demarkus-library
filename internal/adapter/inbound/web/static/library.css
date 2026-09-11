@@ -487,10 +487,22 @@ body.edit-page { max-width: none; padding: 1.5rem 1.5rem 2rem; }
       markup is server-rendered (templates/palette.html); islands.js only
       toggles [hidden] and moves the .sel selection. System-ui sans —
       chrome, not prose. ─────────────────────────────────────────────── */
-.nav-search { font-size: .8rem; color: var(--muted); text-decoration: none;
+.nav-key { font-size: .8rem; color: var(--muted); text-decoration: none;
               border: 1px solid var(--faint); border-radius: 6px;
               padding: .25rem .6rem; white-space: nowrap; font-family: var(--font-ui); }
-.nav-search:hover { color: var(--ink); }
+.nav-key:hover { color: var(--ink); }
+/* The keycap on a hotkey affordance — nav pill or margin escape row. The key
+   reads as a key, not as part of the label, and inherits the muted colour so
+   it stays chrome. */
+.nav-key kbd, .escape kbd { font-family: var(--font-ui); font-size: .92em; opacity: .8;
+              border: 1px solid var(--faint); border-radius: 4px;
+              padding: 0 .25em; margin-left: .15em;
+              /* inline-block keeps the margin link's underline off the cap */
+              display: inline-block; }
+/* The graph affordance's edge count: how much there is to see before you
+   summon it. The affordance is absent when it would be zero. */
+.nav-key .degree, .escape .degree { font-size: .85em; opacity: .65;
+              display: inline-block; }
 .palette-backdrop { position: fixed; inset: 0; z-index: 100;
               background: light-dark(#11111144, #00000099);
               display: flex; justify-content: center; align-items: flex-start;

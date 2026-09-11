@@ -16,6 +16,13 @@ type navChrome struct {
 	User          string // signed-in identity's email (empty ⇒ not shown)
 	LibrarianURL  string // nav door to the librarian (empty ⇒ not configured)
 	PaneScroll    bool   // the pane-scroll room, ADR 0007 (canvas body class)
+
+	// The overlay pull-ups the nav advertises with their hotkeys (ADR 0006
+	// §4/§5): the keys were named only inside the overlays they open. Empty
+	// where no such overlay exists.
+	OverlayGraphURL    string
+	OverlayGraphDegree int // reference edges behind the graph key
+	OverlayMapURL      string
 }
 
 // chromeBuilder holds what the chrome needs beyond the request: whether a

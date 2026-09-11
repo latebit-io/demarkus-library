@@ -126,6 +126,12 @@ func TestDocMarginOffersGraphAndBacklinks(t *testing.T) {
 		backlink: map[string][]domain.Ref{
 			"/x.md": {{World: "w.io", Path: "/referrer.md"}},
 		},
+		// Production derives backlinks and the neighborhood from one edge map;
+		// the fake keeps them apart, so state both.
+		neighbor: map[string]domain.Neighborhood{
+			"/x.md": {Center: domain.Ref{World: "w.io", Path: "/x.md"},
+				In: []domain.Ref{{World: "w.io", Path: "/referrer.md"}}},
+		},
 	}
 	body := get(readingApp(t, svc), "/t/w.io/d/x.md").Body.String()
 
@@ -188,5 +194,120 @@ func TestGraphSVGNoOverflowNoteAtCap(t *testing.T) {
 	svg := string(graphSVG(n, func(r domain.Ref) string { return docRoute(r.World, r.Path) }, nil))
 	if strings.Contains(svg, "graph-more") {
 		t.Errorf("no overflow note expected at exactly the cap: %s", svg)
+	}
+}
+
+// The overlay hotkeys were named only inside the overlays, so a reader had no
+// way to learn them; the nav now carries both affordances with their keycaps.
+func TestNavAdvertisesOverlayHotkeys(t *testing.T) {
+	svc := &fakeReading{
+		docs: map[string]domain.Document{"/x.md": {Title: "X", Path: "/x.md", HTML: "<p>x</p>"}},
+		neighbor: map[string]domain.Neighborhood{
+			"/x.md": {Center: domain.Ref{World: "w.io", Path: "/x.md"},
+				Out: []domain.Ref{{World: "w.io", Path: "/y.md"}}},
+		},
+	}
+	body := get(readingApp(t, svc), "/t/w.io/d/x.md").Body.String()
+	for _, want := range []string{
+		`class="nav-key graph-open" href="/w/w.io/g/x.md"`,
+		`class="nav-key map-open" href="/w/w.io/u"`,
+		`Graph <kbd>g</kbd>`,
+		`Map <kbd>m</kbd>`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("nav missing %q: %s", want, body)
+		}
+	}
+}
+
+// An unlinked doc has no graph: no overlay to summon, and neither the nav nor
+// the margin offers a key that would open an empty canvas.
+func TestNoGraphAffordanceWithoutReferences(t *testing.T) {
+	svc := &fakeReading{
+		docs: map[string]domain.Document{"/lonely.md": {Title: "Lonely", Path: "/lonely.md", HTML: "<p>x</p>"}},
+	}
+	body := get(readingApp(t, svc), "/t/w.io/d/lonely.md").Body.String()
+	for _, unwanted := range []string{`id="graph-overlay"`, "nav-key graph-open", `class="graph-open"`} {
+		if strings.Contains(body, unwanted) {
+			t.Errorf("unlinked doc should offer no graph (%s): %s", unwanted, body)
+		}
+	}
+	// The map is always viewable inside a world, and says so with its key.
+	if !strings.Contains(body, `map <kbd>m</kbd>`) {
+		t.Errorf("margin map affordance should name its key: %s", body)
+	}
+}
+
+// The margin's graph affordance carries the reference count, so the reader
+// knows there is something behind the key before pressing it.
+func TestGraphAffordanceShowsDegree(t *testing.T) {
+	svc := &fakeReading{
+		docs: map[string]domain.Document{"/x.md": {Title: "X", Path: "/x.md", HTML: "<p>x</p>"}},
+		neighbor: map[string]domain.Neighborhood{
+			"/x.md": {Center: domain.Ref{World: "w.io", Path: "/x.md"},
+				Out: []domain.Ref{{World: "w.io", Path: "/y.md"}, {World: "w.io", Path: "/z.md"}},
+				In:  []domain.Ref{{World: "w.io", Path: "/r.md"}}},
+		},
+	}
+	body := get(readingApp(t, svc), "/t/w.io/d/x.md").Body.String()
+	for _, want := range []string{
+		`graph <kbd>g</kbd> <span class="degree">3</span>`,
+		`Graph <kbd>g</kbd> <span class="degree">3</span>`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("missing %q: %s", want, body)
+		}
+	}
+}
+
+// The nav and the focused margin must point at the same graph. paneView settles
+// the margin mid-loop, where a pane rendered later can still add the reference
+// that turns the graph on; settleOverlays is the one place that knows.
+func TestSettleOverlaysKeepsNavAndMarginInStep(t *testing.T) {
+	svc := &fakeReading{
+		docs: map[string]domain.Document{"/x.md": {Title: "X", Path: "/x.md", HTML: "<p>x</p>"}},
+		neighbor: map[string]domain.Neighborhood{
+			"/x.md": {Center: domain.Ref{World: "w.io", Path: "/x.md"},
+				In: []domain.Ref{{World: "w.io", Path: "/late.md"}}},
+		},
+	}
+	h := NewRoom(svc, "w.io", "/index.md").readingHandler()
+	trail, err := parseTrail("w.io/d/x.md", "", "")
+	if err != nil {
+		t.Fatalf("parseTrail: %v", err)
+	}
+
+	// The margin arrives with no graph link, as it would when the reference was
+	// recorded after this pane rendered.
+	vm := canvasVM{Panes: []paneVM{{HasMargin: true, World: "w.io", Path: "/x.md"}}}
+	h.settleOverlays(&vm, trail)
+
+	if vm.OverlayGraphURL == "" {
+		t.Fatal("nav should offer the graph once the reference is observed")
+	}
+	if got := vm.Panes[0].GraphURL; got != vm.OverlayGraphURL {
+		t.Errorf("margin graph link = %q, nav = %q; they must not disagree", got, vm.OverlayGraphURL)
+	}
+	if vm.Panes[0].GraphDegree != 1 {
+		t.Errorf("margin degree = %d, want 1", vm.Panes[0].GraphDegree)
+	}
+
+	// The reverse: a margin holding a stale link when the graph is gone.
+	bare := &fakeReading{docs: map[string]domain.Document{"/x.md": {Title: "X", Path: "/x.md"}}}
+	h = NewRoom(bare, "w.io", "/index.md").readingHandler()
+	vm = canvasVM{Panes: []paneVM{{HasMargin: true, World: "w.io", Path: "/x.md",
+		GraphURL: "/w/w.io/g/x.md"}}}
+	h.settleOverlays(&vm, trail)
+	if vm.Panes[0].GraphURL != "" || vm.OverlayGraphURL != "" {
+		t.Errorf("no references should leave no affordance: margin=%q nav=%q",
+			vm.Panes[0].GraphURL, vm.OverlayGraphURL)
+	}
+}
+
+// A focus with no graph (the universe floor) advertises neither overlay.
+func TestNavOmitsOverlayHotkeysOnFloor(t *testing.T) {
+	body := get(readingApp(t, &fakeReading{}), "/t/u").Body.String()
+	if strings.Contains(body, "nav-key graph-open") || strings.Contains(body, "nav-key map-open") {
+		t.Errorf("floor should advertise no overlay hotkeys: %s", body)
 	}
 }

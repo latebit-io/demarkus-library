@@ -166,6 +166,10 @@ type Neighborhood struct {
 	In     []Ref
 }
 
+// Degree is the reference count in both directions: what the graph affordance
+// shows, and the test for whether there is a graph worth drawing at all.
+func (n Neighborhood) Degree() int { return len(n.Out) + len(n.In) }
+
 // EdgeType classifies a graph edge so each surface can draw only the relation
 // it owns (navigation rework, ADR 0006, supersedes ADR 0005 d5/d8). The
 // principle: containment is the list/index's job, references are the graph's.

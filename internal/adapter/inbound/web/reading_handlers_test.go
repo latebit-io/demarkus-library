@@ -358,7 +358,14 @@ func TestDocRendersMargin(t *testing.T) {
 		Modified:   "2026-06-12T10:00:00Z",
 		Version:    "7",
 		Agent:      "claude-code",
-	}}
+	},
+		// The graph affordance is gated on real references, so the margin needs
+		// a neighborhood to offer one.
+		neighbor: map[string]domain.Neighborhood{
+			"/adr/0007.md": {Center: domain.Ref{World: "soul.demarkus.io", Path: "/adr/0007.md"},
+				Out: []domain.Ref{{World: "soul.demarkus.io", Path: "/adr/0002.md"}}},
+		},
+	}
 	body := get(readingApp(t, svc), "/t/soul.demarkus.io/d/adr/0007.md").Body.String()
 
 	for _, want := range []string{
@@ -375,6 +382,10 @@ func TestDocRendersMargin(t *testing.T) {
 		// boosting the permalink into a pane (the fix this asserts).
 		`href="/w/soul.demarkus.io/g/adr/0007.md" class="graph-open" hx-boost="false"`,
 		`href="/w/soul.demarkus.io/u" class="map-open" hx-boost="false"`,
+		// The hotkeys are named on the affordance, and the graph carries its
+		// reference count — the "is there anything here" signal.
+		`graph <kbd>g</kbd> <span class="degree">1</span>`,
+		`map <kbd>m</kbd>`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("doc page missing %q", want)
