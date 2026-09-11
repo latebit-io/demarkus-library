@@ -96,6 +96,12 @@ ul.tags a { color: var(--muted); }
 .doc-meta .escape code { font-size: .7rem; display: block; overflow-wrap: anywhere;
                          margin-bottom: .25rem; }
 
+/* ── The read path's error page: a dead end, deliberately bare. ── */
+.error-page #main { max-width: 34rem; margin: 4rem auto; padding: 0 1.5rem; }
+.error-page h1 { margin-bottom: .5rem; }
+.error-detail { color: var(--muted); overflow-wrap: anywhere; }
+.error-back { margin-top: 2rem; }
+
 /* ── Sidenotes: footnote syntax, floated into the margin. CSS counters
       number the in-text anchor and the note identically. ────────── */
 .sidenote-number { counter-increment: sidenote; }

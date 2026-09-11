@@ -1,6 +1,7 @@
 package web
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -210,10 +211,71 @@ func TestTrailUnfocusedErrorBecomesTombstone(t *testing.T) {
 	}
 }
 
-func TestTrailFocusedErrorIsAnError(t *testing.T) {
-	svc := &fakeReading{errs: map[string]error{"/gone.md": domain.ErrNotFound}}
-	if rec := get(readingApp(t, svc), "/t/w.io/d/gone.md"); rec.Code != http.StatusNotFound {
-		t.Errorf("status = %d, want 404 for a missing focused pane", rec.Code)
+// The dead ends a focused read can hit. Each means something different to the
+// reader, so each gets its own status and wording, and none may borrow
+// another's: "not found" on a retired document sends someone hunting for a
+// broken link that was never broken.
+func TestTrailFocusedReadErrors(t *testing.T) {
+	cases := []struct {
+		name    string
+		err     error
+		status  int
+		heading string
+		want    string // wording the page must carry
+		reject  string // wording that would mean the wrong dead end
+	}{
+		{
+			name: "archived", err: domain.ErrArchived, status: http.StatusGone,
+			heading: "Archived", want: "retired", reject: "no document at",
+		},
+		{
+			name: "missing", err: domain.ErrNotFound, status: http.StatusNotFound,
+			heading: "Not found", want: "no document at", reject: "retired",
+		},
+		{
+			name: "unreadable world", err: errors.New("dial failed"), status: http.StatusBadGateway,
+			heading: "Unreachable", want: "could not reach", reject: "retired",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := &fakeReading{errs: map[string]error{"/x.md": tc.err}}
+			rec := get(readingApp(t, svc), "/t/w.io/d/x.md")
+			if rec.Code != tc.status {
+				t.Errorf("status = %d, want %d", rec.Code, tc.status)
+			}
+			// The room answers in HTML, never the JSON Echo's default error
+			// handler would emit (ADR 0003).
+			if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
+				t.Errorf("content-type = %q, want text/html", ct)
+			}
+			body := rec.Body.String()
+			if !strings.Contains(body, "<h1>"+tc.heading+"</h1>") {
+				t.Errorf("heading %q missing: %s", tc.heading, body)
+			}
+			if !strings.Contains(body, tc.want) {
+				t.Errorf("body should say %q: %s", tc.want, body)
+			}
+			if strings.Contains(body, tc.reject) {
+				t.Errorf("body must not read as another dead end (%q): %s", tc.reject, body)
+			}
+		})
+	}
+}
+
+// An archived waypoint behind the focus still tombstones rather than killing
+// the trail: it travels the same path as any unreadable pane.
+func TestTrailArchivedWaypointTombstones(t *testing.T) {
+	svc := &fakeReading{
+		docs: map[string]domain.Document{"/x.md": {Title: "X", Path: "/x.md", HTML: "<p>x</p>"}},
+		errs: map[string]error{"/old.md": domain.ErrArchived},
+	}
+	rec := get(readingApp(t, svc), "/t/w.io/d/old.md/~/w.io/d/x.md")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 — an archived waypoint must not kill the trail", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), `class="pane spine gone"`) {
+		t.Errorf("tombstone spine missing")
 	}
 }
 

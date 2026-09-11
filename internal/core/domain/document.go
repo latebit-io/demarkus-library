@@ -10,8 +10,18 @@ import (
 )
 
 // ErrNotFound means a world has no document at the requested path (demarkus
-// status not-found or archived).
+// status not-found).
 var ErrNotFound = errors.New("document not found")
+
+// ErrArchived means the world holds the document but has retired it: named in
+// listings, refused on read. Wraps ErrNotFound so absence checks keep working,
+// while the read path can tell a retired document from a broken link.
+var ErrArchived error = archivedError{}
+
+type archivedError struct{}
+
+func (archivedError) Error() string { return "document is archived" }
+func (archivedError) Unwrap() error { return ErrNotFound }
 
 // ErrUnauthorized means a world rejected the read (status unauthorized or
 // not-permitted). Phase 1 turns this into an OAuth challenge.

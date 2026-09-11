@@ -1,0 +1,14 @@
+{{/* The read path's error page (ADR 0003: the room answers in HTML, never
+     JSON). Deliberately chrome-free — no nav, palette or librarian door: a
+     dead-end needs to say what happened and offer the way back, nothing more. */}}
+{{define "error"}}<!doctype html>
+<html lang="en">
+{{template "head" .}}
+<body class="error-page">
+  <main id="main">
+    <h1>{{ .Title }}</h1>
+    <p class="error-detail">{{ .Detail }}</p>
+    <p class="error-back"><a href="{{ .Home }}">← {{ brand .World }}</a></p>
+  </main>
+</body>
+</html>{{end}}

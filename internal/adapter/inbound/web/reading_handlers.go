@@ -311,8 +311,16 @@ func (h *ReadingHandler) present(c *echo.Context, doc domain.Document, err error
 // views and the raw-source escape.
 func presentError(c *echo.Context, err error, world, path string) error {
 	switch {
+	case errors.Is(err, domain.ErrArchived):
+		// Checked before ErrNotFound, which it wraps. A retired document is not
+		// a broken link, and saying "not found" sends the reader looking for a
+		// bug in whatever linked here.
+		return renderError(c, errorView{Status: http.StatusGone, World: world,
+			Title:  "Archived",
+			Detail: path + " has been retired. The world still lists it, but no longer serves it."})
 	case errors.Is(err, domain.ErrNotFound):
-		return echo.NewHTTPError(http.StatusNotFound, path+": not found")
+		return renderError(c, errorView{Status: http.StatusNotFound, World: world,
+			Title: "Not found", Detail: "This world has no document at " + path + "."})
 	case errors.Is(err, domain.ErrUnauthorized):
 		// An authed request whose bearer the broker rejects mid-session (token
 		// revoked between the turnstile's refresh and this read) should re-login,
@@ -324,11 +332,33 @@ func presentError(c *echo.Context, err error, world, path string) error {
 			clearSessionCookie(c)
 			return redirectToLogin(c)
 		}
-		return echo.NewHTTPError(http.StatusUnauthorized, path+": not authorized")
+		return renderError(c, errorView{Status: http.StatusUnauthorized, World: world,
+			Title: "Not authorized", Detail: "This world does not permit reading " + path + " here."})
 	default:
 		c.Logger().Error("read failed", "world", world, "path", path, "err", err)
-		return echo.NewHTTPError(http.StatusBadGateway, "reading room is unreachable")
+		return renderError(c, errorView{Status: http.StatusBadGateway, World: world,
+			Title: "Unreachable", Detail: "The reading room could not reach " + world + "."})
 	}
+}
+
+// errorView is the read path's error page. Title and Detail are the whole
+// message; Home is the way back out of the dead end.
+type errorView struct {
+	Status int
+	Title  string
+	Detail string
+	World  string
+	Home   string
+}
+
+// renderError answers a failed read in HTML, not the JSON Echo's default error
+// handler would emit (ADR 0003). The status still carries the machine-readable
+// answer for anything that only reads the code.
+func renderError(c *echo.Context, view errorView) error {
+	if view.Home == "" {
+		view.Home = "/"
+	}
+	return c.Render(view.Status, "error", view)
 }
 
 // tagLinks builds the margin's clickable tag list. The status: axis is
