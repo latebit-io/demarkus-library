@@ -158,8 +158,10 @@ func (g *Gateway) toRawDocument(res fetch.Result, host, path string, err error) 
 	switch res.Response.Status {
 	case protocol.StatusOK:
 		// fall through
-	case protocol.StatusNotFound, protocol.StatusArchived:
+	case protocol.StatusNotFound:
 		return domain.RawDocument{}, domain.ErrNotFound
+	case protocol.StatusArchived:
+		return domain.RawDocument{}, domain.ErrArchived
 	case protocol.StatusUnauthorized, protocol.StatusNotPermitted:
 		return domain.RawDocument{}, domain.ErrUnauthorized
 	default:

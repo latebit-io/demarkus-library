@@ -49,7 +49,7 @@ func TestFetchStatusMapping(t *testing.T) {
 		want   error
 	}{
 		{protocol.StatusNotFound, domain.ErrNotFound},
-		{protocol.StatusArchived, domain.ErrNotFound},
+		{protocol.StatusArchived, domain.ErrArchived},
 		{protocol.StatusUnauthorized, domain.ErrUnauthorized},
 		{protocol.StatusNotPermitted, domain.ErrUnauthorized},
 	}
@@ -58,6 +58,17 @@ func TestFetchStatusMapping(t *testing.T) {
 		if _, err := g.Fetch(t.Context(), "soul.demarkus.io", "/x.md"); !errors.Is(err, tc.want) {
 			t.Errorf("status %s: err = %v, want %v", tc.status, err, tc.want)
 		}
+	}
+
+	// Archived stays absent for every caller that only asks that much, and
+	// not-found must never pass for archived.
+	g := newGateway(protocol.StatusArchived, "", nil)
+	if _, err := g.Fetch(t.Context(), "soul.demarkus.io", "/x.md"); !errors.Is(err, domain.ErrNotFound) {
+		t.Errorf("archived must still satisfy ErrNotFound, got %v", err)
+	}
+	g = newGateway(protocol.StatusNotFound, "", nil)
+	if _, err := g.Fetch(t.Context(), "soul.demarkus.io", "/x.md"); errors.Is(err, domain.ErrArchived) {
+		t.Error("a missing document must not report as archived")
 	}
 }
 

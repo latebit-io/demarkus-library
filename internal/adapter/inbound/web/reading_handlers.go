@@ -311,6 +311,11 @@ func (h *ReadingHandler) present(c *echo.Context, doc domain.Document, err error
 // views and the raw-source escape.
 func presentError(c *echo.Context, err error, world, path string) error {
 	switch {
+	case errors.Is(err, domain.ErrArchived):
+		// Checked before ErrNotFound, which it wraps. A retired document is not
+		// a broken link, and saying "not found" sends the reader looking for a
+		// bug in whatever linked here.
+		return echo.NewHTTPError(http.StatusGone, path+": archived")
 	case errors.Is(err, domain.ErrNotFound):
 		return echo.NewHTTPError(http.StatusNotFound, path+": not found")
 	case errors.Is(err, domain.ErrUnauthorized):

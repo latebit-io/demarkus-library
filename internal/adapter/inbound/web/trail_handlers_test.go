@@ -217,6 +217,36 @@ func TestTrailFocusedErrorIsAnError(t *testing.T) {
 	}
 }
 
+// An archived document is retired, not missing. Reporting it as "not found"
+// sends the reader hunting for a broken link in whatever pointed here — the
+// world lists archived documents, so the link itself was honest.
+func TestTrailArchivedFocusedPaneIsGone(t *testing.T) {
+	svc := &fakeReading{errs: map[string]error{"/old.md": domain.ErrArchived}}
+	rec := get(readingApp(t, svc), "/t/w.io/d/old.md")
+	if rec.Code != http.StatusGone {
+		t.Errorf("status = %d, want 410 for an archived focused pane", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "archived") {
+		t.Errorf("body should say archived: %s", rec.Body.String())
+	}
+}
+
+// An archived waypoint behind the focus still tombstones rather than killing
+// the trail: it travels the same path as any unreadable pane.
+func TestTrailArchivedWaypointTombstones(t *testing.T) {
+	svc := &fakeReading{
+		docs: map[string]domain.Document{"/x.md": {Title: "X", Path: "/x.md", HTML: "<p>x</p>"}},
+		errs: map[string]error{"/old.md": domain.ErrArchived},
+	}
+	rec := get(readingApp(t, svc), "/t/w.io/d/old.md/~/w.io/d/x.md")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 — an archived waypoint must not kill the trail", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), `class="pane spine gone"`) {
+		t.Errorf("tombstone spine missing")
+	}
+}
+
 func TestTrailMalformedIs400(t *testing.T) {
 	svc := &fakeReading{}
 	if rec := get(readingApp(t, svc), "/t/w.io/versions/x.md"); rec.Code != http.StatusBadRequest {

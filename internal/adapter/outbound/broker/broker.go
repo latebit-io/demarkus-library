@@ -448,8 +448,10 @@ func parseToolResult(world, path, text string, additionalStatuses ...string) (do
 		if status != protocol.StatusOK {
 			meta["status"] = status
 		}
-	case status == protocol.StatusNotFound || status == protocol.StatusArchived:
+	case status == protocol.StatusNotFound:
 		return domain.RawDocument{}, domain.ErrNotFound
+	case status == protocol.StatusArchived:
+		return domain.RawDocument{}, domain.ErrArchived
 	case status == protocol.StatusUnauthorized || status == protocol.StatusNotPermitted:
 		return domain.RawDocument{}, domain.ErrUnauthorized
 	default:
