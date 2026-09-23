@@ -147,9 +147,10 @@ func (v *View) Render(c *echo.Context, w io.Writer, name string, data any) error
 			if iw, ok := v.worlds.For(ctx, world); ok {
 				r = r.over(iw)
 			}
-			// The hub's sheet is already the room theme in the head; a second
-			// link in the body would only load it again.
-			if world == v.worlds.Hub() {
+			// The hub's own sheet is already the room theme in the head; a
+			// second link in the body would only load it again. A manifest
+			// sheet for the hub world is not in the head, so it stays.
+			if r.CSSURL == b.ThemeCSSURL {
 				r.CSSURL = ""
 			}
 		}

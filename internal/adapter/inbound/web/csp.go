@@ -2,14 +2,9 @@ package web
 
 import "github.com/labstack/echo/v5"
 
-// pageCSP is the policy every response carries unless a handler sets its own
-// (theme assets do, see blobHandler). Branding stylesheets come from documents
-// other people wrote, so the policy limits what a stylesheet can reach:
-// fonts and @import only from this origin, XHR and SSE only to this origin,
-// no plugins, no <base> hijack. Images stay open to https so documents can
-// embed pictures; checkCSS closes that channel for stylesheets instead.
-// Inline styles are allowed because the login page and the preview anchors
-// use them; inline and eval'd script are not, which is why hx-on is unused.
+// pageCSP bounds what a branding stylesheet from a document can reach: fonts,
+// @import, and XHR same-origin only, no inline or eval'd script (so no hx-on).
+// Images stay open to https for document pictures; checkCSS covers that hole.
 const pageCSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
 	"img-src 'self' data: https:; font-src 'self'; connect-src 'self'; " +
 	"object-src 'none'; base-uri 'self'; frame-ancestors 'self'"

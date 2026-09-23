@@ -4,6 +4,8 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -67,6 +69,42 @@ func TestHubDocumentsBrandTheRoom(t *testing.T) {
 	rec = get(app, "/theme/worlds/root/favicon")
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Header().Get("Content-Type"), "svg") || !strings.Contains(rec.Body.String(), "fav") {
 		t.Errorf("favicon: %d %q", rec.Code, rec.Body.String())
+	}
+}
+
+// A manifest stylesheet for the hub world still links from the body when the
+// hub publishes no sheet of its own: only the hub's own sheet is in the head.
+func TestHubKeepsManifestWorldSheetWhenSilent(t *testing.T) {
+	svc := inWorldSvc("")
+	delete(svc.raws, WorldBrandCSS)
+	svc.rawsWorld = hubWorld
+	dir := t.TempDir()
+	css := filepath.Join(dir, "root.css")
+	if err := os.WriteFile(css, []byte(":root { --paper: #123456; }"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	app := echo.New()
+	view, err := NewView()
+	if err != nil {
+		t.Fatalf("NewView: %v", err)
+	}
+	branding, err := ThemeRoutes(app, ThemeManifest{Name: "ACME Brain", Worlds: map[string]WorldTheme{hubWorld: {CSS: css}}})
+	if err != nil {
+		t.Fatalf("ThemeRoutes: %v", err)
+	}
+	brands := NewWorldBrands(svc).WithHub(hubWorld)
+	app.Renderer = view.WithBranding(branding).WithWorldBrands(brands)
+	WorldThemeRoutes(app, branding, brands)
+	RoomRoutes(app, NewRoom(svc, "soul.demarkus.io", "/index.md").WithBranding(branding))
+	rec := get(app, "/t/root/d/x.md")
+	body := rec.Body.String()
+	if !strings.Contains(body, "<title>X — Soul Room</title>") {
+		t.Error("hub name missing")
+	}
+	head := strings.Index(body, "</head>")
+	link := strings.Index(body, `<link rel="stylesheet" href="/theme/worlds/root/site.css">`)
+	if link < 0 || link < head {
+		t.Error("manifest sheet for the hub world not linked from the body")
 	}
 }
 

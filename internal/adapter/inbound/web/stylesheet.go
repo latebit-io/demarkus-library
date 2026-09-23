@@ -6,16 +6,14 @@ import (
 	"regexp"
 )
 
-// Stylesheet validation for CSS that arrives in a document (ADR 0008). CSS
-// cannot run script, but it can fetch: a selector on an attribute value plus
-// a background URL leaks that value, character by character, to whoever
-// hosts the URL. So a document's stylesheet may not name another origin.
-// The page CSP blocks the same fetches; this check refuses them at the door
-// so the desk can say why, and so the rule holds on a browser without CSP.
+// Stylesheet validation for CSS from a document (ADR 0008). CSS cannot run
+// script, but an attribute selector plus a background URL leaks the value to
+// another origin, so a document's stylesheet may not name one.
 
 // cssActive matches what a stylesheet may not contain: anything that fetches
-// from another origin, imports, legacy script hooks, or a run of markup.
-var cssActive = regexp.MustCompile(`(?i)@import|expression\s*\(|-moz-binding|behavior\s*:|javascript:|[a-z][a-z0-9+.-]*://|(url|src|image|image-set)\(\s*["']?\s*//|["']//|<\s*/?\s*(script|style)`)
+// from another origin, imports, legacy script hooks, a run of markup, or a
+// backslash, since CSS escapes could spell any of those past the match.
+var cssActive = regexp.MustCompile(`(?i)@import|expression\s*\(|-moz-binding|behavior\s*:|javascript:|[a-z][a-z0-9+.-]*://|(url|src|image|image-set)\(\s*["']?\s*//|["']//|<\s*/?\s*(script|style)|\\`)
 
 // checkCSS refuses a stylesheet that could reach out of the page. Size is
 // bounded by worldBrandMaxBytes so the regexp runs over a known maximum.

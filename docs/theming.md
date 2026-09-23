@@ -151,9 +151,9 @@ bytes do not match its declared type, or an SVG carrying `<script>`, event
 handlers, or external references, is ignored.
 
 A stylesheet from a document may not reach another origin: `@import`, any
-`://` or `//` reference, `expression()`, `behavior:` and `-moz-binding` are
-refused at the desk and ignored when read from a world (the name and logo
-still apply). CSS cannot run script, but a selector on an attribute value
+`://` or `//` reference, `expression()`, `behavior:`, `-moz-binding`, and
+backslash escapes (which could spell any of those) are refused at the desk
+and ignored when read from a world (the name and logo still apply). CSS cannot run script, but a selector on an attribute value
 plus a background URL can leak that value to whoever hosts the URL; relative,
 same-origin, and `data:` references are fine. Every page also carries a
 Content-Security-Policy that limits fonts, `@import`, and XHR to the

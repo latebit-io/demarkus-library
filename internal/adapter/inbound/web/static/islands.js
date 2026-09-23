@@ -152,9 +152,10 @@
     if (pr.left < cr.left) canvas.scrollLeft -= cr.left - pr.left;
   }
 
-  // The ask form clears once its question is sent. A listener rather than an
-  // hx-on attribute: the page CSP forbids eval'd script, which hx-on needs.
-  document.addEventListener("htmx:after:request", function (e) {
+  // ADR 0003 concession: the ask form clears once its answer is swapped in
+  // (after:swap, so a failed ask keeps the question). A listener rather than
+  // an hx-on attribute: the page CSP forbids the eval'd script hx-on needs.
+  document.addEventListener("htmx:after:swap", function (e) {
     var el = e.target;
     if (el instanceof Element && el.matches("form.ask-form")) el.reset();
   });

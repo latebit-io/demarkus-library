@@ -23,6 +23,9 @@ func TestCheckCSS(t *testing.T) {
 		{name: "expression", sheet: "div { width: expression(alert(1)); }", reject: true},
 		{name: "behavior", sheet: "div { behavior: url(a.htc); }", reject: true},
 		{name: "markup", sheet: "</style><script>1</script>", reject: true},
+		{name: "escaped import", sheet: `\@import url(/x.css);`, reject: true},
+		{name: "escaped url scheme", sheet: `body { background: url(https\:\/\/evil.example/a); }`, reject: true},
+		{name: "escaped content", sheet: `a::after { content: "\2014"; }`, reject: true},
 		{name: "oversized", sheet: strings.Repeat("a", worldBrandMaxBytes+1), reject: true},
 	}
 	for _, tt := range tests {
