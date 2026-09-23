@@ -22,8 +22,7 @@
 {{- if .Ask }}
 {{- if .Ask.Notice }}<p class="ask-notice">{{ .Ask.Notice }}</p>{{ end }}
 <form class="ask-form" method="post" action="/a/ask"
-      hx-post="/a/ask" hx-target="#librarian-exchanges" hx-swap="beforeend"
-      hx-on::after:request="this.reset()">
+      hx-post="/a/ask" hx-target="#librarian-exchanges" hx-swap="beforeend">
   <input type="hidden" name="_csrf" value="{{ csrf }}">
   <input type="hidden" name="trail" value="{{ .Ask.TrailRest }}">
   <input type="hidden" name="idx" value="{{ .Ask.Idx }}">

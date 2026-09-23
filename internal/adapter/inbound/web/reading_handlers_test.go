@@ -21,6 +21,7 @@ type fakeReading struct {
 	errs          map[string]error
 	raw           domain.RawDocument
 	raws          map[string]domain.RawDocument // per-path raw sources; nil ⇒ raw/err for every path
+	rawsWorld     string                        // when set, raws belong to this world only; others are empty
 	trackRaw      bool                          // record Raw calls in calls (branding cache tests)
 	gotBodies     map[string]string             // every published body by path
 	publishErrFor map[string]error              // publish failure for one path (partial-save tests)
@@ -82,12 +83,15 @@ func (f *fakeReading) Tag(_ context.Context, _, tag string) (domain.Document, er
 	return f.record("Tag", tag)
 }
 
-func (f *fakeReading) Raw(_ context.Context, _, path string) (domain.RawDocument, error) {
+func (f *fakeReading) Raw(_ context.Context, world, path string) (domain.RawDocument, error) {
 	f.called = "Raw"
 	if f.trackRaw {
 		f.calls = append(f.calls, "Raw "+path)
 	}
 	if f.raws != nil {
+		if f.rawsWorld != "" && world != f.rawsWorld {
+			return domain.RawDocument{}, domain.ErrNotFound
+		}
 		// Per-path sources (the in-world branding documents); a path not
 		// present is a missing document.
 		r, ok := f.raws[path]

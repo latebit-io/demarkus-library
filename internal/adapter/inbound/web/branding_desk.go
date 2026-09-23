@@ -38,18 +38,20 @@ type BrandingHandler struct {
 
 // brandingVM is the view model of the "branding" template.
 type brandingVM struct {
-	navChrome // the shared nav (chrome.go)
-	Title     string
-	World     string
-	WorldPath string
-	Name      string // current in-world name
-	LogoSVG   string // pasted SVG kept across a failed save (file inputs cannot be refilled)
-	Tokens    []tokenField
-	CSS       string // current in-world stylesheet source
-	LogoURL   string // current in-world logo (empty ⇒ none)
-	Error     string
-	Notice    string
-	CancelURL string
+	navChrome  // the shared nav (chrome.go)
+	Title      string
+	World      string
+	WorldPath  string
+	Name       string // current in-world name
+	LogoSVG    string // pasted SVG kept across a failed save (file inputs cannot be refilled)
+	Tokens     []tokenField
+	CSS        string // current in-world stylesheet source
+	LogoURL    string // current in-world logo (empty ⇒ none)
+	IsHub      bool   // this world brands the whole room (ADR 0008): the favicon field shows
+	FaviconURL string
+	Error      string
+	Notice     string
+	CancelURL  string
 }
 
 // tokenField is one design-token input on the desk: the token an operator
@@ -62,20 +64,22 @@ type tokenField struct {
 
 // brandingForm is one submitted desk form, parsed and validated once.
 type brandingForm struct {
-	name     string
-	logoSVG  string
-	tokens   map[string]string
-	css      string
-	clearCSS bool
-	logoBody string
+	name        string
+	logoSVG     string
+	tokens      map[string]string
+	css         string
+	clearCSS    bool
+	logoBody    string
+	faviconBody string
 }
 
 // The documents a save writes, titled once here so the body and its catalog
 // metadata cannot drift apart.
 const (
-	brandNameTitle = "Branding"
-	brandCSSTitle  = "Stylesheet"
-	brandLogoTitle = "Logo"
+	brandNameTitle    = "Branding"
+	brandCSSTitle     = "Stylesheet"
+	brandLogoTitle    = "Logo"
+	brandFaviconTitle = "Favicon"
 )
 
 // brandDoc is one branding document a save writes. restore, when set, puts
@@ -107,6 +111,7 @@ func (h *BrandingHandler) brandingVM(c *echo.Context, world string) brandingVM {
 	if h.brands != nil {
 		stored = h.brands.Desk(c.Request().Context(), world)
 		vm.Name, vm.CSS, vm.LogoURL = stored.Name, stored.CSS, stored.LogoURL
+		vm.IsHub, vm.FaviconURL = world == h.brands.Hub(), stored.FaviconURL
 	}
 	vm.Tokens = tokenFields(stored.Tokens)
 	return vm
@@ -154,8 +159,9 @@ func (h *BrandingHandler) SaveBranding(c *echo.Context) error {
 	return c.Redirect(http.StatusSeeOther, "/w/"+url.PathEscape(world)+"/branding?saved=1")
 }
 
-// readBrandingForm parses and validates a submitted desk form. Tokens are
-// checked here so an unsafe value is refused before anything is published.
+// readBrandingForm parses and validates a submitted desk form. Tokens and the
+// stylesheet are checked here so an unsafe value is refused before anything
+// is published.
 func readBrandingForm(c *echo.Context) (brandingForm, error) {
 	form := brandingForm{
 		name:     strings.TrimSpace(c.FormValue("name")),
@@ -172,11 +178,16 @@ func readBrandingForm(c *echo.Context) (brandingForm, error) {
 	if _, err := tokensCSS(form.tokens); err != nil {
 		return form, err
 	}
-	logoBody, err := logoDocument(c)
-	if err != nil {
+	if err := checkCSS(form.css); err != nil {
 		return form, err
 	}
-	form.logoBody = logoBody
+	var err error
+	if form.logoBody, err = logoDocument(c); err != nil {
+		return form, err
+	}
+	if form.faviconBody, err = faviconDocument(c); err != nil {
+		return form, err
+	}
 	return form, nil
 }
 
@@ -214,6 +225,9 @@ func brandingDocs(form brandingForm) []brandDoc {
 	}
 	if form.logoBody != "" {
 		docs = append(docs, brandDoc{path: WorldBrandLogo, title: brandLogoTitle, body: form.logoBody})
+	}
+	if form.faviconBody != "" {
+		docs = append(docs, brandDoc{path: WorldBrandFavicon, title: brandFaviconTitle, body: form.faviconBody})
 	}
 	return docs
 }
@@ -277,19 +291,12 @@ func (h *BrandingHandler) publishBrandDoc(ctx context.Context, world string, doc
 // logoDocument builds logo.md from the form: an uploaded file, else pasted
 // SVG, else the clear box. "" means leave the current logo alone.
 func logoDocument(c *echo.Context) (string, error) {
-	fh, err := c.FormFile("logo_file")
-	switch {
-	case err == nil && fh.Size > 0:
-		upload, err := readUpload(fh)
-		if err != nil {
-			return "", err
-		}
-		return logoMarkdown(upload.blob, upload.declared)
-	case err != nil && !errors.Is(err, http.ErrMissingFile) && !errors.Is(err, http.ErrNotMultipart):
-		return "", err
+	body, err := uploadedImage(c, "logo_file", brandLogoTitle, logoSummary)
+	if err != nil || body != "" {
+		return body, err
 	}
 	if svg := strings.TrimSpace(c.FormValue("logo_svg")); svg != "" {
-		body, err := logoMarkdown([]byte(svg), "image/svg+xml")
+		body, err := imageMarkdown([]byte(svg), "image/svg+xml", brandLogoTitle, logoSummary)
 		if err != nil {
 			return "", errors.New("pasted logo must be SVG markup: " + err.Error())
 		}
@@ -297,6 +304,37 @@ func logoDocument(c *echo.Context) (string, error) {
 	}
 	if c.FormValue("clear_logo") != "" {
 		return "# " + brandLogoTitle + "\n\nNo logo: the room's mark applies.\n", nil
+	}
+	return "", nil
+}
+
+// faviconDocument builds favicon.md from an upload or the clear box. The desk
+// offers the field for the hub only, but a save is honored for any world: the
+// resolver reads the favicon for the hub alone.
+func faviconDocument(c *echo.Context) (string, error) {
+	body, err := uploadedImage(c, "favicon_file", brandFaviconTitle, faviconSummary)
+	if err != nil || body != "" {
+		return body, err
+	}
+	if c.FormValue("clear_favicon") != "" {
+		return "# " + brandFaviconTitle + "\n\nNo favicon: the room's mark applies.\n", nil
+	}
+	return "", nil
+}
+
+// uploadedImage wraps the image file in a form field as a branding document;
+// "" when the field carried no file.
+func uploadedImage(c *echo.Context, field, title, summary string) (string, error) {
+	fh, err := c.FormFile(field)
+	switch {
+	case err == nil && fh.Size > 0:
+		upload, err := readUpload(fh)
+		if err != nil {
+			return "", err
+		}
+		return imageMarkdown(upload.blob, upload.declared, title, summary)
+	case err != nil && !errors.Is(err, http.ErrMissingFile) && !errors.Is(err, http.ErrNotMultipart):
+		return "", err
 	}
 	return "", nil
 }

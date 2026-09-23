@@ -17,12 +17,19 @@ import (
 // current documents through WorldBrands and writes through the fake.
 func deskApp(t *testing.T, svc *fakeReading) (*echo.Echo, *WorldBrands) {
 	t.Helper()
+	return deskAppWithHub(t, svc, "")
+}
+
+// deskAppWithHub is deskApp with a hub world named, so the desk for that
+// world offers the room-wide fields.
+func deskAppWithHub(t *testing.T, svc *fakeReading, hub string) (*echo.Echo, *WorldBrands) {
+	t.Helper()
 	app := echo.New()
 	view, err := NewView()
 	if err != nil {
 		t.Fatalf("NewView: %v", err)
 	}
-	brands := NewWorldBrands(svc)
+	brands := NewWorldBrands(svc).WithHub(hub)
 	app.Renderer = view.WithWorldBrands(brands)
 	WorldThemeRoutes(app, DefaultBranding(), brands)
 	mark := func(next echo.HandlerFunc) echo.HandlerFunc {
@@ -235,5 +242,48 @@ func TestBrandingDeskRejectsUnsafeToken(t *testing.T) {
 	// The typed value comes back so the operator can fix it.
 	if !strings.Contains(rec.Body.String(), "display:none") {
 		t.Error("rejected token value was dropped from the form")
+	}
+}
+
+func TestBrandingDeskHubOffersFavicon(t *testing.T) {
+	svc := &fakeReading{raws: map[string]domain.RawDocument{}, editErr: domain.ErrNotFound}
+	app, _ := deskAppWithHub(t, svc, "soul.demarkus.io")
+	rec := get(app, "/w/soul.demarkus.io/branding")
+	if !strings.Contains(rec.Body.String(), `name="favicon_file"`) {
+		t.Error("hub desk lacks the favicon field")
+	}
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	_ = w.WriteField("name", "Room")
+	fw, _ := w.CreateFormFile("favicon_file", "favicon.svg")
+	_, _ = fw.Write([]byte("<svg xmlns='http://www.w3.org/2000/svg'/>"))
+	_ = w.Close()
+	req := httptest.NewRequest(http.MethodPost, "/w/soul.demarkus.io/branding", &buf)
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	rec = httptest.NewRecorder()
+	app.ServeHTTP(rec, req)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("status %d body %q", rec.Code, rec.Body.String())
+	}
+	if got := svc.gotBodies[WorldBrandFavicon]; !strings.Contains(got, "# Favicon\n") || !strings.Contains(got, "```svg\n") {
+		t.Errorf("favicon body = %q", got)
+	}
+
+	// Another world's desk does not offer it.
+	app, _ = deskApp(t, svc)
+	if rec := get(app, "/w/soul.demarkus.io/branding"); strings.Contains(rec.Body.String(), `name="favicon_file"`) {
+		t.Error("non-hub desk offers the favicon field")
+	}
+}
+
+func TestBrandingDeskRejectsUnsafeStylesheet(t *testing.T) {
+	svc := &fakeReading{raws: map[string]domain.RawDocument{}, editErr: domain.ErrNotFound}
+	app, _ := deskApp(t, svc)
+	rec := postForm(app, "/w/soul.demarkus.io/branding", url.Values{"css": {"body { background: url(https://evil.example/a); }"}})
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "same-origin") {
+		t.Errorf("unsafe css: status %d", rec.Code)
+	}
+	if svc.gotBodies != nil {
+		t.Error("published despite an unsafe stylesheet")
 	}
 }

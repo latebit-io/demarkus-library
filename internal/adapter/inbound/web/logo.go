@@ -13,7 +13,10 @@ import (
 // wherever it comes from: the same check runs on an upload at the desk and on
 // the bytes read back out of a world's document (ADR 0008).
 
-const logoSummary = "The mark shown beside this world's name."
+const (
+	logoSummary    = "The mark shown beside this world's name."
+	faviconSummary = "The browser-tab icon for the whole room."
+)
 
 // rasterTypes are the inert image types a logo may be; anything that is not
 // one of these or an inert SVG is refused.
@@ -61,14 +64,15 @@ func checkLogo(blob []byte, declared string) (string, error) {
 	return declared, nil
 }
 
-// logoMarkdown validates logo bytes and wraps them as logo.md: SVG verbatim,
-// a raster image base64-encoded with its type in the info string.
-func logoMarkdown(blob []byte, declared string) (string, error) {
+// imageMarkdown validates image bytes and wraps them as a branding document
+// (logo.md or favicon.md): SVG verbatim, a raster image base64-encoded with
+// its type in the info string.
+func imageMarkdown(blob []byte, declared, title, summary string) (string, error) {
 	ctype, err := checkLogo(blob, declared)
 	if err != nil {
 		return "", err
 	}
-	doc := fencedDoc{Title: brandLogoTitle, Summary: logoSummary}
+	doc := fencedDoc{Title: title, Summary: summary}
 	if ctype == "image/svg+xml" {
 		doc.Fence = fence{Lang: "svg", Content: string(blob)}
 	} else {

@@ -48,6 +48,19 @@
           </label>
         </fieldset>
 
+        {{- if .IsHub }}
+        <fieldset class="branding-logo">
+          <legend>favicon</legend>
+          <p class="edit-append-note">This is the hub world: its name, logo, stylesheet, and favicon brand the whole room, the sign-in page included.</p>
+          {{- if .FaviconURL }}
+          <p class="branding-current"><img src="{{ .FaviconURL }}" alt="current favicon"> current favicon · <label><input type="checkbox" name="clear_favicon"> remove</label></p>
+          {{- end }}
+          <label>upload (SVG or PNG, up to 256 KB)
+            <input type="file" name="favicon_file" accept="image/*">
+          </label>
+        </fieldset>
+        {{- end }}
+
         <fieldset class="branding-tokens">
           <legend>colors and type</legend>
           <p class="edit-append-note">The room's design tokens, for this world. Set only what you want to change; a value like <code>light-dark(#f7f3ea, #101418)</code> gives light and dark schemes their own. No CSS needed.</p>

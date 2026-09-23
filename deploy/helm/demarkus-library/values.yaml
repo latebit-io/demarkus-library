@@ -46,7 +46,9 @@ library:
   # /graph.md) is the floor's durable universe map — edges + portal nodes
   # (DEMARKUS_HUB). Empty ⇒ no hub: the floor falls back to mark_worlds +
   # the per-pod observed-links map. In a knowledge system this is the hub
-  # world (e.g. "root"); in quic mode it defaults to the home world.
+  # world (e.g. "root"); in quic mode it defaults to the home world. The
+  # hub's /.well-known/library/ documents also brand the room as a whole
+  # (docs/theming.md), ahead of the ConfigMap below and without a restart.
   hub: ""
 
   # Branding / theming — present the library as your own room. name

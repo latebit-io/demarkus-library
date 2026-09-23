@@ -106,6 +106,28 @@ minute) ahead of the manifest's `worlds` entry.
 | `branding.md` | A `yaml` fenced block holding `name: …` and an optional `theme:` token block. The anchor: without it the others are not read. |
 | `site.css.md` | A `css` fenced block. Loads after the room theme while the world is open. |
 | `logo.md` | An `svg` fenced block, or a `base64` block whose info string names the content type (`base64 image/png`). PNG, JPEG, GIF, WebP, or SVG without scripts or event handlers; up to 256 KB. |
+| `favicon.md` | Same shapes as `logo.md`. Read for the hub world only (below). |
+
+### The hub world brands the room
+
+The same documents on the hub world (`DEMARKUS_HUB`, `library.hub` in the
+chart) brand the room as a whole: its name, logo, favicon, and stylesheet
+apply to every page, the sign-in page included, and win over the manifest
+and env values field by field. Nothing is uploaded to the cluster and no
+pod restarts: publish the documents, or use the hub's branding desk, and
+readers see the new identity within a minute. The file manifest stays as
+the bootstrap and the fallback for whatever the hub leaves unset. The
+`terms` vocabulary remains file-only.
+
+Whoever may write the hub may rebrand the room, which is the same power
+they already have over its index. Keep the hub's writers to the people you
+would hand the ConfigMap to.
+
+The hub's sheet links from the head as the room theme, so while the hub
+itself is in focus it is not linked again from the body. When the hub is
+private, the sign-in page reads it without a session; the library keeps the
+last identity it resolved rather than blanking the page, so the turnstile
+brands once any signed-in reader has loaded a page.
 
 A world's own branding documents look like this:
 
@@ -121,11 +143,22 @@ name: Fritz's Soul
 
 Each document carries an H1 and a one-sentence summary above the fence, so
 the style gate stays quiet and the document reads sensibly in any client.
-Assets serve at `/theme/worlds/<world>/logo` and `/theme/worlds/<world>/site.css`
+Assets serve at `/theme/worlds/<world>/logo`, `/theme/worlds/<world>/favicon`,
+and `/theme/worlds/<world>/site.css`
 with `X-Content-Type-Options: nosniff` and a sandboxing Content-Security-Policy,
 so a world's logo can never run as a page on the library's origin. A logo whose
 bytes do not match its declared type, or an SVG carrying `<script>`, event
 handlers, or external references, is ignored.
+
+A stylesheet from a document may not reach another origin: `@import`, any
+`://` or `//` reference, `expression()`, `behavior:`, `-moz-binding`, and
+backslash escapes (which could spell any of those) are refused at the desk
+and ignored when read from a world (the name and logo still apply). CSS cannot run script, but a selector on an attribute value
+plus a background URL can leak that value to whoever hosts the URL; relative,
+same-origin, and `data:` references are fine. Every page also carries a
+Content-Security-Policy that limits fonts, `@import`, and XHR to the
+library's own origin and forbids inline or eval'd script, so the same rule
+holds even for a stylesheet from the file manifest.
 
 ### The branding desk
 
@@ -138,7 +171,8 @@ second library-specific role would only be able to disagree with it.
 The desk is at `/w/<world>/branding`, linked from the world map beside "new
 document" wherever the write affordances show. It offers a name field, a logo
 upload or pasted SVG, the design tokens as plain form fields, and a stylesheet
-box for anything the tokens cannot express.
+box for anything the tokens cannot express. On the hub world it also takes a
+favicon and says that its fields brand the whole room.
 
 In broker mode the link appears once you are signed in. In QUIC mode the write
 affordances stay hidden, as they do for editing, so reach the desk by URL; it
