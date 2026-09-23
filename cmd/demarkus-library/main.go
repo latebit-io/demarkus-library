@@ -101,6 +101,10 @@ func main() {
 	// login/logout forms). Cookie posture follows the session cookie's Secure
 	// flag. Forms emit the token via {{ csrf }} (view.go).
 	app.Use(web.CSRFMiddleware(config.CookieSecure))
+	// Every page carries a Content-Security-Policy: branding stylesheets are
+	// documents other people wrote, so what a stylesheet may fetch is bounded
+	// here as well as at ingestion (csp.go).
+	app.Use(web.SecurityHeaders())
 	// Bound handler latency: a wedged outbound read returns 503 instead of
 	// pinning the goroutine. Covers the turnstile's token refresh too. The
 	// librarian's SSE stream and no-JS ask are exempt — an agent run
@@ -205,7 +209,8 @@ func main() {
 	lib := buildLibrarian(logger, reading, defaultWorld, config.LLMKeyStore)
 	// In-world branding (ADR 0008): worlds brand themselves through documents
 	// under /.well-known/library/, resolved ahead of the manifest's entries.
-	brands := web.NewWorldBrands(reading)
+	// The hub world's documents brand the room as a whole, ahead of the files.
+	brands := web.NewWorldBrands(reading).WithHub(config.Hub)
 	view.WithWorldBrands(brands)
 	web.WorldThemeRoutes(app, branding, brands)
 	room := web.NewRoom(reading, defaultWorld, config.DefaultDoc).WithBranding(branding).WithWorldBrands(brands)

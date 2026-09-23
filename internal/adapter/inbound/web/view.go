@@ -4,6 +4,7 @@
 package web
 
 import (
+	"context"
 	"embed"
 	"html/template"
 	"io"
@@ -35,10 +36,13 @@ type Branding struct {
 }
 
 // WorldBranding is one world's resolved override; empty fields inherit.
+// FaviconURL is honored for the hub world only: the favicon link lives in
+// the head, which a boosted navigation keeps, so it cannot follow the focus.
 type WorldBranding struct {
-	Name    string
-	LogoURL string
-	CSSURL  string
+	Name       string
+	LogoURL    string
+	CSSURL     string
+	FaviconURL string
 }
 
 // DefaultBranding is the stock room: the demarkus wordmark, no logo, no
@@ -128,7 +132,8 @@ func (v *View) Render(c *echo.Context, w io.Writer, name string, data any) error
 		return err
 	}
 	token, _ := c.Get(csrfContextKey).(string)
-	b := v.branding
+	ctx := c.Request().Context()
+	b := v.roomBranding(ctx)
 	// One resolution per world per render: the title, nav, logo, and
 	// stylesheet funcs all ask for the same world, and the in-world lookup
 	// is a (cached) read.
@@ -139,16 +144,13 @@ func (v *View) Render(c *echo.Context, w io.Writer, name string, data any) error
 		}
 		r := b.For(world)
 		if world != "" && v.worlds != nil {
-			if iw, ok := v.worlds.For(c.Request().Context(), world); ok {
-				if iw.Name != "" {
-					r.Name = iw.Name
-				}
-				if iw.LogoURL != "" {
-					r.LogoURL = iw.LogoURL
-				}
-				if iw.CSSURL != "" {
-					r.CSSURL = iw.CSSURL
-				}
+			if iw, ok := v.worlds.For(ctx, world); ok {
+				r = r.over(iw)
+			}
+			// The hub's sheet is already the room theme in the head; a second
+			// link in the body would only load it again.
+			if world == v.worlds.Hub() {
+				r.CSSURL = ""
 			}
 		}
 		memo[world] = r
@@ -165,4 +167,46 @@ func (v *View) Render(c *echo.Context, w io.Writer, name string, data any) error
 		"universe":  func() string { return b.Terms.Universe },
 	})
 	return cl.ExecuteTemplate(w, name, data)
+}
+
+// roomBranding is the file branding with the hub world's documents laid over
+// it (ADR 0008): the hub's name, logo, favicon, and stylesheet win, field by
+// field, and the file values stay as the fallback when the hub is silent.
+func (v *View) roomBranding(ctx context.Context) Branding {
+	b := v.branding
+	if v.worlds == nil {
+		return b
+	}
+	hub, ok := v.worlds.Room(ctx)
+	if !ok {
+		return b
+	}
+	if hub.Name != "" {
+		b.Name = hub.Name
+	}
+	if hub.LogoURL != "" {
+		b.LogoURL = hub.LogoURL
+	}
+	if hub.CSSURL != "" {
+		b.ThemeCSSURL = hub.CSSURL
+	}
+	if hub.FaviconURL != "" {
+		b.FaviconURL = hub.FaviconURL
+	}
+	return b
+}
+
+// over lays a world's own declaration over the resolved branding: each set
+// field replaces, each empty one inherits.
+func (r WorldBranding) over(iw WorldBranding) WorldBranding {
+	if iw.Name != "" {
+		r.Name = iw.Name
+	}
+	if iw.LogoURL != "" {
+		r.LogoURL = iw.LogoURL
+	}
+	if iw.CSSURL != "" {
+		r.CSSURL = iw.CSSURL
+	}
+	return r
 }

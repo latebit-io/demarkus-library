@@ -127,7 +127,8 @@ last, so any further rule wins the cascade too.
 the branding manifest (design tokens, the `terms` vocabulary, per-world
 entries), the copyable [example pack](docs/branding-example/), in-world
 branding (a world's own `/.well-known/library/` documents and the branding
-desk at `/w/<world>/branding`), the static overlay, example themes, and
+desk at `/w/<world>/branding`; on the hub world they brand the whole room
+without a redeploy), the static overlay, example themes, and
 per-deployment instructions (binary/systemd, Docker, and the Helm chart's
 `library.branding` ConfigMap wiring).
 

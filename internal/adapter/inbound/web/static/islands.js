@@ -152,6 +152,13 @@
     if (pr.left < cr.left) canvas.scrollLeft -= cr.left - pr.left;
   }
 
+  // The ask form clears once its question is sent. A listener rather than an
+  // hx-on attribute: the page CSP forbids eval'd script, which hx-on needs.
+  document.addEventListener("htmx:after:request", function (e) {
+    var el = e.target;
+    if (el instanceof Element && el.matches("form.ask-form")) el.reset();
+  });
+
   // Click engagement: clicking into a pane moves the VISUAL attention cue
   // only — never the URL focus (re-focusing would collapse the panes to its
   // right; the dock is the backtrack mechanism). Purely presentational: a
