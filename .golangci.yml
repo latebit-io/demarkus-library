@@ -1,5 +1,10 @@
 version: "2"
 
+run:
+  # Lint the tagged real-browser test (internal/adapter/inbound/web/browser_test.go) too.
+  build-tags:
+    - browser
+
 linters:
   default: standard
   enable:

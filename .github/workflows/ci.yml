@@ -53,6 +53,10 @@ jobs:
           version: v2.9.0
       - name: Test
         run: go test ./...
+      # Real-Chrome checks that clicks swap in place (ubuntu-latest ships
+      # google-chrome); tagged so a plain `go test` never needs a browser.
+      - name: Browser test
+        run: go test -tags browser -run TestBrowser ./internal/adapter/inbound/web
       - name: Vet
         run: go vet ./...
       - name: Build

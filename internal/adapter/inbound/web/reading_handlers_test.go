@@ -109,6 +109,11 @@ func (f *fakeReading) NameIndex(_ context.Context, _, _ string) ([]domain.IndexE
 	return f.nameIndex, f.nameIndexErr
 }
 
+func (f *fakeReading) NameIndexCached(_ context.Context, _ string) ([]domain.IndexEntry, error) {
+	f.calls = append(f.calls, "NameIndexCached")
+	return f.nameIndex, f.nameIndexErr
+}
+
 func (f *fakeReading) ReadCached(_ context.Context, _, path string) (domain.Document, error) {
 	return f.record("ReadCached", path)
 }
@@ -255,6 +260,16 @@ func readingApp(t *testing.T, svc *fakeReading) *echo.Echo {
 func get(app *echo.Echo, target string) *httptest.ResponseRecorder {
 	rec := httptest.NewRecorder()
 	app.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, target, http.NoBody))
+	return rec
+}
+
+// getFrom is get as htmx sends it from a page: HX-Current-URL carries the
+// reader's trail, which overlay fragments extend.
+func getFrom(app *echo.Echo, target, current string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodGet, target, http.NoBody)
+	req.Header.Set("HX-Current-URL", current)
+	rec := httptest.NewRecorder()
+	app.ServeHTTP(rec, req)
 	return rec
 }
 
@@ -463,6 +478,9 @@ func TestBrowseRendersWithoutMargin(t *testing.T) {
 	}
 	if strings.Contains(body, `class="doc-meta"`) {
 		t.Errorf("listing must not render the margin metadata block")
+	}
+	if !strings.Contains(body, `<div class="listing"><ul></ul></div>`) {
+		t.Errorf("listing should carry the .listing wrapper the stylesheet keys on")
 	}
 }
 

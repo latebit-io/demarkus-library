@@ -50,10 +50,12 @@ func worldNewURL(world string, authed bool) string {
 // wmOpts carries the aggregation view state (plans/world-map-aggregation.md).
 // open is the parsed `open` param; openURL builds the fragment URL for a new
 // open set (nil for a non-interactive render, where aggregates link to their
-// listing); chunk overrides wmChunk (tests).
+// listing); reveal is a document path to unfold onto the map; chunk
+// overrides wmChunk (tests).
 type wmOpts struct {
 	open    []string
 	openURL func(keys []string) string
+	reveal  string
 	chunk   int
 }
 
@@ -124,6 +126,9 @@ func worldMapRender(wm domain.WorldMap, docURL func(string) string, newURL strin
 	}
 	open := wmParseOpen(opts.open)
 	tree := wmBuildTree(docs)
+	if opts.reveal != "" {
+		open = open.revealed(opts.reveal, tree, ranking, chunk)
+	}
 	root, owner := wmVisible(tree, open, ranking, chunk)
 	outerRy := int(wmMeasure(root))
 	outerRx := int(float64(outerRy) * wmTierRatio)
@@ -139,8 +144,13 @@ func worldMapRender(wm domain.WorldMap, docURL func(string) string, newURL strin
 	vrank, spine := wmVisibleRank(items, rolled, ranking.rank)
 
 	var b strings.Builder
-	fmt.Fprintf(&b, `<svg class="floor world-map" viewBox="0 0 %d %d" width="%d" height="%d" role="img" aria-label="%s map">`,
-		width, height, width, height, html.EscapeString(wm.World.Name))
+	revealAttr := ""
+	if opts.openURL != nil {
+		// The filter unfolds a hidden match by asking for this state plus &reveal=<path>.
+		revealAttr = ` data-reveal-url="` + html.EscapeString(opts.openURL(open.keys())+"&reveal=") + `"`
+	}
+	fmt.Fprintf(&b, `<svg class="floor world-map" viewBox="0 0 %d %d" width="%d" height="%d" role="img" aria-label="%s map"%s>`,
+		width, height, width, height, html.EscapeString(wm.World.Name), revealAttr)
 	caption := fmt.Sprintf("%d connected · %d unlinked", linked, len(docs)-linked)
 	if shown := wmShownDocs(items); shown < len(docs) {
 		caption += fmt.Sprintf(" · %d of %d shown", shown, len(docs))
@@ -157,6 +167,9 @@ func worldMapRender(wm domain.WorldMap, docURL func(string) string, newURL strin
 		rootDoc := landmarks && !strings.Contains(strings.TrimPrefix(it.doc.Path, "/"), "/")
 		return wmNodeStyle{lod: vrank[it] >= wmLabelTop && !rootDoc && !it.ringed, orphan: ranking.degree[it.doc.Path] == 0}
 	})
+	if opts.openURL != nil {
+		wmDrawMembers(&b, docs, owner)
+	}
 	b.WriteString(`</svg>`)
 	if newURL != "" {
 		// The branding desk shares the write gate with "new document" and the
@@ -293,6 +306,32 @@ func wmDrawItems(b *strings.Builder, items []*wmItem, draw wmDraw, style func(*w
 	}
 }
 
+// wmDrawMembers lists, undrawn, every document folded into an aggregate,
+// grouped under the node that holds it, so the overlay filter can find it.
+func wmDrawMembers(b *strings.Builder, docs []domain.FloorDoc, owner map[string]*wmItem) {
+	var order []*wmItem
+	held := map[*wmItem][]domain.FloorDoc{}
+	for _, d := range docs {
+		it := owner[d.Path]
+		if it == nil || it.kind == wmItemDoc {
+			continue
+		}
+		if _, seen := held[it]; !seen {
+			order = append(order, it)
+		}
+		held[it] = append(held[it], d)
+	}
+	b.WriteString(`<g class="wm-members" display="none">`)
+	for _, it := range order {
+		fmt.Fprintf(b, `<g data-owner="%s">`, html.EscapeString(it.id))
+		for _, d := range held[it] {
+			fmt.Fprintf(b, `<text data-path="%s">%s</text>`, html.EscapeString(d.Path), html.EscapeString(d.Title))
+		}
+		b.WriteString(`</g>`)
+	}
+	b.WriteString(`</g>`)
+}
+
 // wmShownDocs counts the documents drawn as their own node.
 func wmShownDocs(items []*wmItem) int {
 	n := 0
@@ -309,7 +348,9 @@ func wmShownDocs(items []*wmItem) int {
 func wmDocNode(b *strings.Builder, it *wmItem, docURL func(string) string, style wmNodeStyle) {
 	doc := it.doc
 	cls := "floor-doc status-" + doc.Status
-	label := "floor-doc-label"
+	// Labels sit on the circle's edge; the stylesheet sets the gap and size
+	// in screen pixels so they stay legible at every zoom.
+	label := "floor-doc-label wm-below"
 	if style.orphan {
 		cls += " world-map-orphan"
 	}
@@ -319,7 +360,7 @@ func wmDocNode(b *strings.Builder, it *wmItem, docURL func(string) string, style
 	fmt.Fprintf(b, `<a href="%s" data-node="%s"><circle class="%s" cx="%d" cy="%d" r="%d"/>`,
 		html.EscapeString(docURL(doc.Path)), html.EscapeString(doc.Path), html.EscapeString(cls), it.x, it.y, it.r)
 	fmt.Fprintf(b, `<text class="%s" x="%d" y="%d" text-anchor="middle">%s</text>`,
-		label, it.x, it.y+it.r+13, html.EscapeString(trimRunes(doc.Title, wmLabelTrim)))
+		label, it.x, it.y+it.r, html.EscapeString(trimRunes(doc.Title, wmLabelTrim)))
 	fmt.Fprintf(b, `<title>%s — %s</title></a>`, html.EscapeString(doc.Title), html.EscapeString(doc.Path))
 }
 
@@ -345,12 +386,12 @@ func wmAggNode(b *strings.Builder, it *wmItem, agg wmAgg, draw wmDraw) {
 	fmt.Fprintf(b, `<text class="floor-agg-glyph" x="%d" y="%d" text-anchor="middle">%s</text>`, it.x, it.y+4, agg.glyph)
 	// An anchor's label goes above it: below is the group's centre (a hub or
 	// the first spiral member) and its label.
-	ly := it.y + it.r + 13
+	ly, side := it.y+it.r, "wm-below"
 	if it.kind == wmItemAnchor {
-		ly = it.y - it.r - 5
+		ly, side = it.y-it.r, "wm-above"
 	}
-	fmt.Fprintf(b, `<text class="floor-doc-label" x="%d" y="%d" text-anchor="middle">%s</text>`,
-		it.x, ly, html.EscapeString(trimRunes(agg.label, wmLabelTrim+6)))
+	fmt.Fprintf(b, `<text class="floor-doc-label %s" x="%d" y="%d" text-anchor="middle">%s</text>`,
+		side, it.x, ly, html.EscapeString(trimRunes(agg.label, wmLabelTrim+6)))
 	fmt.Fprintf(b, `<title>%s — %d documents</title></a>`, html.EscapeString(it.group.list), it.count)
 }
 

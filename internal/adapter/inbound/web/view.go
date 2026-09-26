@@ -93,6 +93,8 @@ func NewView() (*View, error) {
 			"tokensCSS": func() string { return "" },
 			"favicon":   func() string { return "" },
 			"universe":  func() string { return "" },
+			// Static: shared by previewize and the preview-link template.
+			"previewTrigger": func() string { return previewTrigger },
 		}).
 		ParseFS(templatesFS, "templates/*.html")
 	if err != nil {

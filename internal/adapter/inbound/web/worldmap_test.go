@@ -3,7 +3,6 @@ package web
 import (
 	"fmt"
 	"net/http"
-	"net/http/httptest"
 	"regexp"
 	"sort"
 	"strconv"
@@ -28,10 +27,7 @@ func TestTrailMapOverlayShell(t *testing.T) {
 
 func TestWorldMapOverlayFragment(t *testing.T) {
 	svc := &fakeReading{worldMap: testWorldMap()}
-	req := httptest.NewRequest(http.MethodGet, "/w/team-a/u?overlay=1", http.NoBody)
-	req.Header.Set("HX-Current-URL", "http://x/t/team-a/d/index.md")
-	rec := httptest.NewRecorder()
-	readingApp(t, svc).ServeHTTP(rec, req)
+	rec := getFrom(readingApp(t, svc), "/w/team-a/u?overlay=1", "http://x/t/team-a/d/index.md")
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d", rec.Code)
@@ -271,7 +267,7 @@ func TestWorldMapSVGRestStateTiers(t *testing.T) {
 		t.Errorf("spine edge count = %d, want 23", n)
 	}
 	// 52 linked nodes: the top 13 labeled at rest, the other 39 label-lod.
-	if n := strings.Count(svg, `class="floor-doc-label label-lod"`); n != 39 {
+	if n := strings.Count(svg, `class="floor-doc-label wm-below label-lod"`); n != 39 {
 		t.Errorf("label-lod count = %d, want 39", n)
 	}
 }
@@ -387,10 +383,7 @@ func TestWorldMapAggregationOpenAndPage(t *testing.T) {
 // swap URLs against the same route.
 func TestWorldMapOverlayOpenParam(t *testing.T) {
 	svc := &fakeReading{worldMap: wmDirFixture(map[string]int{"genres": 100})}
-	req := httptest.NewRequest(http.MethodGet, "/w/w/u?overlay=1&open=genres", http.NoBody)
-	req.Header.Set("HX-Current-URL", "http://x/t/w/d/index.md")
-	rec := httptest.NewRecorder()
-	readingApp(t, svc).ServeHTTP(rec, req)
+	rec := getFrom(readingApp(t, svc), "/w/w/u?overlay=1&open=genres", "http://x/t/w/d/index.md")
 	body := rec.Body.String()
 	for _, want := range []string{
 		`data-node="/genres/d001.md"`,
@@ -462,5 +455,78 @@ func TestWorldMapAggregationPageClamp(t *testing.T) {
 	svg = render("genres@2")
 	if n := strings.Count(svg, `data-node="/genres/d`); n != 2*wmChunk || !strings.Contains(svg, `hx-get="?open=genres@3"`) {
 		t.Errorf("page 2 should show %d members and offer page 3, got %d", 2*wmChunk, n)
+	}
+}
+
+// An interactive map lists every folded document with the node that holds
+// it, so the overlay filter can find matches inside collapsed groups.
+func TestWorldMapMembersIndex(t *testing.T) {
+	wm := wmDirFixture(map[string]int{"genres": 200, "works": 10})
+	openURL := func(keys []string) string { return "?open=" + strings.Join(keys, ",") }
+	svg := string(worldMapRender(wm, func(p string) string { return p }, "", wmOpts{openURL: openURL}))
+	for _, want := range []string{
+		`data-reveal-url="?open=&amp;reveal="`,
+		`<g class="wm-members" display="none">`,
+		`<g data-owner="g:genres"><text data-path="/genres/d001.md">genres 1</text>`,
+		`<text data-path="/genres/d117.md">genres 117</text>`,
+	} {
+		if !strings.Contains(svg, want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+	if strings.Contains(svg, `data-path="/works/d001.md"`) {
+		t.Errorf("a drawn document is its own node, not a folded member")
+	}
+	plain := string(worldMapRender(wm, func(p string) string { return p }, "", wmOpts{}))
+	if strings.Contains(plain, "wm-members") || strings.Contains(plain, "data-reveal-url") {
+		t.Errorf("a non-interactive map carries no filter index")
+	}
+}
+
+// reveal unfolds a document's groups and pages its own group far enough to
+// draw it; the swap URLs carry the unfolded state forward.
+func TestWorldMapReveal(t *testing.T) {
+	wm := wmDirFixture(map[string]int{"genres": 100, "works": 5})
+	openURL := func(keys []string) string { return "?open=" + strings.Join(keys, ",") }
+	svg := string(worldMapRender(wm, func(p string) string { return p }, "",
+		wmOpts{open: []string{"-works"}, openURL: openURL, reveal: "/genres/d090.md"}))
+	for _, want := range []string{
+		`data-node="/genres/d090.md"`,
+		`data-reveal-url="?open=-works,genres@3&amp;reveal="`,
+		`data-node="g:works"`,
+	} {
+		if !strings.Contains(svg, want) {
+			t.Errorf("missing %q", want)
+		}
+	}
+	unknown := string(worldMapRender(wm, func(p string) string { return p }, "",
+		wmOpts{openURL: openURL, reveal: "/nowhere/x.md"}))
+	if !strings.Contains(unknown, `data-reveal-url="?open=&amp;reveal="`) {
+		t.Errorf("an unknown path should leave the open set alone")
+	}
+}
+
+// The overlay handler threads reveal into the render.
+func TestWorldMapOverlayRevealParam(t *testing.T) {
+	svc := &fakeReading{worldMap: wmDirFixture(map[string]int{"genres": 100})}
+	rec := getFrom(readingApp(t, svc), "/w/w/u?overlay=1&reveal=%2Fgenres%2Fd090.md", "http://x/t/w/d/index.md")
+	if body := rec.Body.String(); !strings.Contains(body, `data-node="/genres/d090.md"`) {
+		t.Errorf("reveal should draw the document: %s", body[:300])
+	}
+}
+
+// A document whose own folder folded into its parent (two or fewer members)
+// is revealed through the parent it now lives in.
+func TestWorldMapRevealFoldedFolder(t *testing.T) {
+	wm := wmDirFixture(map[string]int{"works": 60})
+	for i := 1; i <= 3; i++ {
+		p := fmt.Sprintf("/works/artist%d/album.md", i)
+		wm.Clusters[0].Docs = append(wm.Clusters[0].Docs, domain.FloorDoc{Path: p, Title: "Album " + strconv.Itoa(i)})
+	}
+	openURL := func(keys []string) string { return "?open=" + strings.Join(keys, ",") }
+	svg := string(worldMapRender(wm, func(p string) string { return p }, "",
+		wmOpts{open: []string{"-works"}, openURL: openURL, reveal: "/works/artist2/album.md"}))
+	if !strings.Contains(svg, `data-node="/works/artist2/album.md"`) {
+		t.Errorf("a folded folder's document should be revealed through its parent")
 	}
 }

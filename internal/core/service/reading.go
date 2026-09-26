@@ -22,6 +22,7 @@ type ReadingService struct {
 	cache     port.DocumentCache
 	floor     floorCache
 	worldMaps worldMapCache
+	names     ttlCache[[]domain.IndexEntry] // per-world name index, for unfocused listings
 	graph     linkGraph
 	hub       string // topology-source world (DEMARKUS_HUB); "" disables hub enrichment
 	// graphParser decodes the hub's published /graph.md; nil (like hub "")

@@ -44,12 +44,20 @@ func (h *SpatialHandler) FloorPage(c *echo.Context) error {
 func (h *SpatialHandler) GraphPage(c *echo.Context) error {
 	world := c.Param("world")
 	p := "/" + c.Param("*")
+	// Overlay mode (ADR 0006 §4): the graph overlay re-centres on a neighbour in
+	// place by htmx-loading this fragment. Nodes still extend the reader's
+	// trail (from HX-Current-URL), and can re-centre again.
+	if c.QueryParam("overlay") == "1" {
+		t := currentTrail(c)
+		n := h.graph.Neighborhood(world, p)
+		return c.HTML(http.StatusOK, string(graphSVG(n, trailNodeURL(t, t.Focus), graphRecenterURL, trailDocRefs(t))))
+	}
 	if u := canvasTrailURL(c, paneAddr{Kind: paneGraph, World: world, Value: p}); u != "" {
 		return c.Redirect(http.StatusSeeOther, u)
 	}
 	n := h.graph.Neighborhood(world, p)
 	// Single-pane permalink: nodes link to /w/ document permalinks.
-	svg := graphSVG(n, func(r domain.Ref) string { return docRoute(r.World, r.Path) }, nil)
+	svg := graphSVG(n, trailNodeURL(trail{}, 0), nil, nil)
 	vm := page{
 		navChrome: h.chrome.build(c),
 		Title:     "Graph: " + p,
@@ -86,16 +94,15 @@ func (h *SpatialHandler) WorldMapPage(c *echo.Context) error {
 	if c.QueryParam("overlay") == "1" {
 		t := currentTrail(c)
 		opts := wmOpts{
-			open: strings.Split(c.QueryParam("open"), ","),
+			open:   strings.Split(c.QueryParam("open"), ","),
+			reveal: c.QueryParam("reveal"),
 			openURL: func(keys []string) string {
 				return "/w/" + url.PathEscape(world) + "/u?overlay=1&open=" + url.QueryEscape(strings.Join(keys, ","))
 			},
 		}
+		nodeURL := trailNodeURL(t, t.Focus)
 		svg := worldMapRender(wm, func(p string) string {
-			if len(t.Panes) > 0 {
-				return trailURL(trailAfterClick(t, t.Focus, paneAddr{Kind: paneDoc, World: world, Value: p}))
-			}
-			return docRoute(world, p)
+			return nodeURL(domain.Ref{World: world, Path: p})
 		}, worldNewURL(world, nav.Authenticated), opts)
 		return c.HTML(http.StatusOK, string(svg))
 	}

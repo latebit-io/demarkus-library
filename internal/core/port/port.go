@@ -51,6 +51,9 @@ type Reader interface {
 	// world. Best-effort per world — an unreadable world is skipped, not fatal —
 	// so the palette degrades to the worlds it can see.
 	NameIndex(ctx context.Context, scope, world string) ([]domain.IndexEntry, error)
+	// NameIndexCached is NameIndex for one world, served within a TTL: the
+	// unfocused listing panes' read (ADR 0009).
+	NameIndexCached(ctx context.Context, world string) ([]domain.IndexEntry, error)
 
 	// ReadCached, BrowseCached, OpenCached, and TagCached are the trail
 	// engine's unfocused-pane reads (ADR 0005 decision 9): served from the

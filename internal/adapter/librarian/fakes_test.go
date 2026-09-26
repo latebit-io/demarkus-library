@@ -81,6 +81,9 @@ func (f *fakePorts) Raw(_ context.Context, world, path string) (domain.RawDocume
 func (f *fakePorts) NameIndex(context.Context, string, string) ([]domain.IndexEntry, error) {
 	return f.entries, f.entriesErr
 }
+func (f *fakePorts) NameIndexCached(context.Context, string) ([]domain.IndexEntry, error) {
+	return f.entries, f.entriesErr
+}
 func (f *fakePorts) ReadCached(context.Context, string, string) (domain.Document, error) {
 	return domain.Document{}, nil
 }
