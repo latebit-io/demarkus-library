@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sync"
 	"syscall"
 	"testing"
@@ -124,24 +125,22 @@ func launchBrowser(t *testing.T) *cdp {
 	port := l.Addr().(*net.TCPAddr).Port
 	_ = l.Close() // freed for Chrome; a race here only fails the launch, loudly
 
-	// Not t.TempDir: Chrome's helpers can still be flushing the profile when
-	// the test ends, and TempDir fails the test on an incomplete removal.
-	profile, err := os.MkdirTemp("", "browser-test-")
-	if err != nil {
-		t.Fatalf("make chrome profile dir: %v", err)
-	}
-	cmd := exec.Command(chrome, "--headless=new", "--no-sandbox", "--disable-gpu", "--remote-allow-origins=*",
-		fmt.Sprintf("--remote-debugging-port=%d", port), "--user-data-dir="+profile,
+	profile := filepath.Join(t.TempDir(), "chrome")
+	cmd := exec.Command(chrome, "--headless=new", "--no-sandbox", "--disable-gpu", "--disable-crash-reporter",
+		"--remote-allow-origins=*", fmt.Sprintf("--remote-debugging-port=%d", port), "--user-data-dir="+profile,
 		"--window-size=1440,900", "about:blank")
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true} // own group: teardown reaches the helpers
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start chrome %s: %v", chrome, err)
 	}
 	t.Cleanup(func() {
-		// Best-effort teardown of the test browser and its profile.
+		// Runs before t.TempDir's own removal. Killed helpers can finish a last
+		// profile write, so clear the profile here, retrying briefly.
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 		_, _ = cmd.Process.Wait()
-		_ = os.RemoveAll(profile)
+		for i := 0; i < 20 && os.RemoveAll(profile) != nil; i++ {
+			time.Sleep(100 * time.Millisecond)
+		}
 	})
 
 	var wsURL string
