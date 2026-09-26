@@ -49,6 +49,7 @@ type worldMapCache = ttlCache[domain.WorldMap]
 // world rather than dropping the whole map. The unreadable result is not
 // cached, so a transient failure self-heals on the next read.
 func (s *ReadingService) WorldMap(ctx context.Context, world string) (domain.WorldMap, error) {
+	epoch := s.worldMaps.epoch(world)
 	raw, err := s.world.Lookup(ctx, world, domain.LookupQuery{Scope: "/", Query: "*", Limit: worldMapMaxDocs})
 	if err != nil {
 		// Propagate, never degrade: the reader's identity dying (re-login) and
@@ -113,7 +114,7 @@ func (s *ReadingService) WorldMap(ctx context.Context, world string) (domain.Wor
 	wm.Edges = intraWorldEdges(world, host2name,
 		append(topo.edges, s.graph.allEdges()...), labeled)
 
-	s.worldMaps.put(world, wm)
+	s.worldMaps.put(world, epoch, wm)
 	return wm, nil
 }
 

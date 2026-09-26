@@ -18,11 +18,12 @@ func (s *ReadingService) NameIndexCached(ctx context.Context, world string) ([]d
 	if entries, ok := s.names.getFresh(world, floorTTL); ok {
 		return entries, nil
 	}
+	epoch := s.names.epoch(world)
 	entries, err := s.NameIndex(ctx, "world", world)
 	if err != nil {
 		return nil, err
 	}
-	s.names.put(world, entries)
+	s.names.put(world, epoch, entries)
 	return entries, nil
 }
 
