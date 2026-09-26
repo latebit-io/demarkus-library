@@ -20,6 +20,9 @@
        operator theme below overrides. Extracted from this template so
        hx-boost navigations cache it instead of re-downloading inline CSS. -->
   <link rel="stylesheet" href="/static/library.css">
+  <!-- The room's reading face, fetched with the stylesheet rather than after
+       it, so a first visit does not paint the fallback serif and then swap. -->
+  <link rel="preload" href="/static/vendor/fonts/literata-roman.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="icon" href="{{ favicon }}">
   {{- with tokensCSS }}
   <!-- Operator design tokens (the manifest's theme block): the :root values

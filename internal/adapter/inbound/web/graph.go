@@ -91,7 +91,9 @@ func directedEdge(b *strings.Builder, from, to edgeEnd, style edgeStyle) {
 // physics): the center document in the middle, its neighbors on a ring —
 // backlinks on the left arc, outbound links on the right — each joined to the
 // center by an edge. urlFor turns each ref into its navigation target.
-func graphSVG(n domain.Neighborhood, urlFor func(domain.Ref) string, onTrail map[domain.Ref]bool) template.HTML {
+// recenterFor, when set, gives each neighbour the fragment URL that redraws
+// the graph around it (the overlay's in-place exploration).
+func graphSVG(n domain.Neighborhood, urlFor, recenterFor func(domain.Ref) string, onTrail map[domain.Ref]bool) template.HTML {
 	if len(n.In) == 0 && len(n.Out) == 0 {
 		return template.HTML(`<p class="graph-empty">No links observed yet — the neighborhood fills in as connected documents are read.</p>`) //nolint:gosec // static markup
 	}
@@ -148,8 +150,12 @@ func graphSVG(n domain.Neighborhood, urlFor func(domain.Ref) string, onTrail map
 		if onTrail[pn.ref] {
 			cls += " graph-walked" // a neighbor already on your trail
 		}
-		fmt.Fprintf(&b, `<a href="%s" data-node="%s"><circle class="%s" cx="%d" cy="%d" r="%d"/>`,
-			html.EscapeString(urlFor(pn.ref)), html.EscapeString(pn.ref.Path), html.EscapeString(cls), pn.x, pn.y, graphNodeR)
+		recenter := ""
+		if recenterFor != nil {
+			recenter = ` data-recenter="` + html.EscapeString(recenterFor(pn.ref)) + `"`
+		}
+		fmt.Fprintf(&b, `<a href="%s" data-node="%s"%s><circle class="%s" cx="%d" cy="%d" r="%d"/>`,
+			html.EscapeString(urlFor(pn.ref)), html.EscapeString(pn.ref.Path), recenter, html.EscapeString(cls), pn.x, pn.y, graphNodeR)
 		anchor := "middle"
 		if pn.x < cx {
 			anchor = "end"

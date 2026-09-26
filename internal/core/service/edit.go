@@ -64,14 +64,15 @@ func (s *ReadingService) Publish(ctx context.Context, req domain.PublishRequest)
 	return doc, nil, err
 }
 
-// invalidateTopology drops the cached floor and the world's cached map after a
-// write, so a just-published or appended document shows on the universe view and
+// invalidateTopology drops the cached floor, the world's cached map and its
+// name index after a write, so a just-published or appended document shows on the universe view and
 // the world map immediately instead of at the next cache-TTL rebuild. The
 // rendered-document LRU is refreshed by the live re-read; the link graph
 // re-records when the document next renders.
 func (s *ReadingService) invalidateTopology(world string) {
 	s.floor.invalidate()
 	s.worldMaps.invalidate(world)
+	s.names.invalidate(world)
 }
 
 // Append adds body to the end of the document then re-reads it live (refreshing

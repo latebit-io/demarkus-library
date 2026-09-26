@@ -12,6 +12,21 @@ import (
 
 const nameIndexMax = 1000
 
+// NameIndexCached serves a world's name index within the TTL, reading live on
+// a miss: the unfocused listing panes' read (ADR 0009, ADR 0005 decision 9).
+func (s *ReadingService) NameIndexCached(ctx context.Context, world string) ([]domain.IndexEntry, error) {
+	if entries, ok := s.names.getFresh(world, floorTTL); ok {
+		return entries, nil
+	}
+	epoch := s.names.epoch(world)
+	entries, err := s.NameIndex(ctx, "world", world)
+	if err != nil {
+		return nil, err
+	}
+	s.names.put(world, epoch, entries)
+	return entries, nil
+}
+
 // NameIndex assembles the palette's name-mode index. The single-world case
 // (any scope but "universe") propagates a read failure so the web adapter can
 // map it to an HTTP status — an outage must not look like "no matches".

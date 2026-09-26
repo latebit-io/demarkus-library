@@ -289,7 +289,9 @@ func TestTrailMalformedIs400(t *testing.T) {
 func TestTrailPaneKindsRouteToVerbs(t *testing.T) {
 	svc := &fakeReading{doc: domain.Document{Title: "x", HTML: "<p>x</p>"}}
 	get(readingApp(t, svc), "/t/w.io/d/plans//~/w.io/tags/adr/~/w.io/d/x.md?focus=1")
-	want := []string{"BrowseCached /plans/", "Tag adr", "ReadCached /x.md"}
+	// The /plans/ listing is the body pane beside the focus: rendered, so it is
+	// enriched from the cached name index (ADR 0009).
+	want := []string{"BrowseCached /plans/", "NameIndexCached", "Tag adr", "ReadCached /x.md"}
 	if strings.Join(svc.calls, ",") != strings.Join(want, ",") {
 		t.Errorf("calls = %v, want %v", svc.calls, want)
 	}
@@ -382,4 +384,20 @@ func paneScrollApp(t *testing.T, svc *fakeReading) *echo.Echo {
 	app.Renderer = view
 	RoomRoutes(app, NewRoom(svc, "soul.demarkus.io", "/index.md").WithPaneScroll())
 	return app
+}
+
+// Every rendered listing pane is enriched: the focused one from a live name
+// index read, the one beside it from the cached index (ADR 0009).
+func TestTrailListingPanesReadNameIndexByFocus(t *testing.T) {
+	svc := &fakeReading{doc: domain.Document{Title: "Index", HTML: "<ul></ul>"}}
+	get(readingApp(t, svc), "/t/w.io/d/plans//~/w.io/d/plans/sub/")
+	var index []string
+	for _, c := range svc.calls {
+		if strings.HasPrefix(c, "NameIndex") {
+			index = append(index, c)
+		}
+	}
+	if strings.Join(index, ",") != "NameIndexCached,NameIndex" {
+		t.Errorf("name index reads = %v, want the body pane cached then the focus live", index)
+	}
 }

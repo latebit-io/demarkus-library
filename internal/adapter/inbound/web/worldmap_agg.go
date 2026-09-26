@@ -125,21 +125,78 @@ func (s wmOpenSet) keys() []string {
 
 // with returns the keys after one user action on a group.
 func (s wmOpenSet) with(key string, action wmOpenAction) []string {
-	n := wmOpenSet{open: maps.Clone(s.open), closed: maps.Clone(s.closed), pages: maps.Clone(s.pages)}
+	n := s.clone()
 	switch action {
 	case wmOpenExpand:
-		n.open[key] = true
-		delete(n.closed, key)
+		n.expand(key)
 	case wmOpenCollapse:
 		delete(n.open, key)
 		delete(n.pages, key)
 		n.closed[key] = true
 	case wmOpenMore:
-		n.open[key] = true
-		delete(n.closed, key)
+		n.expand(key)
 		n.pages[key] = min(max(n.pages[key], 1)+1, wmPageMax)
 	}
 	return n.keys()
+}
+
+func (s wmOpenSet) clone() wmOpenSet {
+	return wmOpenSet{open: maps.Clone(s.open), closed: maps.Clone(s.closed), pages: maps.Clone(s.pages)}
+}
+
+func (s wmOpenSet) expand(key string) {
+	s.open[key] = true
+	delete(s.closed, key)
+}
+
+// revealed returns the set with every group above path expanded and the
+// document's own group paged far enough to draw it, so the overlay filter can
+// bring a folded match onto the map. An unknown path leaves the set as is.
+func (s wmOpenSet) revealed(path string, root *wmGroup, ranking wmRanking, chunk int) wmOpenSet {
+	chain := wmOwnerChain(root, path)
+	if chain == nil {
+		return s
+	}
+	n := s.clone()
+	for _, g := range chain[1:] {
+		n.expand(g.key)
+	}
+	g := chain[len(chain)-1]
+	for i, d := range wmRankedDocs(g, ranking) {
+		if d.Path != path {
+			continue
+		}
+		if page := i/chunk + 1; page > 1 && page > n.pages[g.key] {
+			n.open[g.key] = true
+			n.pages[g.key] = min(page, wmPageMax)
+		}
+		break
+	}
+	return n
+}
+
+// wmOwnerChain is the groups from g down to the one holding path as a direct
+// member, read from the folded tree (a trivial folder's documents live in its
+// parent), or nil when no group holds it.
+func wmOwnerChain(g *wmGroup, path string) []*wmGroup {
+	for _, d := range g.docs {
+		if d.Path == path {
+			return []*wmGroup{g}
+		}
+	}
+	for _, sub := range g.subs {
+		if chain := wmOwnerChain(sub, path); chain != nil {
+			return append([]*wmGroup{g}, chain...)
+		}
+	}
+	return nil
+}
+
+// wmRankedDocs is g's direct members in rank order: the order pages draw them.
+func wmRankedDocs(g *wmGroup, ranking wmRanking) []domain.FloorDoc {
+	docs := append([]domain.FloorDoc(nil), g.docs...)
+	sort.SliceStable(docs, func(i, j int) bool { return ranking.rank[docs[i].Path] < ranking.rank[docs[j].Path] })
+	return docs
 }
 
 type wmOpenAction int
@@ -307,8 +364,7 @@ func wmVisible(root *wmGroup, open wmOpenSet, ranking wmRanking, chunk int) (tre
 				it.children = append(it.children, build(s, wmItemGroup))
 			}
 		}
-		docs := append([]domain.FloorDoc(nil), g.docs...)
-		sort.SliceStable(docs, func(i, j int) bool { return ranking.rank[docs[i].Path] < ranking.rank[docs[j].Path] })
+		docs := wmRankedDocs(g, ranking)
 		shown := min(len(docs), page(g)*chunk)
 		for i, d := range docs[:shown] {
 			c := &wmItem{id: d.Path, kind: wmItemDoc, doc: d, count: 1}

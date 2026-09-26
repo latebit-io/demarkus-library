@@ -253,7 +253,7 @@ func (h *ReadingHandler) present(c *echo.Context, doc domain.Document, err error
 	if domain.IsListingPath(opts.path) {
 		// Rich index (ADR 0006 §5): enrich the bare ls with catalog title/status/
 		// orphan. Runs while hrefs are still /w/ doc routes.
-		content = h.richIndex(c.Request().Context(), opts.world, content)
+		content = listingFragment(h.richIndex(c.Request().Context(), opts.world, content, true))
 	}
 	content = previewize(content)
 	if opts.doc && !domain.IsVersionPath(doc.Path) {
@@ -290,7 +290,7 @@ func (h *ReadingHandler) present(c *echo.Context, doc domain.Document, err error
 		// where there is no graph.
 		if degree := h.spatial.graphDegree(opts.world, doc.Path); degree > 0 {
 			vm.GraphDegree = degree
-			vm.GraphURL = "/w/" + vm.WorldPath + "/g" + doc.Path
+			vm.GraphURL = graphRoute(opts.world, doc.Path)
 		}
 		vm.MapURL = "/w/" + vm.WorldPath + "/u"
 		// Edit affordance only behind the turnstile (writes need an identity);

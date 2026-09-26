@@ -60,8 +60,9 @@
 {{- if .Has}}
 <div id="graph-overlay" class="graph-backdrop" hidden>
   <div class="graph-panel" role="dialog" aria-modal="true" aria-label="Document graph">
-    <div class="graph-head"><span class="graph-title">{{ .Title }}</span><span class="graph-hint">g · esc</span></div>
+    <div class="graph-head"><span class="graph-title">{{ .Title }}</span><span class="graph-hint">g · esc · shift-click explores · wheel or + − zooms · drag pans · 0 resets</span></div>
     <div class="graph-canvas">{{ .Content }}</div>
+    <p class="graph-foot" aria-live="polite" data-idle="Hover a document to trace its links."></p>
   </div>
 </div>
 {{- end}}
@@ -75,8 +76,9 @@
 {{- if .MapHas}}
 <div id="map-overlay" class="graph-backdrop" hidden data-map-url="/w/{{ .MapWorldPath }}/u?overlay=1">
   <div class="graph-panel" role="dialog" aria-modal="true" aria-labelledby="map-title">
-    <div class="graph-head"><span id="map-title" class="graph-title">Map: {{ .MapWorld }}</span><input type="search" class="map-filter" placeholder="filter" aria-label="Filter map nodes by title or path" hidden><span class="graph-hint">m · esc · wheel or + − zooms · drag pans · 0 resets</span></div>
+    <div class="graph-head"><span id="map-title" class="graph-title">Map: {{ .MapWorld }}</span><input type="search" class="map-filter" placeholder="Filter by title or path" aria-label="Filter map nodes by title or path" hidden><span class="graph-hint">m · esc · wheel or + − zooms · drag pans · 0 resets</span></div>
     <div id="map-canvas" class="graph-canvas"></div>
+    <p class="graph-foot" aria-live="polite" data-idle="Hover a document to trace its links."></p>
   </div>
 </div>
 {{- end}}
@@ -92,8 +94,9 @@
 {{- if .FloorHas}}
 <div id="universe-overlay" class="graph-backdrop" hidden data-universe-url="/u?overlay=1">
   <div class="graph-panel" role="dialog" aria-modal="true" aria-labelledby="universe-title">
-    <div class="graph-head"><span id="universe-title" class="graph-title">{{ universe }}</span><input type="search" class="map-filter" placeholder="filter" aria-label="Filter worlds by name" hidden><span class="graph-hint">esc · wheel or + − zooms · drag pans · 0 resets</span></div>
+    <div class="graph-head"><span id="universe-title" class="graph-title">{{ universe }}</span><input type="search" class="map-filter" placeholder="Filter worlds" aria-label="Filter worlds by name" hidden><span class="graph-hint">esc · wheel or + − zooms · drag pans · 0 resets</span></div>
     <div id="universe-canvas" class="graph-canvas"></div>
+    <p class="graph-foot" aria-live="polite" data-idle="Hover a world to trace its links."></p>
   </div>
 </div>
 {{- end}}

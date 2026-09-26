@@ -66,7 +66,8 @@
       window.mermaid.initialize({
         startOnLoad: false,
         securityLevel: "strict",
-        theme: window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "default",
+        // "neutral" is mermaid's greyscale theme: diagrams print in the room's ink.
+        theme: window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "neutral",
       });
       var targets = [];
       blocks.forEach(function (code) {
@@ -151,6 +152,107 @@
     if (pr.right > cr.right) canvas.scrollLeft += pr.right - cr.right;
     if (pr.left < cr.left) canvas.scrollLeft -= cr.left - pr.left;
   }
+
+  // Page swaps (the body) and map redraws cross-fade through a view
+  // transition; library.css times each (maps are named and fade longer).
+  // Other fragment swaps stay instant; the graph re-centre inks in instead.
+  document.addEventListener("htmx:config:request", function (e) {
+    var ctx = e.detail && e.detail.ctx, t = ctx && ctx.target;
+    if (!ctx || calm.matches) return;
+    if (typeof t === "string") t = document.querySelector(t);
+    if (t === document.body || (t && t.matches && t.matches("#map-canvas, #universe-canvas"))) ctx.transition = true;
+  });
+
+  // htmx boosts only tagName "A", never an SVG <a>, so graph and map nodes
+  // reloaded the page: hand the click to a hidden HTML anchor. Aggregates
+  // (own hx-get) and modified clicks (new tab) are left alone.
+  document.addEventListener("click", function (e) {
+    if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    var node = e.target.closest && e.target.closest("svg a[href]");
+    if (!node || node.hasAttribute("hx-get") || !window.htmx) return;
+    var proxy = document.createElement("a");
+    proxy.href = node.getAttribute("href");
+    proxy.hidden = true;
+    document.body.appendChild(proxy);
+    window.htmx.process(proxy);
+    proxy.addEventListener("htmx:after:request", function () { proxy.remove(); });
+    e.preventDefault();
+    proxy.click();
+  });
+
+  // --- reading position and progress ----------------------------------
+  // Every click rebuilds the canvas, so panes would land at their top: keep
+  // each document's position (pane head's world+path) for the session.
+  // Presentational only; storage failing just means starting at the top.
+  var positionsKey = "demarkus:positions", positionsMax = 300;
+  var positions = (function () {
+    try { return JSON.parse(sessionStorage.getItem(positionsKey)) || {}; } catch (err) { return {}; }
+  })();
+  function scrollPanes() {
+    return document.querySelectorAll("body.pane-scroll .pane:not(.spine)");
+  }
+  function paneKey(pane) {
+    var code = pane.querySelector(".pane-head code");
+    return code ? code.textContent : "";
+  }
+  function savePositions() {
+    scrollPanes().forEach(function (p) {
+      var k = paneKey(p);
+      if (!k) return;
+      delete positions[k]; // re-insert so the newest stays last when trimming
+      positions[k] = Math.round(p.scrollTop);
+    });
+    var keys = Object.keys(positions);
+    keys.slice(0, Math.max(0, keys.length - positionsMax)).forEach(function (k) { delete positions[k]; });
+    try { sessionStorage.setItem(positionsKey, JSON.stringify(positions)); } catch (err) { /* private mode: keep in memory */ }
+  }
+  function restorePositions() {
+    scrollPanes().forEach(function (p) {
+      var top = positions[paneKey(p)];
+      if (top) p.scrollTop = top;
+    });
+  }
+  // E-reader furniture: a document pane's head reads "38% · 6 min left".
+  var wordsPerMinute = 230;
+  function progressEl(pane) {
+    var body = pane.querySelector(".doc-body"), head = pane.querySelector(".pane-head");
+    if (!body || !head || body.querySelector(".listing, #librarian-transcript")) return null;
+    var el = head.querySelector(".pane-progress");
+    if (!el) {
+      el = head.appendChild(document.createElement("span"));
+      el.className = "pane-progress";
+      pane._words = (body.textContent.match(/\S+/g) || []).length;
+    }
+    return el;
+  }
+  function showProgress(pane, el) {
+    el = el || progressEl(pane);
+    if (!el) return;
+    var max = pane.scrollHeight - pane.clientHeight;
+    var total = Math.max(1, Math.round(pane._words / wordsPerMinute)), text = total + " min read";
+    if (max > 0) {
+      var done = Math.min(1, pane.scrollTop / max), left = Math.round(total * (1 - done));
+      text = Math.round(done * 100) + "% \u00b7 " + (left > 0 ? left + " min left" : "end");
+    }
+    if (el.textContent !== text) el.textContent = text;
+  }
+  // Every span is added before any pane is measured: one layout, not one each.
+  function showAllProgress() {
+    var panes = Array.prototype.slice.call(scrollPanes()), els = panes.map(progressEl);
+    panes.forEach(function (p, i) { if (els[i]) showProgress(p, els[i]); });
+  }
+  var progressFrame = null;
+  document.addEventListener("scroll", function (e) {
+    var pane = e.target.closest && e.target.closest("body.pane-scroll .pane");
+    if (!pane || progressFrame) return;
+    progressFrame = requestAnimationFrame(function () { progressFrame = null; showProgress(pane); });
+  }, { capture: true, passive: true });
+  // Saved before a page swap, restored on settle (below): settle runs inside
+  // the view transition, before the new state is captured, so no jump.
+  document.addEventListener("htmx:before:swap", function (e) {
+    if (e.detail && e.detail.ctx && e.detail.ctx.target === document.body) savePositions();
+  });
+  window.addEventListener("pagehide", savePositions);
 
   // ADR 0003 concession: the ask form clears once its answer is swapped in
   // (after:swap, so a failed ask keeps the question). A listener rather than
@@ -255,19 +357,49 @@
     var tag = (e.target.tagName || "").toLowerCase();
     return tag === "input" || tag === "textarea" || !!e.target.isContentEditable;
   }
+  var calm = window.matchMedia("(prefers-reduced-motion: reduce)");
+  var overlayFade = 140; // ms: matches .graph-backdrop.closing in library.css
+  // Fading out counts as closed, so a hotkey pressed mid-fade reopens.
+  function shown(el) { return !!el && !el.hidden && !el.classList.contains("closing"); }
   function showOverlay(el, restore) {
     if (!el) return;
+    clearTimeout(el._closing); // re-summoned mid-fade: keep it open
+    el.classList.remove("closing");
     el._restoreFocus = restore || document.activeElement;
     el.hidden = false;
     var panel = el.querySelector(".graph-panel") || el;
     panel.setAttribute("tabindex", "-1");
     panel.focus();
+    wmDropRects();
+    panel.querySelectorAll(".graph-canvas svg").forEach(function (svg) {
+      if (wmStates.has(svg)) wmSyncView(svg);
+    });
+    inkIn(panel);
+  }
+  // The graph inks in on each summon and each re-centre: edges draw from the
+  // centre over their own length (measurable only once shown), then nodes
+  // settle (.refresh in library.css).
+  function inkIn(panel) {
+    if (calm.matches) return;
+    panel.querySelectorAll(".graph-canvas svg.graph line.graph-edge").forEach(function (l) {
+      l.style.setProperty("--len", Math.ceil(l.getTotalLength()));
+    });
+    panel.classList.remove("refresh");
+    void panel.offsetWidth; // restart the animation on a re-open
+    panel.classList.add("refresh");
+    clearTimeout(panel._refresh);
+    panel._refresh = setTimeout(function () { panel.classList.remove("refresh"); }, 900);
   }
   function hideOverlay(el) {
-    if (!el) return;
-    el.hidden = true;
+    if (!el || el.hidden || el.classList.contains("closing")) return;
     var r = el._restoreFocus;
     if (r && r.focus) r.focus();
+    if (calm.matches) { el.hidden = true; return; }
+    el.classList.add("closing");
+    el._closing = setTimeout(function () {
+      el.hidden = true;
+      el.classList.remove("closing");
+    }, overlayFade);
   }
 
   // --- graph overlay (g) — ADR 0006 §4 ----------------------------------
@@ -285,12 +417,82 @@
   });
   document.addEventListener("keydown", function (e) {
     var g = graphOverlay();
-    if (e.key === "Escape" && g && !g.hidden) { e.preventDefault(); closeGraph(); return; }
+    if (e.key === "Escape" && shown(g)) { e.preventDefault(); closeGraph(); return; }
     if (e.key !== "g" || e.ctrlKey || e.metaKey || e.altKey || typingIn(e)) return;
     var p = palette();
     if ((p && !p.hidden) || !g) return; // not while the palette is open / no graph here
     e.preventDefault();
-    g.hidden ? openGraph() : closeGraph();
+    shown(g) ? closeGraph() : openGraph();
+  });
+
+  // --- graph exploration (shift-click) ---------------------------------
+  // Shift-click re-centres the graph on a neighbour (its data-recenter
+  // fragment); crumbs or Backspace step back, a plain click opens. The walk
+  // lives on the overlay element, so a page swap starts fresh.
+  function graphParts() {
+    var o = graphOverlay();
+    return o && { overlay: o, panel: o.querySelector(".graph-panel"),
+      canvas: o.querySelector(".graph-canvas"), title: o.querySelector(".graph-title") };
+  }
+  function renderCrumbs(g) {
+    var walk = g.overlay._walk || [], nav = g.overlay.querySelector(".graph-crumbs");
+    if (!nav) {
+      nav = document.createElement("span");
+      nav.className = "graph-crumbs";
+      g.title.parentNode.insertBefore(nav, g.title);
+    }
+    nav.replaceChildren();
+    walk.forEach(function (step, i) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.className = "graph-crumb";
+      b.textContent = step.title;
+      b.dataset.step = i;
+      nav.appendChild(b);
+      nav.appendChild(document.createTextNode(" \u203a "));
+    });
+  }
+  function recentre(node) {
+    var g = graphParts();
+    if (!g || !window.htmx) return;
+    // Keep this view to step back to, minus any hover highlight.
+    var keep = g.canvas.cloneNode(true);
+    clearHot(keep);
+    (g.overlay._walk = g.overlay._walk || []).push({ title: g.title.textContent, html: keep.innerHTML });
+    renderCrumbs(g);
+    window.htmx.ajax("GET", node.getAttribute("data-recenter"), g.canvas);
+  }
+  function stepBack(i) {
+    var g = graphParts(), walk = g && g.overlay._walk;
+    if (!walk || i < 0 || i >= walk.length) return;
+    var step = walk[i];
+    g.overlay._walk = walk.slice(0, i);
+    g.canvas.innerHTML = step.html; // markup this page rendered earlier
+    renderCrumbs(g);
+    hydrateMaps(g.canvas); // re-binds zoom and inks the restored graph in (graphArrived)
+  }
+  // A re-centred graph arriving from the server: name its centre, ink it in.
+  function graphArrived(svg) {
+    var g = graphParts();
+    if (!g || g.overlay.hidden || !g.canvas.contains(svg)) return;
+    var centre = svg.querySelector(".graph-center-label");
+    if (centre) g.title.textContent = centre.textContent;
+    inkIn(g.panel);
+  }
+  document.addEventListener("click", function (e) {
+    var crumb = e.target.closest && e.target.closest(".graph-crumb");
+    if (crumb) { stepBack(+crumb.dataset.step); return; }
+    if (!e.shiftKey) return;
+    var node = e.target.closest && e.target.closest("#graph-overlay svg a[data-recenter]");
+    if (!node) return;
+    e.preventDefault(); // shift-click would open a new window
+    recentre(node);
+  });
+  document.addEventListener("keydown", function (e) {
+    var g = graphParts();
+    if (e.key !== "Backspace" || !g || !shown(g.overlay) || typingIn(e) || !(g.overlay._walk || []).length) return;
+    e.preventDefault();
+    stepBack(g.overlay._walk.length - 1);
   });
 
   // --- world-map overlay (m) — ADR 0006 §5 ------------------------------
@@ -312,20 +514,20 @@
   });
   document.addEventListener("keydown", function (e) {
     var m = mapOverlay();
-    if (e.key === "Escape" && m && !m.hidden) { e.preventDefault(); closeMap(); return; }
+    if (e.key === "Escape" && shown(m)) { e.preventDefault(); closeMap(); return; }
     if (e.ctrlKey || e.metaKey || e.altKey || typingIn(e)) return;
     // Zoom keys while a map overlay (world or universe) is up: + / - about
     // the centre, 0 resets.
     var o = openOverlay();
-    var svg = o && o.querySelector("svg.floor");
-    if (svg && (e.key === "+" || e.key === "=")) { e.preventDefault(); zoomBy(svg, wmKeyStep, null); return; }
-    if (svg && (e.key === "-" || e.key === "_")) { e.preventDefault(); zoomBy(svg, 1 / wmKeyStep, null); return; }
+    var svg = o && o.querySelector(".graph-canvas svg");
+    if (svg && (e.key === "+" || e.key === "=")) { e.preventDefault(); glideBox(svg, zoomTarget(svg, wmKeyStep, null)); return; }
+    if (svg && (e.key === "-" || e.key === "_")) { e.preventDefault(); glideBox(svg, zoomTarget(svg, 1 / wmKeyStep, null)); return; }
     if (svg && e.key === "0") { e.preventDefault(); resetBox(svg); return; }
     if (e.key !== "m") return;
     var p = palette();
     if ((p && !p.hidden) || !m) return;
     e.preventDefault();
-    m.hidden ? openMap() : closeMap();
+    shown(m) ? closeMap() : openMap();
   });
 
   // --- universe overlay (§6) --------------------------------------------
@@ -349,7 +551,7 @@
   });
   document.addEventListener("keydown", function (e) {
     var u = universeOverlay();
-    if (e.key === "Escape" && u && !u.hidden) { e.preventDefault(); closeUniverse(); return; }
+    if (e.key === "Escape" && shown(u)) { e.preventDefault(); closeUniverse(); return; }
   });
 
   // --- node-hover highlight (map + graph) ------------------------------
@@ -377,7 +579,8 @@
     if (st) return st;
     var v = svg.viewBox.baseVal;
     st = { base: [v.x, v.y, v.width, v.height], box: null, pending: null, rect: null,
-      hot: "", query: "", lines: new Map(), nodes: new Map(), search: [],
+      hot: "", query: "", matches: [], matchNodes: [], sel: 0, live: null,
+      lines: new Map(), nodes: new Map(), search: [],
       stage: null, dim: null, focus: null };
     svg.querySelectorAll("line[data-from]").forEach(function (l) {
       [l.getAttribute("data-from"), l.getAttribute("data-to")].forEach(function (k) {
@@ -388,7 +591,15 @@
     svg.querySelectorAll("[data-node]").forEach(function (a) {
       var path = a.getAttribute("data-node"), t = a.querySelector("title");
       st.nodes.set(path, a);
-      st.search.push({ path: path, text: (t ? t.textContent : path).toLowerCase() });
+      st.search.push({ path: path, node: path, text: (t ? t.textContent : path).toLowerCase() });
+    });
+    // Documents folded into an aggregate: searchable, surfaced through the
+    // node that holds them (the server's undrawn .wm-members index).
+    svg.querySelectorAll(".wm-members [data-path]").forEach(function (m) {
+      var path = m.getAttribute("data-path"), owner = m.parentNode.getAttribute("data-owner");
+      if (!st.nodes.has(owner)) return;
+      st.search.push({ path: path, node: owner, title: m.textContent,
+        text: (m.textContent + " \u2014 " + path).toLowerCase() });
     });
     wmStates.set(svg, st);
     return st;
@@ -420,14 +631,15 @@
   // One renderer for hover and filter: the lifted set is the hot node's
   // neighbourhood while there is one, else the filter matches, else nothing.
   function wmRender(svg) {
-    var st = wmStageOf(svg), lift = null, lines = [];
+    var st = wmStageOf(svg), lift = null, lines = [], inc = null;
     if (st.hot) {
-      var inc = incident(svg, st.hot);
+      inc = incident(svg, st.hot);
       lift = inc.nodes; lines = inc.lines;
     } else if (st.query) {
-      lift = new Set();
-      st.search.forEach(function (n) { if (n.text.indexOf(st.query) !== -1) lift.add(n.path); });
+      lift = new Set(st.matchNodes);
     }
+    var sel = st.query && st.matches.length ? st.matches[st.sel].node : "";
+    wmLive(svg, st, inc);
     st.focus.replaceChildren();
     st.stage.classList.toggle("wm-lit", !!lift);
     if (!lift) return;
@@ -438,6 +650,9 @@
       if (!a) return;
       var c = a.cloneNode(true);
       c.classList.add("node-hot");
+      if (path === sel) c.classList.add("wm-sel");
+      // A lifted node always names itself, even where its label was culled.
+      c.querySelectorAll(".wm-cull").forEach(function (t) { t.classList.remove("wm-cull"); });
       // A clone is paint only: no link, no tab stop, so it never takes focus
       // or re-enters the hover handler. The original underneath stays live.
       c.removeAttribute("href");
@@ -446,12 +661,82 @@
     });
     st.focus.appendChild(frag);
   }
+  // While a filter is set, only what is lifted (matches, plus a hovered
+  // match's neighbours) answers the pointer and Tab; the scrim is paint only.
+  // A hover touches only the nodes whose state changed.
+  function wmLive(svg, st, inc) {
+    var live = null, was = st.live;
+    if (st.query) {
+      live = new Set(st.matchNodes);
+      if (inc) inc.nodes.forEach(function (p) { live.add(p); });
+    }
+    st.live = live;
+    if (!live && !was) return;
+    svg.classList.toggle("wm-filtering", !!live);
+    var set = function (path, on) {
+      var a = st.nodes.get(path);
+      if (!a) return;
+      a.classList.toggle("wm-live", !!live && on);
+      if (on) a.removeAttribute("tabindex"); else a.setAttribute("tabindex", "-1");
+    };
+    if (!was || !live) {
+      st.nodes.forEach(function (a, path) { set(path, !live || live.has(path)); });
+      return;
+    }
+    was.forEach(function (p) { if (!live.has(p)) set(p, false); });
+    live.forEach(function (p) { if (!was.has(p)) set(p, true); });
+  }
+  // The overlay's reading line: the hovered node, else the filter's chosen
+  // match, with its reach. The full title rides in the node's <title>
+  // ("name — where").
+  function wmFoot(svg) {
+    var panel = svg.closest(".graph-panel"), foot = panel && panel.querySelector(".graph-foot");
+    if (!foot) return;
+    foot.replaceChildren();
+    var st = wmState(svg);
+    if (st.query && !st.matches.length) {
+      foot.textContent = "Nothing matches \u201c" + st.query + "\u201d.";
+      return;
+    }
+    var m = st.query && !st.hot ? st.matches[st.sel] : null;
+    var p = st.hot || (m ? m.node : "");
+    if (!p) return;
+    var add = function (tag, text) {
+      var el = document.createElement(tag);
+      el.textContent = text;
+      foot.appendChild(el);
+    };
+    var pick = m ? (st.sel + 1) + " of " + st.matches.length + " \u00b7 \u2191\u2193 choose \u00b7 \u21b5 " : "";
+    var parts = nodeName(st, p);
+    if (m && m.node !== m.path) {
+      // Folded into an aggregate: name the document and the node holding it.
+      add("b", m.title);
+      add("span", m.path);
+      add("span", "in " + parts[0]);
+      add("span", pick + "show on map");
+      return;
+    }
+    add("b", parts[0]);
+    if (parts.length > 1) add("span", parts.slice(1).join(" \u2014 "));
+    var n = (st.lines.get(p) || []).length;
+    add("span", n === 1 ? "1 link" : n + " links");
+    if (m) add("span", pick + "open");
+  }
+  // A drawn node's <title> split into its name and where it lives.
+  function nodeName(st, p) {
+    var node = st.nodes.get(p), t = node && node.querySelector("title");
+    return (t ? t.textContent : p).split(" \u2014 ");
+  }
+  function clearHot(root) {
+    root.querySelectorAll(".edge-hot, .node-hot").forEach(function (n) { n.classList.remove("edge-hot", "node-hot"); });
+  }
   function setHot(svg, p) {
     var st = wmState(svg);
     if (st.hot === (p || "")) return;
     st.hot = p || "";
+    wmFoot(svg);
     if (svg.classList.contains("floor")) { wmRender(svg); return; }
-    svg.querySelectorAll(".edge-hot, .node-hot").forEach(function (n) { n.classList.remove("edge-hot", "node-hot"); });
+    clearHot(svg);
     if (!p) return;
     var inc = incident(svg, p);
     inc.lines.forEach(function (l) { l.classList.add("edge-hot"); });
@@ -487,19 +772,24 @@
     scheduleClear(svg);
   });
 
-  // --- world-map zoom, pan, filter (plan world-map-navigation) ---------
+  // --- overlay zoom, pan, filter (plan world-map-navigation) -----------
   // Presentational like the hover: the viewBox and a few classes change, the
   // URL and the trail do not. Nodes stay plain <a> links; a press that moves
-  // past wmDragSlop pans and swallows the click that would follow. Only a map
-  // in the overlay canvas is zoomable; a trail-pane map keeps normal scrolling.
-  // Both the world map and the universe overlay carry svg.floor.
-  function mapSVG(target) { return target.closest && target.closest(".graph-canvas svg.floor"); }
+  // past wmDragSlop pans and swallows the click that would follow. Only a
+  // drawing in an overlay canvas is zoomable (world map, universe, graph); a
+  // trail-pane map keeps normal scrolling.
+  var zoomable = ".graph-canvas svg.floor, .graph-canvas svg.graph";
+  function mapSVG(target) { return target.closest && target.closest(zoomable); }
   function openOverlay() {
-    return [mapOverlay(), universeOverlay()].filter(function (o) { return o && !o.hidden; })[0] || null;
+    return [graphOverlay(), mapOverlay(), universeOverlay()].filter(shown)[0] || null;
   }
   function mapFilter(el) {
     var panel = el.closest(".graph-panel");
     return panel && panel.querySelector(".map-filter");
+  }
+  function filterSVG(input) {
+    var panel = input.closest(".graph-panel");
+    return panel && panel.querySelector("svg.floor");
   }
   function curBox(svg) { var st = wmState(svg); return st.box || st.base; }
   // viewBox writes coalesce to one per frame: a trackpad emits dozens of
@@ -518,15 +808,85 @@
       var scale = st.base[2] / st.box[2];
       if (scale >= wmLabelZoomOn) svg.classList.add("zoomed");
       else if (scale < wmLabelZoomOff) svg.classList.remove("zoomed");
+      wmSyncView(svg);
     });
   }
-  function resetBox(svg) { setBox(svg, wmState(svg).base.slice()); }
+  function resetBox(svg) { glideBox(svg, wmState(svg).base.slice()); }
+  // Keeps the canvas in step with the view: the graph-paper dots track the
+  // drawing's plane (one SVG-space step, doubled or halved to a comfortable
+  // screen pitch) and map labels hold their screen size (--wm-k is the zoom).
+  function wmSyncView(svg) {
+    var canvas = svg.closest(".graph-canvas"), st = wmState(svg);
+    if (!canvas) return;
+    var w = wmView(svg);
+    if (!w.k) return; // hidden: measured once shown
+    var c = st.crect || (st.crect = canvas.getBoundingClientRect());
+    var step = 28 * w.k;
+    while (step < 16) step *= 2;
+    while (step > 56) step /= 2;
+    // Background properties, not inherited custom properties: a pan frame
+    // must not restyle the whole map subtree.
+    canvas.style.backgroundSize = step + "px " + step + "px";
+    canvas.style.backgroundPosition = (w.left - w.box[0] * w.k - c.left) + "px " + (w.top - w.box[1] * w.k - c.top) + "px";
+    if (st.k !== w.k) {
+      st.k = w.k;
+      svg.style.setProperty("--wm-k", w.k.toFixed(4));
+      clearTimeout(st.cullTimer);
+      st.cullTimer = setTimeout(function () { wmCull(svg); }, wmCullSettle);
+    }
+  }
+  // Once a zoom settles, labels that would overlap an earlier one hide:
+  // rest-state labels (landmarks, top ranks) claim space first. All rects
+  // are read before any class is written, so this is one layout, not n.
+  var wmCullSettle = 140; // ms after the last zoom step
+  function wmCull(svg) {
+    if (!svg.isConnected || !svg.classList.contains("world-map")) return;
+    var labels = Array.prototype.slice.call(svg.querySelectorAll("text.floor-doc-label"));
+    labels.sort(function (a, b) { return a.classList.contains("label-lod") - b.classList.contains("label-lod"); });
+    labels.forEach(function (t) { t.classList.remove("wm-cull"); });
+    var rects = labels.map(function (t) { return t.getBoundingClientRect(); });
+    var placed = [], cull = [];
+    rects.forEach(function (r, i) {
+      if (!r.width) return; // not shown at this zoom (label-lod)
+      var hit = placed.some(function (p) {
+        return r.left < p.right && r.right > p.left && r.top < p.bottom && r.bottom > p.top;
+      });
+      if (hit) cull.push(labels[i]); else placed.push(r);
+    });
+    cull.forEach(function (t) { t.classList.add("wm-cull"); });
+  }
+  // Keyed zoom and reset glide instead of jumping; the pan coasts after a
+  // flick. One motion at a time, and any new gesture stops it.
+  var motionRaf = 0;
+  function stopMotion() { cancelAnimationFrame(motionRaf); motionRaf = 0; }
+  function glideBox(svg, to) {
+    stopMotion();
+    if (calm.matches) { setBox(svg, to); return; }
+    var from = curBox(svg).slice(), start = performance.now(), dur = 260;
+    (function step(now) {
+      var t = Math.min(1, (now - start) / dur), ease = 1 - Math.pow(1 - t, 3);
+      setBox(svg, from.map(function (v, i) { return v + (to[i] - v) * ease; }));
+      motionRaf = t < 1 ? requestAnimationFrame(step) : 0;
+    })(start);
+  }
+  function coast(svg, vx, vy, k) {
+    stopMotion();
+    if (calm.matches || Math.hypot(vx, vy) < 0.25) return;
+    var last = performance.now();
+    (function step(now) {
+      var dt = Math.min(48, now - last), b = curBox(svg), decay = Math.pow(0.93, dt / 16);
+      last = now;
+      setBox(svg, [b[0] - vx * dt / k, b[1] - vy * dt / k, b[2], b[3]]);
+      vx *= decay; vy *= decay;
+      motionRaf = Math.hypot(vx, vy) > 0.02 ? requestAnimationFrame(step) : 0;
+    })(last);
+  }
   // Screen-to-SVG mapping without a layout flush per event: the element box
   // is measured once (re-measured on resize) and preserveAspectRatio's
   // letterbox is applied by hand.
   function wmView(svg) {
     var st = wmState(svg), v = curBox(svg);
-    var r = st.rect || (st.rect = svg.getBoundingClientRect());
+    var r = st.rect && st.rect.width ? st.rect : (st.rect = svg.getBoundingClientRect());
     var k = Math.min(r.width / v[2], r.height / v[3]);
     return { box: v, k: k, left: r.left + (r.width - v[2] * k) / 2, top: r.top + (r.height - v[3] * k) / 2 };
   }
@@ -537,22 +897,22 @@
   // The cached rect is viewport-relative: drop it whenever anything scrolls
   // or the window resizes, and it is re-measured on the next gesture.
   function wmDropRects() {
-    document.querySelectorAll("svg.floor").forEach(function (svg) {
+    document.querySelectorAll(".graph-canvas svg").forEach(function (svg) {
       var st = wmStates.get(svg);
-      if (st) st.rect = null;
+      if (st) { st.rect = null; st.crect = null; }
     });
   }
   window.addEventListener("resize", wmDropRects);
   window.addEventListener("scroll", wmDropRects, { passive: true, capture: true });
-  // Zoom by factor k about an SVG-space point (the centre when null), clamped
-  // to [wmZoomMin, wmZoomMax] of the base box.
-  function zoomBy(svg, k, p) {
+  // The box after zooming by factor k about an SVG-space point (the centre
+  // when null), clamped to [wmZoomMin, wmZoomMax] of the base box.
+  function zoomTarget(svg, k, p) {
     var v = curBox(svg), b = wmState(svg).base;
     var scale = b[2] / (v[2] * k);
     if (scale < wmZoomMin) k = b[2] / (v[2] * wmZoomMin);
     if (scale > wmZoomMax) k = b[2] / (v[2] * wmZoomMax);
     if (!p) p = { x: v[0] + v[2] / 2, y: v[1] + v[3] / 2 };
-    setBox(svg, [p.x - (p.x - v[0]) * k, p.y - (p.y - v[1]) * k, v[2] * k, v[3] * k]);
+    return [p.x - (p.x - v[0]) * k, p.y - (p.y - v[1]) * k, v[2] * k, v[3] * k];
   }
   // The factor follows the delta, so a trackpad's stream of small deltas
   // zooms smoothly and a mouse wheel's ±100 notch still steps about 18%.
@@ -565,15 +925,19 @@
     var d = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
     var rate = e.ctrlKey ? wmPinchRate : wmWheelRate;
     var k = Math.exp(Math.max(-wmWheelClamp, Math.min(wmWheelClamp, d)) * rate);
-    zoomBy(svg, k, svgPoint(svg, e.clientX, e.clientY));
+    stopMotion();
+    setBox(svg, zoomTarget(svg, k, svgPoint(svg, e.clientX, e.clientY)));
   }
-  var pan = null, swallowClick = false; // pan: {svg, x, y, box, k, moved}
+  // pan: {svg, x, y, box, k, moved, t, vx, vy}; v is the release velocity in px/ms.
+  var pan = null, swallowClick = false;
   document.addEventListener("pointerdown", function (e) {
     swallowClick = false;
     var svg = mapSVG(e.target);
     if (!svg || e.button !== 0) return;
+    stopMotion();
     var w = wmView(svg);
-    pan = { svg: svg, x: e.clientX, y: e.clientY, box: w.box, k: w.k, moved: false };
+    pan = { svg: svg, x: e.clientX, y: e.clientY, box: w.box, k: w.k, moved: false,
+      t: performance.now(), px: e.clientX, py: e.clientY, vx: 0, vy: 0 };
   });
   document.addEventListener("pointermove", function (e) {
     if (!pan) return;
@@ -582,13 +946,19 @@
     if (!pan.moved && Math.hypot(dx, dy) < wmDragSlop) return;
     pan.moved = true;
     pan.svg.classList.add("panning");
-    var b = pan.box;
+    var b = pan.box, now = performance.now(), dt = Math.max(1, now - pan.t);
+    // Smoothed so the last jittery sample does not decide the coast.
+    pan.vx = 0.7 * (e.clientX - pan.px) / dt + 0.3 * pan.vx;
+    pan.vy = 0.7 * (e.clientY - pan.py) / dt + 0.3 * pan.vy;
+    pan.t = now; pan.px = e.clientX; pan.py = e.clientY;
     setBox(pan.svg, [b[0] - dx / pan.k, b[1] - dy / pan.k, b[2], b[3]]);
   });
   function endPan() {
     if (!pan) return;
     pan.svg.classList.remove("panning");
     swallowClick = pan.moved;
+    // A release after a pause is a placement, not a flick.
+    if (pan.moved && performance.now() - pan.t < 60) coast(pan.svg, pan.vx, pan.vy, pan.k);
     pan = null;
   }
   document.addEventListener("pointerup", endPan);
@@ -607,11 +977,69 @@
   // recedes the rest. A hot node takes precedence and the filter view returns
   // when the hover clears (wmRender).
   function applyFilter(input) {
-    var panel = input.closest(".graph-panel"), svg = panel && panel.querySelector("svg.floor");
+    var svg = filterSVG(input);
     if (!svg) return;
-    wmState(svg).query = input.value.trim().toLowerCase();
+    var st = wmState(svg), q = input.value.trim().toLowerCase();
+    st.query = q;
+    st.matches = q ? st.search.filter(function (n) { return n.text.indexOf(q) !== -1; }) : [];
+    st.matchNodes = st.matches.map(function (m) { return m.node; });
+    st.sel = 0;
     wmRender(svg);
+    wmFoot(svg);
   }
+  // Arrow keys walk the matches with a solid ring, bringing an off-screen
+  // one into view; Enter opens a drawn match as a click would, and unfolds a
+  // folded one onto the map first (the server redraws with it shown).
+  function pickMatch(svg, i) {
+    var st = wmState(svg);
+    st.sel = i;
+    wmRender(svg);
+    wmFoot(svg);
+    wmReveal(svg, st.matches[i].node);
+  }
+  function moveMatch(svg, delta) {
+    var st = wmState(svg), n = st.matches.length;
+    if (n) pickMatch(svg, (st.sel + delta + n) % n);
+  }
+  var pendingReveal = ""; // a folded match to select once its map arrives
+  function wmReveal(svg, path) {
+    var a = wmState(svg).nodes.get(path), c = a && a.querySelector("circle");
+    if (!c) return;
+    var x = +c.getAttribute("cx"), y = +c.getAttribute("cy"), b = curBox(svg);
+    var mx = b[2] * 0.15, my = b[3] * 0.15;
+    if (x > b[0] + mx && x < b[0] + b[2] - mx && y > b[1] + my && y < b[1] + b[3] - my) return;
+    glideBox(svg, [x - b[2] / 2, y - b[3] / 2, b[2], b[3]]);
+  }
+  function openMatch(svg) {
+    var st = wmState(svg), m = st.matches[st.sel];
+    if (!m) return;
+    if (m.node !== m.path) {
+      var url = svg.getAttribute("data-reveal-url");
+      if (!url || !window.htmx) return;
+      pendingReveal = m.path;
+      window.htmx.ajax("GET", url + encodeURIComponent(m.path), "#map-canvas");
+      return;
+    }
+    var a = st.nodes.get(m.node);
+    if (a) a.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, view: window }));
+  }
+
+  // Capture phase, so Esc with text clears the filter before the overlay's
+  // own Esc handler would close the map.
+  document.addEventListener("keydown", function (e) {
+    var input = e.target;
+    if (!input.classList || !input.classList.contains("map-filter")) return;
+    if (e.key === "Escape" && input.value) {
+      e.preventDefault(); e.stopPropagation();
+      input.value = "";
+      applyFilter(input);
+      return;
+    }
+    var svg = filterSVG(input);
+    if (!svg) return;
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); moveMatch(svg, e.key === "ArrowDown" ? 1 : -1); }
+    else if (e.key === "Enter") { e.preventDefault(); openMatch(svg); }
+  }, true);
   document.addEventListener("input", function (e) {
     if (e.target.classList && e.target.classList.contains("map-filter")) applyFilter(e.target);
   });
@@ -621,19 +1049,29 @@
   // from the previous map are dropped so they cannot pin it in memory.
   function hydrateMaps(root) {
     if (!root.querySelectorAll) return;
-    root.querySelectorAll(".graph-canvas svg.floor").forEach(function (svg) {
+    root.querySelectorAll(zoomable).forEach(function (svg) {
       if (wmStates.has(svg)) return;
       clearTimeout(hotClear); hotClear = null;
       clearTimeout(hotSwitch); hotSwitch = null;
       pan = null;
+      stopMotion();
       wmState(svg);
+      wmSyncView(svg);
       svg.addEventListener("wheel", onWheel, { passive: false });
       var f = mapFilter(svg);
       if (f) { f.hidden = false; if (f.value) applyFilter(f); }
+      if (svg.classList.contains("graph") && root !== document.body) graphArrived(svg);
+      if (pendingReveal) {
+        var st = wmState(svg), i = st.matches.findIndex(function (m) { return m.node === pendingReveal; });
+        pendingReveal = "";
+        if (i >= 0) pickMatch(svg, i);
+      }
     });
   }
 
   document.addEventListener("DOMContentLoaded", function () {
+    restorePositions();
+    showAllProgress();
     scan(document.body);
     showFocusedPane();
   });
@@ -645,6 +1083,7 @@
   // document: a body-level swap keeps the element, but this survives either way.
   document.addEventListener("htmx:after:settle", function (e) {
     var t = e.target;
+    if (t === document.body) { restorePositions(); showAllProgress(); }
     scan(t);
     if (t === document.body ||
         (t.matches && t.matches("main.canvas, .pane")) ||

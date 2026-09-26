@@ -46,6 +46,29 @@ func TestNameIndexRequestsHighLimit(t *testing.T) {
 	}
 }
 
+// The cached read serves repeats within the TTL without a catalog lookup, and
+// a write to the world drops it so the next read is live again.
+func TestNameIndexCachedServesThenInvalidates(t *testing.T) {
+	var lookups int
+	gw := fakeGateway{raw: domain.RawDocument{Body: worldMapCatalog}, limit: &lookups}
+	svc := NewReadingService(gw, fakeRenderer{}, nil)
+	for i := range 2 {
+		lookups = 0
+		got, err := svc.NameIndexCached(t.Context(), "world-a")
+		if err != nil || len(got) != 5 {
+			t.Fatalf("read %d: %d entries, err %v", i, len(got), err)
+		}
+		if read := lookups != 0; read != (i == 0) {
+			t.Errorf("read %d: catalog lookup = %v, want only the first to read live", i, read)
+		}
+	}
+	svc.invalidateTopology("world-a")
+	lookups = 0
+	if _, err := svc.NameIndexCached(t.Context(), "world-a"); err != nil || lookups == 0 {
+		t.Errorf("after a write the index should read live (lookups %d, err %v)", lookups, err)
+	}
+}
+
 func TestNameIndexUniverseUsesLookupAll(t *testing.T) {
 	var called string
 	gw := fakeGateway{

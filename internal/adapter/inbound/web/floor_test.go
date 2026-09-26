@@ -2,7 +2,6 @@ package web
 
 import (
 	"net/http"
-	"net/http/httptest"
 	"regexp"
 	"strconv"
 	"strings"
@@ -245,10 +244,7 @@ func TestTrailUniverseOverlayShell(t *testing.T) {
 // extending the reader's current trail (from HX-Current-URL).
 func TestFloorOverlayFragment(t *testing.T) {
 	svc := &fakeReading{floor: testFloor()}
-	req := httptest.NewRequest(http.MethodGet, "/u?overlay=1", http.NoBody)
-	req.Header.Set("HX-Current-URL", "http://x/t/u")
-	rec := httptest.NewRecorder()
-	readingApp(t, svc).ServeHTTP(rec, req)
+	rec := getFrom(readingApp(t, svc), "/u?overlay=1", "http://x/t/u")
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d", rec.Code)

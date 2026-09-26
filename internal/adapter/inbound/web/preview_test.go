@@ -23,8 +23,13 @@ func TestPreviewizeWrapsDocumentLinksOnly(t *testing.T) {
 		t.Errorf("document link not wrapped: %s", out)
 	}
 	if !strings.Contains(out, `hx-get="/w/soul/preview/a.md"`) ||
-		!strings.Contains(out, `hx-trigger="mouseenter delay:300ms once"`) {
+		!strings.Contains(out, `hx-trigger="mouseenter delay:300ms once, focusin delay:300ms once"`) {
 		t.Errorf("hover attrs missing: %s", out)
+	}
+	// The request rides on the host, never the anchor: htmx 4 does not boost
+	// an anchor with its own hx-get, so its click would reload the page.
+	if !regexp.MustCompile(`<span class="preview-host" hx-get="[^"]+"[^>]*><a href="/w/soul/d/a.md" style="[^"]*">doc</a>`).MatchString(out) {
+		t.Errorf("hover request should sit on the host span, the anchor plain: %s", out)
 	}
 	// Exactly one host wrapper — the listing and external link are not wrapped.
 	if n := strings.Count(out, `class="preview-host"`); n != 1 {

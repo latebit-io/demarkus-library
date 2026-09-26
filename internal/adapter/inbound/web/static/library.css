@@ -4,57 +4,90 @@
    theme overrides anything here; the :root tokens below are the intended
    surface. */
 
+/* Literata was drawn for e-reading; vendored because the CSP allows only
+   self-hosted fonts. Variable weight and optical size in one file each. */
+@font-face { font-family: Literata; font-style: normal; font-weight: 200 900;
+             font-display: swap; src: url(/static/vendor/fonts/literata-roman.woff2) format("woff2"); }
+@font-face { font-family: Literata; font-style: italic; font-weight: 200 900;
+             font-display: swap; src: url(/static/vendor/fonts/literata-italic.woff2) format("woff2"); }
+
 /* The Tufte pane (ADR 0005, R1): ~60ch reading column + working margin.
-   Off-white/off-black; color is reserved for signal (the status badge).
-   R2 stacks the same pane on the trail canvas. */
+   The default room is e-paper: grey paper, graphite ink, no shadows or
+   gradients. Color is reserved for signal, in muted color-e-ink tones. */
 :root {
   color-scheme: light dark;
   --margin-w: 250px;
   --gutter: 2.5rem;
-  --paper: light-dark(#fffff8, #151515);
-  --ink: light-dark(#111111, #dddddd);
-  --faint: light-dark(#11111120, #dddddd28);
-  --muted: light-dark(#11111199, #dddddd99);
+  --paper: light-dark(#e9e8e3, #1c1c1a);
+  --ink: light-dark(#1f1f1d, #d8d6ce);
+  --faint: light-dark(#1f1f1d24, #d8d6ce26);
+  --muted: light-dark(#1f1f1da3, #d8d6ce99);
   /* Type + signal tokens: every font and signal color routes through
      these so an operator's /theme/site.css (DEMARKUS_THEME_CSS) can
      rebrand the room by overriding :root alone. */
-  --font-prose: Charter, 'Bitstream Charter', 'Sitka Text', Cambria, Georgia, serif;
-  --font-ui: system-ui, sans-serif;
+  --font-prose: Literata, Charter, 'Bitstream Charter', 'Sitka Text', Cambria, Georgia, serif;
+  --font-ui: Literata, Charter, Georgia, serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
-  --ok: light-dark(#1a7f37, #3fb950);
-  --warn: light-dark(#9a6700, #d29922);
-  --danger: light-dark(#cf222e, #f85149);
-  --info: light-dark(#0969da, #4493f8);
-  --accent: light-dark(#8250df, #ab7df8);
+  --ok: light-dark(#45623f, #93b08a);
+  --warn: light-dark(#86632a, #cba766);
+  --danger: light-dark(#8f3a33, #d68c82);
+  --info: light-dark(#3d5670, #92aac5);
+  --accent: light-dark(#5d4a6c, #ae9bbd);
+  /* Derived, not tokens: they follow whatever ink/paper a theme sets. */
+  --rule: color-mix(in srgb, var(--ink) 30%, transparent);
+  --wash: color-mix(in srgb, var(--ink) 6%, transparent);
+  /* The dither: e-paper has no translucency, so a scrim is a dot screen. */
+  --halftone: radial-gradient(color-mix(in srgb, var(--ink) 42%, transparent) .75px, transparent 1.15px) 0 0 / 4px 4px;
+  --scrim: var(--halftone), color-mix(in srgb, var(--paper) 45%, transparent); /* behind every overlay */
 }
 body { margin: 0 auto; padding: 1.5rem 1.25rem 4rem;
        max-width: calc(60ch + var(--gutter) + var(--margin-w));
        background: var(--paper); color: var(--ink);
-       font: 17px/1.55 var(--font-prose); }
-nav { display: flex; gap: 1rem; align-items: baseline; margin-bottom: 2rem;
-      padding-bottom: .6rem; border-bottom: 1px solid var(--faint); }
-nav a.brand { font-weight: 600; text-decoration: none; white-space: nowrap; color: inherit; }
+       font: 18px/1.62 var(--font-prose);
+       font-optical-sizing: auto; font-kerning: normal;
+       -webkit-font-smoothing: antialiased; }
+::selection { background: color-mix(in srgb, var(--ink) 20%, transparent); }
+:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; border-radius: 2px; }
+nav { display: flex; gap: .6rem; align-items: baseline; margin-bottom: 2rem;
+      padding-bottom: .7rem; border-bottom: 1px solid var(--rule); }
+nav a.brand { font-weight: 600; text-decoration: none; white-space: nowrap; color: inherit;
+              letter-spacing: -.005em; margin-right: .4rem; }
 nav a.brand img { height: 1.15em; vertical-align: -.2em; margin-right: .45rem; }
 nav .world { font-size: .8rem; color: var(--muted); flex: 1; }
 nav .user { font-size: .78rem; color: var(--muted); font-family: var(--font-ui);
             white-space: nowrap; }
 nav form { margin: 0; }
-button.signout { font: inherit; font-size: .8rem; padding: .3rem .7rem;
-      border: 1px solid var(--faint); border-radius: 6px; background: transparent;
+nav .nav-librarian { font-size: .85rem; font-family: var(--font-ui); color: inherit; }
+button.signout { font: inherit; font-size: .8rem; padding: .25rem .65rem;
+      border: 1px solid var(--rule); border-radius: 3px; background: transparent;
       color: inherit; cursor: pointer; white-space: nowrap; }
-button.signout:hover { background: var(--faint); }
+button.signout:hover { border-color: var(--ink); }
 
 /* ── The pane: body column + margin ─────────────────────────────── */
 .doc-pane { display: grid; grid-template-columns: minmax(0, 60ch) var(--margin-w);
             column-gap: var(--gutter); }
-.doc-body { grid-column: 1; counter-reset: sidenote; }
+.doc-body { grid-column: 1; counter-reset: sidenote; container-type: inline-size; }
 .doc-margin { grid-column: 2; font-family: var(--font-ui); }
 header.doc .meta { font-size: .8rem; color: var(--muted); }
 header.doc .meta a, .doc-margin a { color: inherit; }
-h1 { font-size: 1.7rem; font-weight: 500; line-height: 1.2; margin: 0 0 1rem; }
-h2 { font-size: 1.3rem; font-weight: 500; font-style: italic; margin: 1.8rem 0 .6rem; }
-h3 { font-size: 1.05rem; font-weight: 600; font-style: italic; margin: 1.4rem 0 .5rem; }
-a { text-underline-offset: 2px; text-decoration-color: var(--muted); }
+h1 { font-size: 2rem; font-weight: 560; line-height: 1.15; letter-spacing: -.012em;
+     margin: 0 0 1.2rem; text-wrap: balance; }
+h2 { font-size: 1.35rem; font-weight: 480; font-style: italic; line-height: 1.3;
+     margin: 2.2rem 0 .6rem; text-wrap: balance; }
+h3 { font-size: 1.08rem; font-weight: 620; line-height: 1.35; margin: 1.6rem 0 .4rem; }
+/* Links read as ink, not hue: e-paper has one color, so the underline
+   carries the affordance and thickens under the pointer. */
+a { color: inherit; text-decoration-color: var(--rule); text-decoration-thickness: 1px;
+    text-underline-offset: 3px; }
+a:hover { text-decoration-color: currentColor; }
+.doc-body p, .doc-body li { text-wrap: pretty; hanging-punctuation: first; }
+.doc-body p { hyphens: auto; }
+.doc-body img { max-width: 100%; height: auto; }
+.doc-body blockquote { margin: 1.2rem 0; padding: 0 0 0 1.1rem;
+                       border-left: 2px solid var(--rule); color: var(--muted); }
+/* A thematic break is a scene break: set it as a book does. */
+.doc-body hr { border: 0; margin: 2rem 0; text-align: center; line-height: 1; }
+.doc-body hr::before { content: "⁂"; color: var(--muted); font-size: 1.1rem; }
 
 /* ── Pinned metadata block: the trust signals, sticky at margin top.
       Solid paper background + z-index so floated sidenotes slide under
@@ -63,10 +96,10 @@ a { text-underline-offset: 2px; text-decoration-color: var(--muted); }
             background: var(--paper); z-index: 1;
             border-top: 2px solid var(--ink); padding-top: .6rem; }
 .doc-meta > * { margin: 0 0 .7rem; }
-.status { display: inline-block; font-size: .65rem; font-weight: 650;
-          letter-spacing: .09em; text-transform: uppercase;
-          padding: .25rem .55rem; border: 1px solid var(--muted);
-          border-radius: 4px; color: var(--muted); }
+.status { display: inline-block; font-size: .78rem; font-weight: 600; line-height: 1.2;
+          font-variant-caps: all-small-caps; letter-spacing: .05em;
+          padding: .12rem .5rem .18rem; border: 1px solid var(--muted);
+          border-radius: 3px; color: var(--muted); }
 .status-wip      { color: var(--warn); border-color: currentColor; }
 .status-accepted { color: var(--ok); border-color: currentColor; }
 .status-archived { color: var(--muted); border-style: dashed; text-decoration: line-through; }
@@ -75,8 +108,8 @@ ul.tags a { color: var(--muted); }
 .doc-meta dl { display: grid; grid-template-columns: max-content 1fr; gap: .1rem .6rem; }
 .doc-meta dt { color: var(--muted); }
 .doc-meta dd { margin: 0; overflow-wrap: anywhere; }
-.doc-meta .meta-head { font-size: .6rem; font-weight: 650; letter-spacing: .1em;
-                       text-transform: uppercase; color: var(--muted); margin: 0 0 .35rem; }
+.doc-meta .meta-head { font-size: .8rem; font-weight: 600; letter-spacing: .05em;
+                       font-variant-caps: all-small-caps; color: var(--muted); margin: 0 0 .35rem; }
 .doc-meta .okf > * { margin: 0 0 .5rem; }
 .doc-meta .okf > :last-child { margin-bottom: 0; }
 /* The catalog-record fold: a <details> in the meta-head register. Closed
@@ -116,17 +149,20 @@ ul.tags a { color: var(--muted); }
 
 /* ── Booktabs tables: heavy top/bottom rules, light rule under the
       header, no verticals, no row rules. ─────────────────────────── */
-table { border-collapse: collapse; margin: 1.5rem 0; font-size: .92em;
+table { border-collapse: collapse; margin: 1.5rem 0; font-size: .9em;
+        font-variant-numeric: tabular-nums lining-nums;
         border-top: 2px solid var(--ink); border-bottom: 2px solid var(--ink); }
 thead th { border-bottom: 1px solid var(--ink); }
 th, td { text-align: left; padding: .35rem .8rem .35rem 0; border: none; }
 
-pre { background: var(--faint); padding: .75rem; overflow-x: auto; border-radius: 6px;
-      font-size: .82rem; line-height: 1.45; }
-code { font-family: var(--font-mono); }
+pre { background: var(--wash); padding: .8rem .9rem; overflow-x: auto; border-radius: 3px;
+      border: 1px solid var(--faint); font-size: .8rem; line-height: 1.5; }
+code { font-family: var(--font-mono); font-size: .88em; }
+.doc-body :not(pre) > code { background: var(--wash); border-radius: 2px; padding: .05em .28em; }
 /* GFM alerts (markdown adapter emits .callout structure; colors are
    GitHub's palette via light-dark(), tracking color-scheme above). */
-.callout { border-left: 3px solid var(--faint); padding: .1rem 1rem; margin: 1rem 0; }
+.callout { border-left: 3px solid var(--faint); padding: .1rem 1rem; margin: 1.2rem 0;
+           background: var(--wash); border-radius: 0 3px 3px 0; }
 .callout-title { display: flex; gap: .5rem; align-items: center; font-weight: 600; }
 .callout-title p { margin: .5rem 0; }
 .callout-body > :first-child { margin-top: .25rem; }
@@ -140,7 +176,19 @@ code { font-family: var(--font-mono); }
 .callout-warning   .callout-title { color: var(--warn); }
 .callout-caution   { border-color: var(--danger); }
 .callout-caution   .callout-title { color: var(--danger); }
-.htmx-request#main { opacity: .55; transition: opacity .15s; }
+/* A clicked link answers at once, before the page swaps: its underline
+   inks in, and a listing row takes the reading-position marker. */
+a.htmx-request { text-decoration-color: currentColor; text-decoration-thickness: 2px; }
+/* The page swap's cross-fade (islands.js opts boosted swaps in): short,
+   so it reads as e-paper settling rather than an animation. */
+::view-transition-old(root), ::view-transition-new(root) { animation-duration: .16s; }
+/* A map redraw re-lays out every node: the canvas fades as its own layer,
+   slower, so it reads as one change. */
+#map-canvas { view-transition-name: map-canvas; }
+#universe-canvas { view-transition-name: universe-canvas; }
+::view-transition-group(map-canvas), ::view-transition-old(map-canvas), ::view-transition-new(map-canvas),
+::view-transition-group(universe-canvas), ::view-transition-old(universe-canvas),
+::view-transition-new(universe-canvas) { animation-duration: .32s; }
 
 /* ── The trail canvas (ADR 0005, R2): panes laid out left→right; the
       canvas scrolls, panes never resize to fit. ──────────────────── */
@@ -160,6 +208,9 @@ main.canvas { display: flex; align-items: flex-start; gap: 1.25rem;
 .pane-head { font-family: var(--font-ui); font-size: .72rem;
              color: var(--muted); margin-bottom: .8rem;
              border-bottom: 1px solid var(--faint); padding-bottom: .35rem; }
+.pane-head code { font-size: .95em; }
+/* Reading progress (islands.js): e-reader furniture, right-aligned, quiet. */
+.pane-progress { float: right; color: var(--muted); font-variant-numeric: tabular-nums; }
 /* The attention marker: the active pane gets the room's 2px ink rule
    (the same register as the margin's top rule) and a full-ink address;
    context panes keep the faint hairline. Color stays reserved for
@@ -178,23 +229,24 @@ main.canvas { display: flex; align-items: flex-start; gap: 1.25rem;
 .pane-head a { color: inherit; text-decoration: none; }
 /* The head's status chip (ADR 0007): the marginless room's at-rest trust
    signal — smaller than the margin badge, same color register. */
-.pane-head .status { font-size: .52rem; padding: .12rem .35rem;
+.pane-head .status { font-size: .68rem; padding: .02rem .35rem .08rem;
              margin-left: .3rem; vertical-align: middle; }
 .pane.spine { display: flex; flex-direction: column; align-items: center;
               gap: .7rem; width: 2.4rem; min-height: 22rem;
               padding: .8rem .3rem; border: 1px solid var(--faint);
-              border-radius: 6px; text-decoration: none; color: var(--muted);
-              background: transparent; }
-.pane.spine:hover { border-color: var(--muted); }
+              border-radius: 3px; text-decoration: none; color: var(--muted);
+              background: var(--wash); }
+.pane.spine:hover { border-color: var(--ink); color: var(--ink); }
 .pane.spine .spine-title { writing-mode: vertical-rl; font-family: var(--font-ui);
               font-size: .8rem; max-height: 15rem; overflow: hidden;
               text-overflow: ellipsis; white-space: nowrap; }
-.pane.spine .status { writing-mode: vertical-rl; font-size: .55rem;
-              letter-spacing: .06em; padding: .3rem .15rem; }
+.pane.spine .status { writing-mode: vertical-rl; font-size: .7rem;
+              padding: .3rem .1rem; }
 .pane.spine.gone { opacity: .55; border-style: dashed; }
 /* Active-link highlight: the open links ARE the breadcrumb. */
-a.active-link { background: var(--faint); border-radius: 3px;
-                padding: 0 .2rem; text-decoration-thickness: 2px; }
+a.active-link { background: var(--wash); border-radius: 2px;
+                box-shadow: 0 0 0 .2rem var(--wash);
+                text-decoration-color: currentColor; text-decoration-thickness: 2px; }
 
 /* ── The pane-scroll room (ADR 0007 — the default; DEMARKUS_PANE_SCROLL
       is the opt-out): the sliding-panes model. The room is a fixed
@@ -213,7 +265,7 @@ body.pane-scroll .pane { overflow-y: auto; overscroll-behavior-y: contain;
                       and only while the pane is under the pointer. */
                    scrollbar-width: thin;
                    scrollbar-color: transparent transparent; }
-body.pane-scroll .pane:hover { scrollbar-color: light-dark(#11111138, #dddddd38) transparent; }
+body.pane-scroll .pane:hover { scrollbar-color: var(--rule) transparent; }
 /* Column rules: with every pane a full-height scroller, adjacent text
    columns need a boundary the gap alone no longer provides. Interior
    edges only; spines carry their own border box. */
@@ -252,17 +304,18 @@ svg.floor { max-width: 100%; height: auto; }
 svg.floor text { fill: var(--muted); font-family: var(--font-ui); }
 .floor-world-label { font-size: 15px; font-weight: 600; }
 .floor-doc-label { font-size: 10.5px; }
-.floor-world { fill: var(--faint); stroke: var(--muted); stroke-width: 1.5; }
+.floor-world { fill: var(--wash); stroke: var(--ink); stroke-width: 1.5; }
 .floor-doc { fill: var(--paper); stroke: var(--muted); stroke-width: 1.5; }
 .floor-doc.status-accepted { stroke: var(--ok); }
 .floor-doc.status-wip      { stroke: var(--warn); }
 .floor-doc.status-archived { stroke-dasharray: 3 2; opacity: .6; }
 .floor-world.gone, .floor-portal-node.gone { stroke-dasharray: 4 3; opacity: .5; }
-svg.floor a:hover circle { stroke-width: 3; }
+svg.floor a:hover circle, svg.floor a:focus-visible circle { stroke: var(--ink); stroke-width: 3; }
+svg a:focus-visible { outline: none; }
 .floor-empty { color: var(--muted); font-style: italic; }
 /* World-level edges (hub graph ∪ observed map) + portal nodes for
    externally-linked hosts (the extensional universe). */
-.floor-edge { stroke: var(--faint); stroke-width: 1.5; }
+.floor-edge { stroke: var(--rule); stroke-width: 1.2; }
 .floor-portal-node { fill: var(--paper); stroke: var(--muted);
                      stroke-width: 1.5; stroke-dasharray: 3 2; }
 /* World map (zoom level 2), reference-only (ADR 0006 §5): linked docs in a
@@ -270,8 +323,8 @@ svg.floor a:hover circle { stroke-width: 3; }
    below — dashed + dimmed so "unconnected" reads at a glance. */
 .floor .floor-doc-label { fill: var(--ink); }
 .world-map-caption { font-family: var(--font-ui); font-size: 11px; fill: var(--muted); }
-.world-map-band { font-family: var(--font-ui); font-size: 10px; fill: var(--muted);
-                  text-transform: uppercase; letter-spacing: .05em; }
+.world-map-band { font-family: var(--font-ui); font-size: 11px; fill: var(--muted);
+                  font-variant-caps: all-small-caps; letter-spacing: .05em; }
 .floor-doc.world-map-orphan { stroke-dasharray: 3 2; opacity: .7; }
 .world-map-new { margin-top: .6rem; font-family: var(--font-ui); font-size: .85rem; }
 /* Rest-state tiers (plan world-map-navigation): the hub spine reads at rest,
@@ -280,7 +333,7 @@ svg.floor a:hover circle { stroke-width: 3; }
    matched by the filter. */
 /* Aggregates (worldmap_agg.go): collapsed directories, "more" chunks and the
    anchor of an expanded group. Bundled edges carry their count as width. */
-.floor-agg { fill: var(--faint); stroke: var(--muted); stroke-width: 1.5; }
+.floor-agg { fill: var(--wash); stroke: var(--ink); stroke-width: 1.2; }
 .floor-agg-more { stroke-dasharray: 3 2; }
 .floor-agg-anchor { fill: var(--paper); }
 .floor-agg-glyph { font-family: var(--font-ui); font-size: 12px; fill: var(--ink); pointer-events: none; }
@@ -299,16 +352,34 @@ svg.floor a:hover circle { stroke-width: 3; }
         /* Repaints of the map stay inside the stage: the panel's blurred
            shadow and the room behind it are never re-rasterized. */
         contain: paint; }
-.wm-dim { position: absolute; inset: 0; z-index: 1; background: var(--paper); opacity: 0;
-        pointer-events: none; transition: opacity .25s ease; will-change: opacity; }
-.wm-stage.wm-lit .wm-dim { opacity: .78; }
+/* The scrim is paper under a dot screen, so the receded map reads as
+   dithered grey the way e-paper renders a mid tone. */
+.wm-dim { position: absolute; inset: 0; z-index: 1; opacity: 0;
+        background: radial-gradient(color-mix(in srgb, var(--ink) 24%, transparent) .7px, transparent 1.1px) 0 0 / 4px 4px,
+                    color-mix(in srgb, var(--paper) 86%, transparent);
+        pointer-events: none; transition: opacity .18s ease-out; will-change: opacity; }
+.wm-stage.wm-lit .wm-dim { opacity: 1; }
+/* Map labels hold a screen size at every zoom (islands.js sets --wm-k) and
+   hang off their circle by a fixed screen gap; overlapping ones cull. */
+svg.world-map .floor-doc-label { font-size: calc(11.5px / var(--wm-k, 1)); }
+svg.world-map .wm-below { dominant-baseline: hanging; transform: translateY(calc(4px / var(--wm-k, 1))); }
+svg.world-map .wm-above { transform: translateY(calc(-5px / var(--wm-k, 1))); }
+.floor .wm-cull { visibility: hidden; }
+/* Filtering: the receded map is out of reach, not just out of sight. */
+.floor.wm-filtering a[data-node]:not(.wm-live) { pointer-events: none; }
+/* The chosen match reads solid, as the palette's selection inverts. */
+.wm-focus .wm-sel circle { fill: var(--ink); stroke: var(--ink); stroke-width: 3; stroke-dasharray: none; opacity: 1; }
+.wm-focus .wm-sel .floor-agg-glyph { fill: var(--paper); }
+.wm-focus .wm-sel text:not(.floor-agg-glyph) { font-weight: 700; }
 .wm-focus { position: absolute; inset: 0; z-index: 2; width: 100%; height: 100%;
         pointer-events: none; }
-.graph-canvas svg.floor { cursor: grab; }
-.graph-canvas svg.floor.panning { cursor: grabbing; }
-.map-filter { font: inherit; font-size: .8rem; padding: .15rem .5rem; width: 14rem;
-        background: var(--paper); color: var(--ink); border: 1px solid var(--faint);
-        border-radius: 6px; }
+.graph-canvas svg.floor, .graph-canvas svg.graph { cursor: grab; touch-action: none; }
+.graph-canvas svg.panning { cursor: grabbing; }
+.map-filter { font: inherit; font-size: .8rem; padding: .2rem .55rem; width: 14rem;
+        background: var(--paper); color: var(--ink); border: 1px solid var(--rule);
+        border-radius: 3px; }
+.map-filter:focus, .ask-input:focus { border-color: var(--ink); outline: none; }
+.map-filter::-webkit-search-cancel-button { filter: grayscale(1); cursor: pointer; }
 
 /* ── Backlinks: the observed-links map made visible (R3). Last margin
       block; empty ⇒ absent (decision 8). ────────────────────────── */
@@ -330,11 +401,12 @@ svg.floor a:hover circle { stroke-width: 3; }
 .preview-card { display: none; position: absolute; bottom: calc(100% + .3em);
                 left: 0; z-index: 10; width: max-content; max-width: 22rem;
                 background: var(--paper); color: var(--ink);
-                border: 1px solid var(--muted); border-radius: 6px;
-                padding: .6rem .7rem; box-shadow: 0 4px 14px #00000028;
-                font-family: var(--font-ui); font-size: .76rem;
+                border: 1px solid var(--ink); border-radius: 3px;
+                padding: .65rem .8rem; box-shadow: 3px 3px 0 var(--faint);
+                font-family: var(--font-ui); font-size: .8rem;
                 line-height: 1.45; white-space: normal; }
-.preview-host:hover .preview-card:not(:empty) { display: block; }
+.preview-host:hover .preview-card:not(:empty),
+.preview-host:focus-within .preview-card:not(:empty) { display: block; }
 /* Margin cards (backlinks) open leftward: the margin is the pane's right
    edge, so a left-anchored card would overhang into the neighboring pane
    (or grow the canvas scroll). Right-anchored, it opens over the gutter
@@ -368,29 +440,46 @@ svg.floor a:hover circle { stroke-width: 3; }
       Backlinks left, outbound right, center in the middle. ──────── */
 svg.graph { max-width: 100%; height: auto; }
 svg.graph text { fill: var(--muted); font-family: var(--font-ui); }
-.graph-edge { stroke: var(--faint); stroke-width: 1.5; }
+.graph-edge { stroke: var(--rule); stroke-width: 1.2; }
 /* A typed relation (rel-<predicate>) draws dashed; its predicate is the
-   <title> tooltip on the line. */
-.graph-edge.edge-rel { stroke-dasharray: 5 3; }
+   <title> tooltip on the line. Period 10 so the hot flow stays seamless. */
+.graph-edge.edge-rel { stroke-dasharray: 6 4; }
 .edge-arrow { fill: var(--muted); }
 /* Node hover (islands.js) lights up the incident edges and the nodes they
-   connect, so the relationship reads. */
-.edge-arrow-hot { fill: var(--ok); }
-.graph-edge.edge-hot { stroke: var(--ok); stroke-width: 2.5;
+   connect. Hot edges run as moving ink toward the arrow, so direction
+   reads without a legend. */
+.edge-arrow-hot { fill: var(--ink); }
+.graph-edge.edge-hot { stroke: var(--ink); stroke-width: 2;
+        stroke-dasharray: 7 3; animation: ink-flow .9s linear infinite;
         marker-end: url(#arrow-hot); }
-.node-hot circle, circle.node-hot { stroke: var(--ok);
-        stroke-width: 3; }
-.graph-center { fill: var(--ink); stroke: var(--ink); }
-.graph-center-label { font-size: 13px; font-weight: 600; fill: var(--ink); }
-.graph-node { fill: var(--paper); stroke: var(--muted); stroke-width: 1.5; }
-.graph-node.graph-in  { stroke: var(--info); }
-.graph-node.graph-out { stroke: var(--ok); }
-/* A neighbor already on your trail (ADR 0006 §4): filled green = walked. */
-.graph-node.graph-walked { fill: var(--ok);
-        stroke: var(--ok); stroke-width: 3; }
-.graph-node-label { font-size: 11px; }
-.graph-more { font-size: 11px; font-style: italic; }
-svg.graph a:hover circle { stroke-width: 3; }
+.graph-edge.edge-hot.edge-rel { stroke-dasharray: 3 2; }
+@keyframes ink-flow { from { stroke-dashoffset: 20; } to { stroke-dashoffset: 0; } }
+.node-hot circle, circle.node-hot { stroke: var(--ink); stroke-width: 3; }
+svg .node-hot text { fill: var(--ink); font-weight: 600; }
+/* The graph is small enough to recede in place: everything off the hot
+   neighbourhood steps back (the map uses its scrim instead). */
+svg.graph .graph-edge, svg.graph a { transition: opacity .15s ease-out; }
+svg.graph:has(.node-hot) .graph-edge:not(.edge-hot) { opacity: .18; }
+svg.graph:has(.node-hot) a[data-node]:not(.node-hot) { opacity: .35; }
+.graph-center { fill: var(--ink); stroke: var(--paper); stroke-width: 3; }
+svg.graph .graph-center-label { font-size: 15px; font-weight: 620; fill: var(--ink); }
+/* Direction by shape, not hue: backlinks are hollow rings, outbound links
+   carry a heavy rim, walked neighbours are solid ink. */
+.graph-node { fill: var(--paper); stroke: var(--ink); stroke-width: 1.2; }
+.graph-node.graph-out { stroke-width: 2.6; }
+.graph-node.graph-walked { fill: var(--ink); stroke: var(--ink); stroke-width: 2; }
+.graph-node-label { font-size: 12px; }
+.graph-more { font-size: 12px; font-style: italic; }
+svg.graph a:hover circle, svg.graph a:focus-visible circle { stroke-width: 3; }
+/* Summoned, the neighbourhood is drawn in: edges ink outward from the
+   centre, then the nodes settle. Once per open (islands.js .refresh). */
+.refresh svg.graph .graph-edge { marker-end: none; }
+.refresh svg.graph .graph-edge:not(.edge-rel) { stroke-dasharray: var(--len, 1400);
+        animation: ink-draw .6s cubic-bezier(.4, 0, .2, 1) both; }
+.refresh svg.graph .graph-edge.edge-rel,
+.refresh svg.graph a[data-node] { animation: ink-settle .35s .35s ease-out both; }
+@keyframes ink-draw { from { stroke-dashoffset: var(--len, 1400); } to { stroke-dashoffset: 0; } }
+@keyframes ink-settle { from { opacity: 0; } }
 .graph-empty { color: var(--muted); font-style: italic; }
 
 /* ── Cataloging desk (Phase 3): the edit form. Metadata as dedicated
@@ -437,14 +526,14 @@ body.edit-page { max-width: none; padding: 1.5rem 1.5rem 2rem; }
 .edit-body, .edit-preview { scrollbar-width: thin;
                 scrollbar-color: transparent transparent; }
 .edit-body:hover, .edit-preview:hover {
-                scrollbar-color: light-dark(#11111138, #dddddd38) transparent; }
+                scrollbar-color: var(--rule) transparent; }
 /* Actions sit in the metadata flex row, baseline-aligned with the
       inputs beside them (the row's labels stack caption-over-field). */
 .edit-actions { display: flex; gap: 1rem; align-items: center;
                 align-self: flex-end; }
 .edit-meta .edit-append-note { margin: 0; align-self: center; }
 .edit-save { font: inherit; padding: .4rem 1.2rem; cursor: pointer;
-             border: 1px solid var(--muted); border-radius: 4px;
+             border: 1px solid var(--ink); border-radius: 3px;
              background: var(--ink); color: var(--paper); }
 .edit-cancel { color: var(--muted); }
 .edit-link { font-weight: 600; }
@@ -462,7 +551,7 @@ body.edit-page { max-width: none; padding: 1.5rem 1.5rem 2rem; }
               font-size: .9em; margin-left: .5rem; }
 .pane-head .reader-link:hover { color: var(--ink); text-decoration: underline; }
 .reader-backdrop { position: fixed; inset: 0; z-index: 50;
-              background: light-dark(#11111155, #00000099);
+              background: var(--scrim);
               display: flex; justify-content: center;
               overflow-y: auto; padding: 2vh 2vw; }
 /* The scrim is a backdrop-filling link back to the bare trail: a click
@@ -475,34 +564,36 @@ body.edit-page { max-width: none; padding: 1.5rem 1.5rem 2rem; }
 .reader-panel { position: relative; height: max-content;
               width: 100%; min-height: 96vh;
               max-width: 100%; background: var(--paper); color: var(--ink);
-              border: 1px solid var(--faint); border-radius: 8px;
-              box-shadow: 0 8px 40px #00000055; padding: 2.5rem 2rem 3rem; }
+              border: 1.5px solid var(--ink); border-radius: 4px;
+              padding: 2.5rem 2rem 3rem; }
+/* The lens keeps a reading measure: the column caps near 70ch and the
+   pair centres in the panel, as an e-reader sets a page. */
 .reader-panel .pane-cols { display: grid;
-              grid-template-columns: minmax(0, 1fr) var(--margin-w);
-              column-gap: var(--gutter); }
+              grid-template-columns: minmax(0, 70ch) var(--margin-w);
+              column-gap: var(--gutter); justify-content: center; }
 .reader-close { position: absolute; top: .7rem; right: 1rem; z-index: 1;
               font-size: 1.1rem; line-height: 1; padding: .2rem .45rem;
               text-decoration: none; color: var(--muted); }
 .reader-close:hover { color: var(--ink); }
 @media (max-width: 900px) {
   .reader-panel { padding: 2.2rem 1.2rem 2.5rem; }
-  .reader-panel .pane-cols { grid-template-columns: minmax(0, 1fr); }
+  .reader-panel .pane-cols { grid-template-columns: minmax(0, 70ch); }
 }
 
 /* ── Command palette (⌃K), ADR 0006 §3: htmx active-search overlay. The
       markup is server-rendered (templates/palette.html); islands.js only
       toggles [hidden] and moves the .sel selection. System-ui sans —
       chrome, not prose. ─────────────────────────────────────────────── */
-.nav-key { font-size: .8rem; color: var(--muted); text-decoration: none;
-              border: 1px solid var(--faint); border-radius: 6px;
-              padding: .25rem .6rem; white-space: nowrap; font-family: var(--font-ui); }
-.nav-key:hover { color: var(--ink); }
+.nav-key { font-size: .82rem; color: var(--muted); text-decoration: none;
+              border: 1px solid var(--rule); border-radius: 3px;
+              padding: .2rem .55rem; white-space: nowrap; font-family: var(--font-ui); }
+.nav-key:hover { color: var(--ink); border-color: var(--ink); }
 /* The keycap on a hotkey affordance — nav pill or margin escape row. The key
    reads as a key, not as part of the label, and inherits the muted colour so
    it stays chrome. */
-.nav-key kbd, .escape kbd { font-family: var(--font-ui); font-size: .92em; opacity: .8;
-              border: 1px solid var(--faint); border-radius: 4px;
-              padding: 0 .25em; margin-left: .15em;
+.nav-key kbd, .escape kbd { font-family: var(--font-ui); font-size: .88em; opacity: .85;
+              border: 1px solid var(--faint); border-bottom-width: 2px; border-radius: 3px;
+              padding: 0 .3em; margin-left: .2em; line-height: 1.3;
               /* inline-block keeps the margin link's underline off the cap */
               display: inline-block; }
 /* The graph affordance's edge count: how much there is to see before you
@@ -510,33 +601,39 @@ body.edit-page { max-width: none; padding: 1.5rem 1.5rem 2rem; }
 .nav-key .degree, .escape .degree { font-size: .85em; opacity: .65;
               display: inline-block; }
 .palette-backdrop { position: fixed; inset: 0; z-index: 100;
-              background: light-dark(#11111144, #00000099);
+              background: var(--scrim);
               display: flex; justify-content: center; align-items: flex-start;
               padding: 12vh 1rem 1rem; font-family: var(--font-ui); }
 .palette-backdrop[hidden] { display: none; }
 .palette-panel { width: 640px; max-width: 100%; background: var(--paper);
-              color: var(--ink); border: 1px solid var(--faint);
-              border-radius: 10px; box-shadow: 0 12px 48px #00000066;
+              color: var(--ink); border: 1.5px solid var(--ink);
+              border-radius: 4px; box-shadow: 4px 4px 0 var(--faint);
               overflow: hidden; display: flex; flex-direction: column;
               max-height: 70vh; }
-.palette-head { margin: 0; padding: .5rem .8rem; border-bottom: 1px solid var(--faint); }
-.palette-input { width: 100%; box-sizing: border-box; font: inherit; font-size: 1rem;
+.palette-head { margin: 0; padding: .6rem .9rem; border-bottom: 1px solid var(--rule); }
+.palette-input { width: 100%; box-sizing: border-box; font: inherit; font-size: 1.15rem;
               border: 0; background: transparent; color: inherit; outline: none; padding: .35rem 0; }
 .palette-results { overflow-y: auto; }
 .palette-list { list-style: none; margin: 0; padding: .3rem; }
 .palette-empty { padding: 1rem .8rem; color: var(--muted); font-size: .85rem; }
 .palette-row a { display: flex; align-items: baseline; gap: .6rem;
-              padding: .45rem .6rem; border-radius: 6px; text-decoration: none; color: inherit; }
-.palette-row a:hover, .palette-row a.sel { background: var(--faint); }
+              padding: .45rem .6rem; border-radius: 3px; text-decoration: none; color: inherit; }
+.palette-row a:hover { background: var(--wash); }
+/* The selection inverts, as an e-reader highlights: ink ground, paper text. */
+.palette-row a.sel { background: var(--ink); color: var(--paper); }
+.palette-row a.sel .palette-loc, .palette-row a.sel .palette-badge { color: inherit; opacity: .75;
+              border-color: currentColor; }
 .palette-title { font-size: .95rem; white-space: nowrap; overflow: hidden;
               text-overflow: ellipsis; }
 .palette-loc { font-family: var(--font-mono);
               font-size: .72rem; color: var(--muted); flex: 1;
               white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
               text-align: right; }
-.palette-badge { font-size: .65rem; text-transform: uppercase; letter-spacing: .04em;
+/* The room's small-caps chip: palette badges, world, orphan and dock tags. */
+.palette-badge, .world-tag, .idx-orphan, .dock-world {
+              font-size: .78rem; font-variant-caps: all-small-caps; letter-spacing: .04em;
               color: var(--muted); border: 1px solid var(--faint);
-              border-radius: 4px; padding: 0 .3rem; }
+              border-radius: 3px; padding: 0 .3rem .05rem; }
 .palette-hint { padding: .4rem .8rem; border-top: 1px solid var(--faint);
               font-size: .7rem; color: var(--muted); }
 @media (max-width: 640px) { .palette-loc { display: none; } }
@@ -544,25 +641,52 @@ body.edit-page { max-width: none; padding: 1.5rem 1.5rem 2rem; }
 /* ── Graph overlay (ADR 0006 §4): on-demand pull-up of the focused doc's
       reference neighborhood. Hidden until summoned by `g`. ───────────── */
 .graph-backdrop { position: fixed; inset: 0; z-index: 90;
-        background: light-dark(#11111155, #00000099);
+        background: var(--scrim);
         display: flex; justify-content: center; align-items: center;
         padding: 4vh 2vw; }
 .graph-backdrop[hidden] { display: none; }
-.graph-panel { background: var(--paper); color: var(--ink);
-        border: 1px solid var(--faint); border-radius: 10px;
-        box-shadow: 0 12px 48px #00000066;
+/* The dialog takes focus to hold the keyboard, not to show a ring. */
+.graph-panel:focus, .reader-panel:focus { outline: none; }
+.graph-panel { position: relative; background: var(--paper); color: var(--ink);
+        border: 1.5px solid var(--ink); border-radius: 4px;
         /* The summoned map/graph is near-fullscreen — the content fills
            the overlay rather than shrinking to the SVG's intrinsic ~760px. */
         width: 99vw; height: 97vh; max-width: 99vw; max-height: 97vh;
         overflow: hidden; display: flex; flex-direction: column; }
 .graph-head { display: flex; justify-content: space-between; align-items: baseline;
-        gap: 1rem; padding: .5rem .9rem; border-bottom: 1px solid var(--faint);
+        gap: 1rem; padding: .55rem 1rem; border-bottom: 1px solid var(--rule);
         font-family: var(--font-ui); }
-.graph-title { font-weight: 600; font-size: .9rem; }
-.graph-hint { font-size: .68rem; color: var(--muted); }
+.graph-title { font-weight: 620; font-size: 1rem; }
+/* The exploration breadcrumb (islands.js): earlier centres, then the title. */
+#graph-overlay .graph-head { justify-content: flex-start; }
+#graph-overlay .graph-hint { margin-left: auto; }
+.graph-crumbs { font-size: .9rem; color: var(--muted); }
+.graph-crumb { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer;
+        text-decoration: underline; text-decoration-color: var(--rule); text-underline-offset: 3px; }
+.graph-crumb:hover { color: var(--ink); text-decoration-color: currentColor; }
+.graph-hint { font-size: .74rem; color: var(--muted); }
+/* The reading line: the hovered node's full name and reach, in the
+   footer register of an e-reader. Empty, it says what to do. */
+.graph-foot { margin: 0; display: flex; gap: .8rem; align-items: baseline; min-height: 1.5em;
+        padding: .45rem 1rem; border-top: 1px solid var(--rule);
+        font-family: var(--font-ui); font-size: .85rem; color: var(--muted); }
+.graph-foot b { color: var(--ink); font-weight: 600; }
+.graph-foot:empty::before { content: attr(data-idle); font-style: italic; }
+/* Overlays fade in and out rather than snap: a hard cut over a full
+   screen reads as flicker. islands.js holds .closing until the fade ends.
+   The lazy map fades in on arrival instead of popping in after the panel. */
+.graph-backdrop:not([hidden]) { animation: overlay-in .18s ease-out both; }
+.graph-backdrop.closing { animation: overlay-out .14s ease-in both; pointer-events: none; }
+#map-canvas > svg.floor, #universe-canvas > svg.floor { animation: ink-settle .22s ease-out both; }
+@keyframes overlay-in { from { opacity: 0; } }
+@keyframes overlay-out { to { opacity: 0; } }
 /* Canvas fills the panel below the head; its SVG scales up to the box
    (viewBox + preserveAspectRatio keeps the layout centered, not stretched). */
+/* Graph paper under the drawing; islands.js keeps its grid in step with
+   pan and zoom so the plane feels continuous. */
 .graph-canvas { padding: .15rem; flex: 1 1 auto; min-height: 0;
+        background: radial-gradient(color-mix(in srgb, var(--ink) 22%, transparent) .9px, transparent 1.2px)
+                    0 0 / 28px 28px;
         display: flex; flex-direction: column; align-items: stretch;
         justify-content: center; overflow: auto; }
 .graph-canvas svg { width: 100%; height: 100%; max-width: 100%; min-height: 0;
@@ -578,35 +702,58 @@ body.edit-page { max-width: none; padding: 1.5rem 1.5rem 2rem; }
 .worlds { list-style: none; margin: 1rem 0 0; padding: 0;
         display: grid; gap: .6rem; }
 .world-card { display: flex; align-items: center; gap: .7rem;
-        padding: .7rem .9rem; border: 1px solid var(--faint); border-radius: 8px;
+        padding: .75rem 1rem; border: 1px solid var(--rule); border-radius: 4px;
         text-decoration: none; color: inherit; font-family: var(--font-ui); }
-.world-card:hover { border-color: var(--muted); background: var(--faint); }
+.world-card:hover { border-color: var(--ink); background: var(--wash); }
 .world-glyph { font-size: 1.1rem; color: var(--muted); }
 .world-name { font-weight: 600; }
 .world-chev { margin-left: auto; color: var(--muted); }
-.world-tag { margin-left: auto; font-size: .65rem; text-transform: uppercase;
-        letter-spacing: .04em; color: var(--muted); border: 1px solid var(--faint);
-        border-radius: 4px; padding: 0 .35rem; }
+.world-tag { margin-left: auto; font-size: .8rem; padding: 0 .35rem .05rem; }
 .world-card.federated { border-style: dashed; }
 .world-card.federated .world-chev { margin-left: .4rem; }
 .world-card.gone { opacity: .55; }
-/* Rich directory index (ADR 0006 §5): listing rows lead with the title; the
-   *.md filename is mono secondary, with a status badge and orphan tag. */
-.idx-file { font-family: var(--font-mono);
-        font-size: .76rem; color: var(--muted); margin-left: .5rem; }
-.idx-orphan { font-family: var(--font-ui); font-size: .62rem;
-        text-transform: uppercase; letter-spacing: .04em; color: var(--muted);
-        border: 1px solid var(--faint); border-radius: 4px; padding: 0 .3rem; margin-left: .4rem; }
+/* Rich directory index (ADR 0006 §5), set as a table of contents: title,
+   a dotted leader, then the *.md filename and status. Folders carry the
+   world-card glyph; the open document is marked like a reading position. */
+.listing ul { list-style: none; margin: .4rem 0 0; padding: 0; }
+.listing li { display: grid; align-items: baseline; column-gap: .5rem;
+        grid-template-columns: 1.1rem minmax(0, max-content) minmax(1rem, 1fr) auto auto auto;
+        padding: .22rem .5rem .22rem .3rem; margin: 0 -.5rem 0 -.3rem; border-radius: 3px;
+        font-size: .96rem; line-height: 1.45; }
+.listing li:hover { background: var(--wash); }
+.listing li::before { content: ""; grid-column: 1; color: var(--muted); font-size: .85em; }
+.listing li:has(> a[href$="/"])::before { content: "▤"; }
+.listing li:has(a.active-link)::before, .listing li:has(a.htmx-request)::before {
+        content: "▸"; color: var(--ink); }
+.listing li:has(a.htmx-request) { background: var(--wash); }
+.listing li > a, .listing li > .preview-host { grid-column: 2; }
+.listing a { text-decoration-color: transparent; }
+.listing a:hover { text-decoration-color: currentColor; }
+.listing li > a[href$="/"] { font-weight: 540; }
+/* A breath between the shelf of folders and the documents after it. */
+.listing li:has(> a[href$="/"]) + li:not(:has(> a[href$="/"])) { margin-top: .7rem; }
+/* The leader runs only when there is metadata to lead to. */
+.listing li:has(.idx-file)::after { content: ""; grid-column: 3; grid-row: 1; align-self: end;
+        margin-bottom: .42em; border-bottom: 1.5px dotted var(--rule); }
+.listing a.active-link { background: none; box-shadow: none; }
+.idx-file { grid-column: 4; font-family: var(--font-mono);
+        font-size: .72rem; color: var(--muted); }
+.listing .status { grid-column: 5; border: 0; padding: 0; font-size: .8rem; }
+.idx-orphan { grid-column: 6; font-family: var(--font-ui); border: 1px dashed var(--rule); }
+.idx-note { margin: 1rem 0 0; font-size: .82rem; font-style: italic; color: var(--muted); }
+/* Narrow panes keep the title and status; the filename and leader yield. */
+@container (max-width: 34rem) { .listing .idx-file, .listing li::after { display: none; } }
 
 /* ── Trail dock (ADR 0006 §2): bottom orientation strip. Fixed; <details>
       gives zero-JS minimize. System-ui sans — an instrument, not prose. ── */
 body.canvas-page { padding-bottom: 4.5rem; }
 .dock { position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
-        background: var(--paper); border-top: 1px solid var(--faint);
-        font-family: var(--font-ui); font-size: .8rem; }
-.dock-head { cursor: pointer; padding: .25rem 1rem; color: var(--muted);
-        font-size: .68rem; text-transform: uppercase; letter-spacing: .06em;
+        background: var(--paper); border-top: 1px solid var(--rule);
+        font-family: var(--font-ui); font-size: .82rem; }
+.dock-head { cursor: pointer; padding: .25rem 1rem 0; color: var(--muted);
+        font-size: .82rem; font-variant-caps: all-small-caps; letter-spacing: .05em;
         user-select: none; }
+.dock-head:hover { color: var(--ink); }
 .dock-body { display: flex; align-items: center; gap: 1rem;
         padding: .35rem 1rem .55rem; overflow-x: auto; overscroll-behavior-x: contain; }
 .dock-trail { display: flex; align-items: center; gap: .5rem;
@@ -615,19 +762,16 @@ body.canvas-page { padding-bottom: 4.5rem; }
 /* Connector into each entry: solid arrow for a walked edge, dashed for a jump. */
 .dock-entry.walked::before { content: "→"; color: var(--muted); }
 .dock-entry.jumped::before { content: "⇢"; color: var(--muted); opacity: .55; }
-.dock-world { color: var(--muted); font-size: .62rem; text-transform: uppercase;
-        letter-spacing: .04em; border: 1px solid var(--faint); border-radius: 4px;
-        padding: 0 .3rem; }
-.dock-link { color: inherit; text-decoration: none; }
-.dock-link:hover { text-decoration: underline; }
-.dock-entry.active .dock-link { font-weight: 600;
+.dock-link { color: var(--muted); text-decoration: none; }
+.dock-link:hover { color: var(--ink); text-decoration: underline; }
+.dock-entry.active .dock-link { font-weight: 600; color: var(--ink);
         text-decoration: underline; text-decoration-thickness: 2px; }
 .dock-chips { display: flex; align-items: center; gap: .4rem;
         margin-left: auto; white-space: nowrap; }
-.dock-from { color: var(--muted); font-size: .68rem; }
-.dock-chip { color: var(--muted); text-decoration: none; font-size: .75rem;
-        border: 1px solid var(--faint); border-radius: 999px; padding: .1rem .55rem; }
-.dock-chip:hover { color: var(--ink); border-color: var(--muted); }
+.dock-from { color: var(--muted); font-size: .78rem; font-style: italic; }
+.dock-chip { color: var(--muted); text-decoration: none; font-size: .78rem;
+        border: 1px solid var(--faint); border-radius: 3px; padding: .05rem .5rem; }
+.dock-chip:hover { color: var(--ink); border-color: var(--ink); }
 
 /* The librarian pane (Phase 4): transcript exchanges + the ask form.
    Questions read as marginalia headers; the trace is the same muted
@@ -647,9 +791,9 @@ body.canvas-page { padding-bottom: 4.5rem; }
 .ask-notice { color: var(--muted); font-style: italic; }
 .ask-form { display: flex; gap: .5rem; margin-top: 1.2rem; }
 .ask-input { flex: 1; font: inherit; color: inherit; background: transparent;
-        border: 1px solid var(--faint); border-radius: 4px; padding: .35rem .6rem; }
-.ask-form button { font: inherit; color: inherit; background: transparent;
-        border: 1px solid var(--muted); border-radius: 4px; padding: .35rem .8rem;
+        border: 1px solid var(--rule); border-radius: 3px; padding: .35rem .6rem; }
+.ask-form button { font: inherit; color: var(--paper); background: var(--ink);
+        border: 1px solid var(--ink); border-radius: 3px; padding: .35rem .9rem;
         cursor: pointer; }
 
 /* ── The branding desk (ADR 0008): the world's name, logo, and stylesheet,
@@ -667,3 +811,10 @@ body.canvas-page { padding-bottom: 4.5rem; }
 .branding-tokens .token-grid { display: grid; gap: .5rem .9rem;
   grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); }
 .branding-tokens .token-grid input { font-family: var(--font-mono); font-size: .8rem; }
+
+/* Reduced motion: the fades, the draw-in and the ink flow all stop; the
+   room is static e-paper, which is its natural state anyway. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+  ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; }
+}

@@ -1,7 +1,6 @@
 package web
 
 import (
-	"bytes"
 	"net/url"
 	"path"
 	"regexp"
@@ -33,21 +32,12 @@ import (
 // broker dependency. Listings (dirs), anchors, and external links are not
 // document edges and are omitted.
 func rewriteLinks(fragment, world, basePath string) (string, []domain.Ref) {
-	ctx := &html.Node{Type: html.ElementNode, Data: "body", DataAtom: atom.Body}
-	nodes, err := html.ParseFragment(strings.NewReader(fragment), ctx)
+	var edges []domain.Ref
+	out, err := rewriteFragment(fragment, func(n *html.Node) { rewriteNode(n, world, basePath, &edges) })
 	if err != nil {
 		return fragment, nil
 	}
-
-	var buf bytes.Buffer
-	var edges []domain.Ref
-	for _, n := range nodes {
-		rewriteNode(n, world, basePath, &edges)
-		if err := html.Render(&buf, n); err != nil {
-			return fragment, nil
-		}
-	}
-	return buf.String(), dedupeRefs(edges)
+	return out, dedupeRefs(edges)
 }
 
 // dedupeRefs collapses repeated targets (a document often links the same place
@@ -78,20 +68,11 @@ var catalogPath = regexp.MustCompile(`^/\S+$`)
 // markdown link), so this is the catalog's counterpart to rewriteLinks.
 // Returns the fragment unchanged on any parse failure.
 func linkifyCatalogPaths(fragment, world string) string {
-	ctx := &html.Node{Type: html.ElementNode, Data: "body", DataAtom: atom.Body}
-	nodes, err := html.ParseFragment(strings.NewReader(fragment), ctx)
+	out, err := rewriteFragment(fragment, func(n *html.Node) { linkifyNode(n, world) })
 	if err != nil {
 		return fragment
 	}
-
-	var buf bytes.Buffer
-	for _, n := range nodes {
-		linkifyNode(n, world)
-		if err := html.Render(&buf, n); err != nil {
-			return fragment
-		}
-	}
-	return buf.String()
+	return out
 }
 
 func linkifyNode(n *html.Node, world string) {
@@ -196,4 +177,9 @@ func rewriteHref(href, world, basePath string) (string, domain.Ref, bool) {
 // segment is escaped (host:port worlds carry a colon; names are clean).
 func docRoute(world, worldPath string) string {
 	return "/w/" + url.PathEscape(world) + "/d" + worldPath
+}
+
+// graphRoute is a document's reference-graph permalink.
+func graphRoute(world, worldPath string) string {
+	return "/w/" + url.PathEscape(world) + "/g" + worldPath
 }

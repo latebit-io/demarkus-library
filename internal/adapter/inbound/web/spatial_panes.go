@@ -126,9 +126,7 @@ func (h spatialPanes) graphPane(t trail, i int, addr paneAddr) paneVM {
 		return vm
 	}
 	n := h.graph.Neighborhood(addr.World, addr.Value)
-	vm.Content = graphSVG(n, func(r domain.Ref) string {
-		return trailURL(trailAfterClick(t, i, paneAddr{Kind: paneDoc, World: r.World, Value: r.Path}))
-	}, trailDocRefs(t))
+	vm.Content = graphSVG(n, trailNodeURL(t, i), nil, trailDocRefs(t))
 	return vm
 }
 
@@ -142,13 +140,28 @@ func (h spatialPanes) graphOverlay(t trail, addr paneAddr) graphOverlayVM {
 		// A doc nothing links to or from has no graph worth summoning: the
 		// overlay stays out of the page so `g` is a no-op instead of opening
 		// an empty canvas, and the affordances have something to gate on.
-		Has:    degree > 0,
-		Degree: degree,
-		Title:  refTitle(n.Center),
-		Content: graphSVG(n, func(r domain.Ref) string {
-			return trailURL(trailAfterClick(t, t.Focus, paneAddr{Kind: paneDoc, World: r.World, Value: r.Path}))
-		}, trailDocRefs(t)),
+		Has:     degree > 0,
+		Degree:  degree,
+		Title:   refTitle(n.Center),
+		Content: graphSVG(n, trailNodeURL(t, t.Focus), graphRecenterURL, trailDocRefs(t)),
 	}
+}
+
+// trailNodeURL is where a graph or map node leads: the reader's trail
+// extended from pane from, or the document's permalink when there is no trail
+// (a standalone page).
+func trailNodeURL(t trail, from int) func(domain.Ref) string {
+	return func(r domain.Ref) string {
+		if len(t.Panes) == 0 {
+			return docRoute(r.World, r.Path)
+		}
+		return trailURL(trailAfterClick(t, from, paneAddr{Kind: paneDoc, World: r.World, Value: r.Path}))
+	}
+}
+
+// graphRecenterURL is the overlay fragment that redraws the graph around r.
+func graphRecenterURL(r domain.Ref) string {
+	return graphRoute(r.World, r.Path) + "?overlay=1"
 }
 
 // graphDegree is a doc's reference-edge count — the number the graph affordance

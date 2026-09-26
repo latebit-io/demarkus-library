@@ -25,7 +25,6 @@ import (
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
 	"github.com/latebit-io/demarkus-library/internal/core/port"
 	"golang.org/x/net/html"
-	"golang.org/x/net/html/atom"
 )
 
 // maxQuestionBytes bounds one question (plan D7) — well under the global
@@ -222,8 +221,7 @@ func neutralizeContextTags(s string) string {
 // text nodes joined, block elements separated by newlines, whitespace
 // collapsed. Fed only sanitized library-rendered HTML.
 func htmlText(fragment string) string {
-	nodes, err := html.ParseFragment(strings.NewReader(fragment),
-		&html.Node{Type: html.ElementNode, Data: "body", DataAtom: atom.Body})
+	nodes, err := parseFragment(fragment)
 	if err != nil {
 		return ""
 	}

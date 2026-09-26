@@ -1,7 +1,6 @@
 package web
 
 import (
-	"bytes"
 	"net/url"
 	"strings"
 
@@ -25,20 +24,11 @@ import (
 // the overlay open on the newly focused pane — persist-on-navigate, the
 // feature's whole point — while non-prose targets (graph/floor) exit it.
 func trailizeLinks(fragment string, t trail, paneIdx int, reader bool) string {
-	ctx := &html.Node{Type: html.ElementNode, Data: "body", DataAtom: atom.Body}
-	nodes, err := html.ParseFragment(strings.NewReader(fragment), ctx)
+	out, err := rewriteFragment(fragment, func(n *html.Node) { trailizeNode(n, t, paneIdx, reader) })
 	if err != nil {
 		return fragment
 	}
-
-	var buf bytes.Buffer
-	for _, n := range nodes {
-		trailizeNode(n, t, paneIdx, reader)
-		if err := html.Render(&buf, n); err != nil {
-			return fragment
-		}
-	}
-	return buf.String()
+	return out
 }
 
 func trailizeNode(n *html.Node, t trail, paneIdx int, reader bool) {
@@ -72,6 +62,18 @@ func trailizeNode(n *html.Node, t trail, paneIdx int, reader bool) {
 
 // paneAddrFromRoute decodes an in-app /w/<world>/(d|tags)/<value> href into
 // a pane address, returning any #fragment separately.
+// anchorDocAddr is the in-app document or listing an anchor's /w/ href points
+// at; ok is false for any other link. Callers split documents from listings.
+func anchorDocAddr(n *html.Node) (paneAddr, bool) {
+	for _, a := range n.Attr {
+		if a.Key == "href" {
+			addr, _, ok := paneAddrFromRoute(a.Val)
+			return addr, ok && addr.Kind == paneDoc
+		}
+	}
+	return paneAddr{}, false
+}
+
 func paneAddrFromRoute(href string) (paneAddr, string, bool) {
 	u, err := url.Parse(href)
 	if err != nil || u.Scheme != "" || u.Host != "" {

@@ -80,11 +80,10 @@
 
 {{/* preview-link: a link that loads a hover card (R3). The same component for
      backlink entries and (via previewize) outbound body links — build once,
-     both directions. mouseenter overrides the anchor's default click trigger,
-     so click still navigates. */}}
-{{define "preview-link"}}<span class="preview-host"><a href="{{ .URL }}"
-  hx-get="{{ .PreviewURL }}" hx-trigger="mouseenter delay:300ms once"
-  hx-target="next .preview-card" hx-swap="innerHTML"
+     both directions. The hover request rides on the host span so the anchor
+     stays a plain, hx-boosted link. */}}
+{{define "preview-link"}}<span class="preview-host" hx-get="{{ .PreviewURL }}"
+  hx-trigger="{{ previewTrigger }}" hx-target="find .preview-card" hx-swap="innerHTML"><a href="{{ .URL }}"
   style="anchor-name:{{ .Anchor }}">{{ .Title }}</a><span class="preview-card" role="tooltip" style="position-anchor:{{ .Anchor }}"></span></span>{{end}}
 
 {{/* preview: the hover card fragment served at /w/:world/preview/<path>. */}}

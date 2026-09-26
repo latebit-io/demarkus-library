@@ -1,7 +1,6 @@
 package web
 
 import (
-	"bytes"
 	"html/template"
 	"net/http"
 	"net/url"
@@ -108,30 +107,15 @@ func backlinkLinks(refs []domain.Ref, urlFor func(domain.Ref) string) []backlink
 	return out
 }
 
-// previewize wraps each in-app document anchor so it shows a hover card: the
-// anchor gains hx-get/hx-trigger/hx-target and is enclosed in
-// <span class="preview-host">…<span class="preview-card"></span></span> for
-// the CSS popover. mouseenter-as-trigger overrides the anchor's default click
-// trigger, so click still navigates (via hx-boost / the href). Runs while
-// hrefs are still /w/ routes — that is where the card's source is read.
-// Listings, tag pages, anchors, and external links are not wrapped.
-// Returns the fragment unchanged on any parse failure.
+// previewize gives each in-app document link a hover card, with the request on
+// the host span: htmx 4 will not boost an anchor that has its own hx-get, so
+// the link would reload the page. Runs on /w/ hrefs; parse failure passes through.
 func previewize(fragment string) string {
-	ctx := &html.Node{Type: html.ElementNode, Data: "body", DataAtom: atom.Body}
-	nodes, err := html.ParseFragment(strings.NewReader(fragment), ctx)
+	out, err := rewriteFragment(fragment, previewizeNode)
 	if err != nil {
 		return fragment
 	}
-	for _, n := range nodes {
-		previewizeNode(n)
-	}
-	var buf bytes.Buffer
-	for _, n := range nodes {
-		if err := html.Render(&buf, n); err != nil {
-			return fragment
-		}
-	}
-	return buf.String()
+	return out
 }
 
 func previewizeNode(n *html.Node) {
@@ -145,52 +129,37 @@ func previewizeNode(n *html.Node) {
 	if n.Type != html.ElementNode || n.DataAtom != atom.A {
 		return
 	}
-	addr, _, ok := previewableAnchor(n)
-	if !ok {
-		return
+	addr, ok := anchorDocAddr(n)
+	if !ok || domain.IsListingPath(addr.Value) {
+		return // listings, tag pages, anchors, and external links get no card
 	}
 	wrapWithPreview(n, previewURL(domain.Ref{World: addr.World, Path: addr.Value}))
 }
 
-// previewableAnchor reports whether an anchor points at a real document (the
-// only previewable target): an in-app /w/ doc route that is not a listing.
-func previewableAnchor(n *html.Node) (paneAddr, string, bool) {
-	for _, attr := range n.Attr {
-		if attr.Key != "href" {
-			continue
-		}
-		addr, frag, ok := paneAddrFromRoute(attr.Val)
-		if !ok || addr.Kind != paneDoc || strings.HasSuffix(addr.Value, "/") {
-			return paneAddr{}, "", false
-		}
-		return addr, frag, true
-	}
-	return paneAddr{}, "", false
-}
+// previewTrigger loads a card on hover or keyboard focus, once per link.
+const previewTrigger = "mouseenter delay:300ms once, focusin delay:300ms once"
 
-// wrapWithPreview reparents anchor under a preview-host span, appends the
-// (initially empty) preview-card span, and adds the htmx hover attributes.
-// The pair shares a unique CSS anchor name so the card can be
-// anchor-positioned (position:fixed) onto its own link — escaping the pane
-// scroll clip — where the browser supports it.
+// wrapWithPreview puts anchor under a request-carrying preview-host with an
+// empty card. The pair shares a unique CSS anchor name so the card can pin to
+// its link (position:fixed), escaping the pane's scroll clip where supported.
 func wrapWithPreview(anchor *html.Node, src string) {
 	parent := anchor.Parent
 	if parent == nil {
 		return
 	}
 	host := &html.Node{Type: html.ElementNode, DataAtom: atom.Span, Data: "span",
-		Attr: []html.Attribute{{Key: "class", Val: "preview-host"}}}
+		Attr: []html.Attribute{
+			{Key: "class", Val: "preview-host"},
+			{Key: "hx-get", Val: src},
+			{Key: "hx-trigger", Val: previewTrigger},
+			{Key: "hx-target", Val: "find .preview-card"},
+			{Key: "hx-swap", Val: "innerHTML"},
+		}}
 	parent.InsertBefore(host, anchor)
 	parent.RemoveChild(anchor)
 	host.AppendChild(anchor)
 
 	name := previewAnchorName()
-	anchor.Attr = append(anchor.Attr,
-		html.Attribute{Key: "hx-get", Val: src},
-		html.Attribute{Key: "hx-trigger", Val: "mouseenter delay:300ms once"},
-		html.Attribute{Key: "hx-target", Val: "next .preview-card"},
-		html.Attribute{Key: "hx-swap", Val: "innerHTML"},
-	)
 	setStyleDecl(anchor, "anchor-name:"+name)
 	card := &html.Node{Type: html.ElementNode, DataAtom: atom.Span, Data: "span",
 		Attr: []html.Attribute{
@@ -223,8 +192,7 @@ func setStyleDecl(n *html.Node, decl string) {
 // previewSnippet extracts the opening prose of a rendered document for the
 // card: the text of the first paragraph, trimmed to previewSnippetLen.
 func previewSnippet(htmlStr string) string {
-	ctx := &html.Node{Type: html.ElementNode, Data: "body", DataAtom: atom.Body}
-	nodes, err := html.ParseFragment(strings.NewReader(htmlStr), ctx)
+	nodes, err := parseFragment(htmlStr)
 	if err != nil {
 		return ""
 	}

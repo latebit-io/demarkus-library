@@ -273,7 +273,7 @@ func (h *ReadingHandler) settleOverlays(vm *canvasVM, t trail) {
 	graphURL := ""
 	if vm.Graph.Has {
 		fa := t.Panes[t.Focus]
-		graphURL = "/w/" + url.PathEscape(fa.World) + "/g" + fa.Value
+		graphURL = graphRoute(fa.World, fa.Value)
 		vm.OverlayGraphURL = graphURL
 		vm.OverlayGraphDegree = vm.Graph.Degree
 	}
@@ -381,11 +381,10 @@ func (h *ReadingHandler) paneView(ctx context.Context, req *paneRequest) paneVM 
 	if addr.Kind == paneTag {
 		content = linkifyCatalogPaths(content, addr.World)
 	}
-	if focused && addr.Kind == paneDoc && domain.IsListingPath(addr.Value) {
-		// Rich index (ADR 0006 §5): enrich the focused listing pane's bare ls
-		// before its links are trailized. Focused-only keeps the per-click read
-		// budget (an unfocused listing stays a plain ls — it's context).
-		content = h.richIndex(ctx, addr.World, content)
+	if addr.Kind == paneDoc && domain.IsListingPath(addr.Value) {
+		// Rich index (ADR 0009): every rendered listing is enriched before its
+		// links are trailized, live when focused and cached beside the focus.
+		content = listingFragment(h.richIndex(ctx, addr.World, content, focused))
 	}
 	// previewize runs on /w/ hrefs (it derives each card's source from them),
 	// then trailizeLinks rewrites those hrefs to post-click trail URLs — in the
@@ -415,7 +414,7 @@ func (h *ReadingHandler) paneView(ctx context.Context, req *paneRequest) paneVM 
 		// and an affordance that opens an empty canvas teaches nothing.
 		if degree := h.spatial.graphDegree(addr.World, addr.Value); degree > 0 {
 			vm.GraphDegree = degree
-			vm.GraphURL = "/w/" + url.PathEscape(addr.World) + "/g" + addr.Value
+			vm.GraphURL = graphRoute(addr.World, addr.Value)
 		}
 		// "map" opens the world-map overlay (ADR 0006 §5); the href is the /u
 		// permalink so it degrades to the standalone map page without JS. The

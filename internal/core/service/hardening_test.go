@@ -37,6 +37,22 @@ func TestOpenDispatchesByPathShape(t *testing.T) {
 	}
 }
 
+// A live read that began before a write's invalidation must not repopulate
+// the cache with what it read; a read that began after it may.
+func TestTTLCacheDropsReadStartedBeforeInvalidate(t *testing.T) {
+	var c ttlCache[string]
+	stale := c.epoch("w")
+	c.invalidate("w") // a publish lands while the read is in flight
+	c.put("w", stale, "old catalog")
+	if v, ok := c.getFresh("w", time.Minute); ok {
+		t.Fatalf("stale read was cached: %q", v)
+	}
+	c.put("w", c.epoch("w"), "new catalog")
+	if v, ok := c.getFresh("w", time.Minute); !ok || v != "new catalog" {
+		t.Errorf("a read begun after the write should cache, got %q %v", v, ok)
+	}
+}
+
 // TestWorldMapCacheTTLAndInvalidate covers the cache primitive directly: a put
 // is fresh within the TTL, stale at/after it, and invalidate drops it outright.
 func TestWorldMapCacheTTLAndInvalidate(t *testing.T) {
@@ -44,7 +60,7 @@ func TestWorldMapCacheTTLAndInvalidate(t *testing.T) {
 	c := worldMapCache{now: func() time.Time { return now }}
 	wm := domain.WorldMap{World: domain.WorldInfo{Name: "w"}}
 
-	c.put("w", wm)
+	c.put("w", c.epoch("w"), wm)
 	if _, ok := c.getFresh("w", worldMapTTL); !ok {
 		t.Fatal("a fresh put must hit")
 	}
@@ -53,7 +69,7 @@ func TestWorldMapCacheTTLAndInvalidate(t *testing.T) {
 		t.Fatal("an entry at the TTL boundary must be stale")
 	}
 
-	c.put("w", wm) // re-prime at the advanced clock
+	c.put("w", c.epoch("w"), wm) // re-prime at the advanced clock
 	if _, ok := c.getFresh("w", worldMapTTL); !ok {
 		t.Fatal("re-put must be fresh again")
 	}
@@ -71,7 +87,7 @@ func TestWriteInvalidatesTopology(t *testing.T) {
 
 	prime := func(s *ReadingService) {
 		s.floor.put(domain.Floor{Worlds: []domain.FloorWorld{{World: domain.WorldInfo{Name: "w"}}}})
-		s.worldMaps.put("w", domain.WorldMap{World: domain.WorldInfo{Name: "w"}})
+		s.worldMaps.put("w", s.worldMaps.epoch("w"), domain.WorldMap{World: domain.WorldInfo{Name: "w"}})
 	}
 	cachesCleared := func(t *testing.T, s *ReadingService) {
 		t.Helper()

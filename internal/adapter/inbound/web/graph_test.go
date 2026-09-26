@@ -16,7 +16,7 @@ func TestGraphSVGRendersNeighborhood(t *testing.T) {
 		Out:    []domain.Ref{{World: "soul", Path: "/out.md"}},
 		In:     []domain.Ref{{World: "soul", Path: "/in.md"}},
 	}
-	svg := string(graphSVG(n, func(r domain.Ref) string { return docRoute(r.World, r.Path) }, nil))
+	svg := string(graphSVG(n, func(r domain.Ref) string { return docRoute(r.World, r.Path) }, nil, nil))
 
 	if !strings.Contains(svg, "<svg class=\"graph\"") {
 		t.Errorf("not an svg: %s", svg)
@@ -34,7 +34,7 @@ func TestGraphSVGRendersNeighborhood(t *testing.T) {
 
 func TestGraphSVGEmptyNeighborhood(t *testing.T) {
 	n := domain.Neighborhood{Center: domain.Ref{World: "soul", Path: "/lonely.md"}}
-	svg := string(graphSVG(n, func(_ domain.Ref) string { return "" }, nil))
+	svg := string(graphSVG(n, func(_ domain.Ref) string { return "" }, nil, nil))
 	if !strings.Contains(svg, "graph-empty") {
 		t.Errorf("empty neighborhood should render the honest empty state: %s", svg)
 	}
@@ -170,7 +170,7 @@ func TestGraphSVGCapsHighDegreeArcs(t *testing.T) {
 	for i := range graphMaxSide + 2 {
 		n.In = append(n.In, domain.Ref{World: "soul", Path: fmt.Sprintf("/in-%02d.md", i)})
 	}
-	svg := string(graphSVG(n, func(r domain.Ref) string { return docRoute(r.World, r.Path) }, nil))
+	svg := string(graphSVG(n, func(r domain.Ref) string { return docRoute(r.World, r.Path) }, nil, nil))
 
 	if got := strings.Count(svg, "graph-out"); got != graphMaxSide {
 		t.Errorf("outbound nodes drawn = %d, want cap %d", got, graphMaxSide)
@@ -191,7 +191,7 @@ func TestGraphSVGNoOverflowNoteAtCap(t *testing.T) {
 	for i := range graphMaxSide {
 		n.Out = append(n.Out, domain.Ref{World: "soul", Path: fmt.Sprintf("/o-%02d.md", i)})
 	}
-	svg := string(graphSVG(n, func(r domain.Ref) string { return docRoute(r.World, r.Path) }, nil))
+	svg := string(graphSVG(n, func(r domain.Ref) string { return docRoute(r.World, r.Path) }, nil, nil))
 	if strings.Contains(svg, "graph-more") {
 		t.Errorf("no overflow note expected at exactly the cap: %s", svg)
 	}
@@ -309,5 +309,28 @@ func TestNavOmitsOverlayHotkeysOnFloor(t *testing.T) {
 	body := get(readingApp(t, &fakeReading{}), "/t/u").Body.String()
 	if strings.Contains(body, "nav-key graph-open") || strings.Contains(body, "nav-key map-open") {
 		t.Errorf("floor should advertise no overlay hotkeys: %s", body)
+	}
+}
+
+// The overlay fragment redraws the graph around a neighbour: nodes extend the
+// reader's trail and carry the URL that re-centres on them in turn.
+func TestGraphOverlayRecenterFragment(t *testing.T) {
+	svc := &fakeReading{neighbor: map[string]domain.Neighborhood{
+		"/b.md": {Center: domain.Ref{World: "w.io", Path: "/b.md"},
+			In: []domain.Ref{{World: "w.io", Path: "/a.md"}}},
+	}}
+	app := readingApp(t, svc)
+	rec := getFrom(app, "/w/w.io/g/b.md?overlay=1", "http://x/t/w.io/d/a.md")
+	body := rec.Body.String()
+	if rec.Code != http.StatusOK || !strings.HasPrefix(body, `<svg class="graph"`) {
+		t.Fatalf("overlay mode should return the bare graph SVG: %d %s", rec.Code, body)
+	}
+	for _, want := range []string{
+		`href="/t/w.io/d/a.md"`,                    // a.md is on the trail: jumping back to it
+		`data-recenter="/w/w.io/g/a.md?overlay=1"`, // and it can be explored in turn
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("missing %q in %s", want, body)
+		}
 	}
 }

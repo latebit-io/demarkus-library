@@ -1,7 +1,6 @@
 package web
 
 import (
-	"bytes"
 	"context"
 	"strings"
 
@@ -18,11 +17,17 @@ import (
 // runs after rewriteLinks (hrefs are /w/ doc routes, decodable here) and before
 // previewize/trailize.
 
-// richIndex enriches a rendered listing fragment with catalog metadata for the
-// world. Best-effort: a catalog read failure (or an unreadable world) leaves
-// the listing as a plain ls — the index degrades, never errors.
-func (h *ReadingHandler) richIndex(ctx context.Context, world, fragment string) string {
-	entries, err := h.reading.NameIndex(ctx, "world", world)
+// richIndex enriches a rendered listing with the world's catalog metadata,
+// read live for the focused pane and cached otherwise. Best-effort: a failed
+// read leaves the plain ls; the index degrades, never errors.
+func (h *ReadingHandler) richIndex(ctx context.Context, world, fragment string, live bool) string {
+	var entries []domain.IndexEntry
+	var err error
+	if live {
+		entries, err = h.reading.NameIndex(ctx, "world", world)
+	} else {
+		entries, err = h.reading.NameIndexCached(ctx, world)
+	}
 	if err != nil || len(entries) == 0 {
 		return fragment
 	}
@@ -34,45 +39,61 @@ func (h *ReadingHandler) richIndex(ctx context.Context, world, fragment string) 
 }
 
 func indexify(fragment string, byPath map[string]domain.IndexEntry) string {
-	ctxNode := &html.Node{Type: html.ElementNode, Data: "body", DataAtom: atom.Body}
-	nodes, err := html.ParseFragment(strings.NewReader(fragment), ctxNode)
+	pass := &indexPass{byPath: byPath, common: commonStatus(byPath)}
+	out, err := rewriteFragment(fragment, pass.visit)
 	if err != nil {
 		return fragment
 	}
-	for _, n := range nodes {
-		indexifyNode(n, byPath)
+	if pass.quieted > 0 {
+		// Rows at the world's usual status carry no badge; say so once.
+		out += `<p class="idx-note">Unmarked documents are ` + html.EscapeString(pass.common) + `.</p>`
 	}
-	var buf bytes.Buffer
-	for _, n := range nodes {
-		if err := html.Render(&buf, n); err != nil {
-			return fragment
-		}
-	}
-	return buf.String()
+	return out
 }
 
-func indexifyNode(n *html.Node, byPath map[string]domain.IndexEntry) {
+// indexPass enriches one listing. common is the world's most frequent status:
+// a badge on nearly every row is noise, so rows at it go unmarked and quieted
+// counts them.
+type indexPass struct {
+	byPath  map[string]domain.IndexEntry
+	common  string
+	quieted int
+}
+
+// commonStatus is the status most of the world's documents carry, ties broken
+// by name so the choice is stable; "" when none is set.
+func commonStatus(byPath map[string]domain.IndexEntry) string {
+	counts := map[string]int{}
+	for _, e := range byPath {
+		if e.Status != "" {
+			counts[e.Status]++
+		}
+	}
+	common := ""
+	for status, n := range counts {
+		if n > counts[common] || (n == counts[common] && status < common) {
+			common = status
+		}
+	}
+	return common
+}
+
+func (p *indexPass) visit(n *html.Node) {
 	// Recurse first, capturing the next sibling before any insertion mutates the
 	// tree (the inserts reparent siblings, changing n.NextSibling).
 	for c := n.FirstChild; c != nil; {
 		next := c.NextSibling
-		indexifyNode(c, byPath)
+		p.visit(c)
 		c = next
 	}
 	if n.Type != html.ElementNode || n.DataAtom != atom.A {
 		return
 	}
-	var href string
-	for _, a := range n.Attr {
-		if a.Key == "href" {
-			href = a.Val
-		}
-	}
-	addr, _, ok := paneAddrFromRoute(href)
-	if !ok || addr.Kind != paneDoc || strings.HasSuffix(addr.Value, "/") {
+	addr, ok := anchorDocAddr(n)
+	if !ok || domain.IsListingPath(addr.Value) {
 		return // a subdirectory row or a non-document link — leave it as is
 	}
-	e, ok := byPath[addr.Value]
+	e, ok := p.byPath[addr.Value]
 	if !ok {
 		return // not in the catalog (e.g. an untitled file) — leave the filename
 	}
@@ -80,7 +101,11 @@ func indexifyNode(n *html.Node, byPath map[string]domain.IndexEntry) {
 	// tag follow it (mono secondary + badges) — door affordances over a bare ls.
 	setNodeText(n, e.Title)
 	anchor := insertAfter(n, spanNode("idx-file", baseFile(addr.Value)))
-	if e.Status != "" {
+	switch e.Status {
+	case "":
+	case p.common:
+		p.quieted++
+	default:
 		anchor = insertAfter(anchor, spanNode("status status-"+e.Status, e.Status))
 	}
 	if e.Orphan {
