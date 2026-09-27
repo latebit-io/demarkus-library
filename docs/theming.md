@@ -15,6 +15,7 @@ configuration.
 | `DEMARKUS_FAVICON` | Path to the browser-tab icon. Served at `/theme/favicon`; without one the room ships its own mark. |
 | `DEMARKUS_THEME_CSS` | Path to a stylesheet, loaded **after** the built-in styles on every page. Served at `/theme/site.css`. |
 | `DEMARKUS_TERM_UNIVERSE` | Display word for the whole-knowledge scope (the floor, the overlay, the dock anchor). Default `Universe`. |
+| `DEMARKUS_TERM_LIBRARIAN` | Display name for the AI librarian (the nav door, its pane, the name it answers to). Default `Librarian`. |
 | `DEMARKUS_STATIC_DIR` | Directory whose files shadow the embedded `/static/` assets by name. Drop in a whole `library.css` to replace the stock sheet; everything else still comes from the binary. |
 
 All optional; unset keeps the stock room. The single-value env vars layer
@@ -44,6 +45,7 @@ theme:
 
 terms:
   universe: Knowledge       # DEMARKUS_TERM_UNIVERSE
+  librarian: Ada            # DEMARKUS_TERM_LIBRARIAN
 
 # Per-world overrides: shown while that world is in focus (the focused
 # trail pane, or a /w/<world>/ page). Empty fields inherit the room's.
@@ -117,7 +119,7 @@ and env values field by field. Nothing is uploaded to the cluster and no
 pod restarts: publish the documents, or use the hub's branding desk, and
 readers see the new identity within a minute. The file manifest stays as
 the bootstrap and the fallback for whatever the hub leaves unset. The
-`terms` vocabulary remains file-only.
+`terms` vocabulary remains file-only, except the librarian's name (below).
 
 Whoever may write the hub may rebrand the room, which is the same power
 they already have over its index. Keep the hub's writers to the people you
@@ -138,6 +140,23 @@ How this world presents itself in the library.
 
 ```yaml
 name: Fritz's Soul
+```
+````
+
+The hub's `branding.md` may also present the room's AI librarian: the name
+it answers to (over `terms.librarian`) and house instructions that shape its
+voice and focus. Instructions are capped at 2,048 characters and follow the
+librarian's own rules, so they can steer tone and emphasis but never talk it
+out of grounding answers in the catalog. Other worlds' `librarian` blocks are
+ignored: the librarian serves the room.
+
+````markdown
+```yaml
+name: Latebit Library
+librarian:
+  name: Ada
+  instructions: |
+    Answer in plain language. Point newcomers to the onboarding guide first.
 ```
 ````
 
@@ -204,7 +223,9 @@ overlay relies on across upgrades.
 "Universe" is the stock word; an operator whose readers say "Knowledge" or
 "Brain" sets it here. It changes the floor pane's title, the overlay's
 heading, the dock's left anchor, the palette's recent-row label, and the
-librarian's context description. Routes (`/u`, `/t/u`) and internal scope
+librarian's context description. `terms.librarian` names the AI librarian
+in the nav, on its pane, and to itself; the hub world can override it
+without a restart (above). Routes (`/u`, `/t/u`, `/a`) and internal scope
 keys do not change, so trails and agent-minted URLs stay valid.
 
 ## Writing a theme
@@ -321,6 +342,7 @@ operator-managed ConfigMap so assets never live in values files.
        logoKey: logo.svg             # DEMARKUS_LOGO; "" (default) skips
        faviconKey: logo.svg          # DEMARKUS_FAVICON; "" (default) skips
        universeTerm: Knowledge       # DEMARKUS_TERM_UNIVERSE
+       librarianTerm: Ada            # DEMARKUS_TERM_LIBRARIAN
    ```
 
 The chart mounts the ConfigMap at `/etc/demarkus-library/branding` and sets

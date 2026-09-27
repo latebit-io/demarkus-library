@@ -195,3 +195,56 @@ func TestInWorldUnsafeStylesheetIsDropped(t *testing.T) {
 		t.Errorf("unsafe stylesheet offered back to the desk: %q", desk.CSS)
 	}
 }
+
+// hubLibrarianBrand is a hub branding.md that also presents the librarian.
+const hubLibrarianBrand = "# Branding\n\nThe room.\n\n```yaml\nname: Soul Room\nlibrarian:\n  name: Ada\n  instructions: Speak plainly.\n```\n"
+
+func TestHubPresentsTheLibrarian(t *testing.T) {
+	t.Parallel()
+
+	svc := hubSvc()
+	svc.raws[WorldBrandDoc] = domain.RawDocument{Body: hubLibrarianBrand}
+	brands := NewWorldBrands(svc).WithHub(hubWorld)
+	id := librarianIdentity{brands: brands, terms: DefaultTerms()}
+
+	want := domain.LibrarianPersona{Name: "Ada", Universe: "Universe", Instructions: "Speak plainly."}
+	if got := id.persona(context.Background()); got != want {
+		t.Errorf("persona = %+v; want %+v", got, want)
+	}
+
+	// Only the hub speaks for the room's librarian.
+	other := NewWorldBrands(svc).WithHub("elsewhere")
+	if got := (librarianIdentity{brands: other, terms: DefaultTerms()}).persona(context.Background()); got.Name != "" || got.Instructions != "" {
+		t.Errorf("non-hub declaration honored: %+v", got)
+	}
+	// The manifest term names it when the hub is silent; the stock word does not.
+	if got := (librarianIdentity{terms: Terms{Universe: "Library", Librarian: "Archivist"}}).persona(context.Background()); got.Name != "Archivist" {
+		t.Errorf("manifest term persona = %+v; want Archivist", got)
+	}
+	if got := (librarianIdentity{terms: DefaultTerms()}).name(context.Background()); got != "Librarian" {
+		t.Errorf("stock name = %q; want Librarian", got)
+	}
+}
+
+func TestHubLibrarianNamesTheNavAndPane(t *testing.T) {
+	t.Parallel()
+
+	svc := hubSvc()
+	svc.raws[WorldBrandDoc] = domain.RawDocument{Body: hubLibrarianBrand}
+	app := echo.New()
+	view, err := NewView()
+	if err != nil {
+		t.Fatalf("NewView: %v", err)
+	}
+	brands := NewWorldBrands(svc).WithHub(hubWorld)
+	app.Renderer = view.WithWorldBrands(brands)
+	lib := &fakeLibrarian{}
+	RoomRoutes(app, NewRoom(svc, "soul.demarkus.io", "/index.md").WithWorldBrands(brands).WithLibrarian(lib))
+
+	body := get(app, "/t/soul.demarkus.io/d/x.md/~/a").Body.String()
+	for _, want := range []string{`title="Ask Ada (a)">Ada <kbd>a</kbd></a>`, "<code>Ada</code>"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("page missing %q", want)
+		}
+	}
+}

@@ -287,3 +287,43 @@ func TestBrandingDeskRejectsUnsafeStylesheet(t *testing.T) {
 		t.Error("published despite an unsafe stylesheet")
 	}
 }
+
+func TestBrandingDeskHubSetsTheLibrarian(t *testing.T) {
+	svc := &fakeReading{raws: map[string]domain.RawDocument{}, editErr: domain.ErrNotFound}
+	app, _ := deskAppWithHub(t, svc, "soul.demarkus.io")
+	if rec := get(app, "/w/soul.demarkus.io/branding"); !strings.Contains(rec.Body.String(), `name="librarian_instructions"`) {
+		t.Fatal("hub desk lacks the librarian fields")
+	}
+	form := url.Values{"name": {"Room"}, "librarian_name": {"Ada"}, "librarian_instructions": {"Speak plainly."}}
+	rec := postForm(app, "/w/soul.demarkus.io/branding", form)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("status %d body %q", rec.Code, rec.Body.String())
+	}
+	if got := svc.gotBodies[WorldBrandDoc]; !strings.Contains(got, "librarian:\n    name: Ada\n    instructions: Speak plainly.\n") {
+		t.Errorf("branding body = %q", got)
+	}
+
+	form.Set("librarian_instructions", strings.Repeat("x", domain.MaxLibrarianInstructions+1))
+	if rec := postForm(app, "/w/soul.demarkus.io/branding", form); rec.Code != http.StatusBadRequest {
+		t.Errorf("oversized instructions accepted: %d", rec.Code)
+	}
+	// The cap counts characters: multi-byte runes, astral runes (two UTF-16
+	// units), and submitted CRLFs each count once.
+	for name, fits := range map[string]string{
+		"non-ASCII": strings.Repeat("é", domain.MaxLibrarianInstructions),
+		"astral":    strings.Repeat("📚", domain.MaxLibrarianInstructions),
+		"CRLF":      strings.Repeat("x\r\n", domain.MaxLibrarianInstructions/2),
+	} {
+		t.Run(name, func(t *testing.T) {
+			form.Set("librarian_instructions", fits)
+			if rec := postForm(app, "/w/soul.demarkus.io/branding", form); rec.Code != http.StatusSeeOther {
+				t.Errorf("instructions at the cap refused: %d", rec.Code)
+			}
+		})
+	}
+
+	app, _ = deskApp(t, svc)
+	if rec := get(app, "/w/soul.demarkus.io/branding"); strings.Contains(rec.Body.String(), `name="librarian_name"`) {
+		t.Error("non-hub desk offers the librarian fields")
+	}
+}

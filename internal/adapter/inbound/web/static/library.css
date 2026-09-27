@@ -57,7 +57,6 @@ nav .world { font-size: .8rem; color: var(--muted); flex: 1; }
 nav .user { font-size: .78rem; color: var(--muted); font-family: var(--font-ui);
             white-space: nowrap; }
 nav form { margin: 0; }
-nav .nav-librarian { font-size: .85rem; font-family: var(--font-ui); color: inherit; }
 button.signout { font: inherit; font-size: .8rem; padding: .25rem .65rem;
       border: 1px solid var(--rule); border-radius: 3px; background: transparent;
       color: inherit; cursor: pointer; white-space: nowrap; }
@@ -774,27 +773,81 @@ body.canvas-page { padding-bottom: 4.5rem; }
 .dock-chip:hover { color: var(--ink); border-color: var(--ink); }
 
 /* The librarian pane (Phase 4): transcript exchanges + the ask form.
-   Questions read as marginalia headers; the trace is the same muted
-   monospace register as the dock; streamed text keeps its paragraph
-   breaks until the rendered answer swaps in. */
+   Questions read as marginalia headers; the steps keep the dock's muted
+   monospace register and fold away once the answer settles; sources close
+   an answer like a colophon. */
 /* Bottom-anchored chat scroll: column-reverse with a single child pins
    the view to the newest exchange without JS; the bounded height keeps a
    long conversation from stretching the whole canvas. */
 #librarian-transcript { display: flex; flex-direction: column-reverse;
         overflow-y: auto; max-height: 62vh; overflow-anchor: none; }
 .exchange { margin: 1.2rem 0; }
-.ask-q { font-weight: 600; margin: 0 0 .3rem; }
-.ask-q::before { content: "? "; color: var(--muted); }
-.ask-trace { color: var(--muted); font-size: .78rem; font-family: var(--font-mono);
-        white-space: pre-wrap; }
-.ask-stream { white-space: pre-wrap; }
+/* The reader's question, set off as a highlighted card: a wash of ink and
+   a left rule, like a pulled quote. Line breaks from the ask box survive. */
+.ask-q { margin: 0 0 .5rem; padding: .45rem .8rem; font-weight: 600;
+        background: var(--wash); border-left: 2px solid var(--ink);
+        border-radius: 0 3px 3px 0; white-space: pre-wrap; }
+.ask-steps { margin: .2rem 0 .5rem; color: var(--muted); font-size: .78rem; }
+.ask-steps summary { cursor: pointer; font-family: var(--font-ui);
+        font-variant-caps: all-small-caps; letter-spacing: .02em; }
+.ask-trace { margin: .3rem 0 0; padding-left: 2.6em; font-family: var(--font-mono); }
+.ask-trace li { margin: .1rem 0; overflow-wrap: anywhere; }
+.ask-sources { margin: .6rem 0 0; font-family: var(--font-ui); font-size: .8rem;
+        color: var(--muted); font-variant-caps: all-small-caps; }
+.ask-sources a { font-variant-caps: normal; }
 .ask-notice { color: var(--muted); font-style: italic; }
-.ask-form { display: flex; gap: .5rem; margin-top: 1.2rem; }
+/* While an answer streams: a ticker beside a stop button. The dots step
+   rather than fade, so an e-paper panel repaints a few times a second, not
+   every frame; reduced motion holds them still. */
+.ask-live { display: flex; align-items: center; gap: .7rem; margin-top: .4rem; color: var(--muted); }
+.ask-ticker { display: inline-flex; gap: .3rem; }
+.ask-ticker i { width: .38rem; height: .38rem; border-radius: 50%; background: currentColor;
+        opacity: .25; animation: ask-tick 1.2s steps(1, end) infinite; }
+.ask-ticker i:nth-child(2) { animation-delay: .2s; }
+.ask-ticker i:nth-child(3) { animation-delay: .4s; }
+@keyframes ask-tick { 0% { opacity: .25; } 25% { opacity: 1; } 55%, 100% { opacity: .25; } }
+@media (prefers-reduced-motion: reduce) { .ask-ticker i { animation: none; opacity: .6; } }
+.ask-stop { margin: 0; }
+/* The media-stop glyph: a filled square in a ring, drawn so it follows the
+   room's ink in either scheme. */
+.ask-stop button { display: inline-grid; place-items: center; width: 1.7rem; height: 1.7rem;
+        padding: 0; border: 1px solid var(--rule); border-radius: 50%;
+        background: transparent; color: var(--muted); cursor: pointer; }
+.ask-stop button::before { content: ""; width: .55rem; height: .55rem; border-radius: 1px;
+        background: currentColor; }
+.ask-stop button:hover, .ask-stop button:focus-visible { color: var(--ink); border-color: var(--ink); }
+/* Start over sits in the pane head, right-aligned like the progress chip,
+   in the head's own ink; the negative margin keeps the icon from growing
+   the head. */
+.ask-reset { float: right; margin: -.3rem 0 -.3rem .5rem; line-height: 0; }
+.ask-reset button { padding: .15rem; border: 0; background: transparent; color: inherit;
+        cursor: pointer; line-height: 0; border-radius: 3px; }
+.ask-reset button:hover, .ask-reset button:focus-visible { color: var(--ink); background: var(--wash); }
+.ask-starters button {
+        font: inherit; font-family: var(--font-ui); font-size: .78rem; color: var(--muted);
+        background: transparent; border: 1px solid var(--rule); border-radius: 3px;
+        padding: .15rem .6rem; cursor: pointer; }
+.ask-starters button:hover {
+        color: var(--ink); border-color: var(--ink); }
+.ask-form { display: flex; flex-direction: column; gap: .5rem; margin-top: 1.2rem; }
+.ask-starters { display: flex; flex-wrap: wrap; gap: .4rem; }
+.ask-starters button { text-align: left; }
+/* Starters step aside once a conversation begins (a live exchange counts);
+   starting over appears only then. */
+.librarian:has(.exchange) .ask-starters,
+.pane:not(:has(.exchange)) .ask-reset { display: none; }
+.ask-row { display: flex; gap: .5rem; align-items: flex-end; }
+/* The box grows with the question where the browser can (field-sizing),
+   and can be dragged taller where it cannot. */
 .ask-input { flex: 1; font: inherit; color: inherit; background: transparent;
-        border: 1px solid var(--rule); border-radius: 3px; padding: .35rem .6rem; }
-.ask-form button { font: inherit; color: var(--paper); background: var(--ink);
+        border: 1px solid var(--rule); border-radius: 3px; padding: .35rem .6rem;
+        line-height: 1.4; resize: vertical; field-sizing: content;
+        min-height: 2.2rem; max-height: 12rem; }
+.ask-send { font: inherit; color: var(--paper); background: var(--ink);
         border: 1px solid var(--ink); border-radius: 3px; padding: .35rem .9rem;
         cursor: pointer; }
+/* One answer at a time: the send button rests while one streams. */
+.librarian:has(.ask-live) .ask-send { opacity: .45; pointer-events: none; }
 
 /* ── The branding desk (ADR 0008): the world's name, logo, and stylesheet,
    edited in the room. Reuses the edit registers; fieldsets stack. */

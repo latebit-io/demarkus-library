@@ -102,6 +102,9 @@ type paneVM struct {
 	MetaURL    string
 	MetaOpen   bool
 	HeadStatus string
+	// AskURL opens the librarian beside this document (empty ⇒ no librarian,
+	// or not a document).
+	AskURL string
 }
 
 // Trail renders the canvas for the trail encoded at /t/*.
@@ -330,6 +333,31 @@ type paneRequest struct {
 // paneView builds one pane's view model: mode by distance from focus (decision
 // 3), hrefs carrying their post-click state, margin only where attention is. A
 // lens pane keeps the full margin but records no edges — the canvas build did.
+// headAffordances fills a pane head's lenses and doors. Overlays carry none:
+// the lens is already open.
+func (h *ReadingHandler) headAffordances(vm *paneVM, req *paneRequest) {
+	addr, t, i := req.addr, req.trail, req.index
+	// A prose pane offers the reader overlay. Floor/graph panes never reach
+	// paneView, but guard the kind anyway so a future caller can't mint a
+	// reader link to a non-prose pane that parseTrail would reject.
+	if addr.Kind == paneDoc || addr.Kind == paneTag {
+		vm.ReaderURL = trailReaderURL(t, i)
+	}
+	if addr.Kind != paneDoc || domain.IsListingPath(addr.Value) {
+		return
+	}
+	// In the pane-scroll room the margin is summoned, not docked: the head
+	// offers "meta" beside "reader", the record opens as an overlay, and the
+	// status chip keeps the room's one at-rest trust signal visible.
+	if h.chrome.paneScroll {
+		vm.MetaURL = trailMetaURL(t, i)
+		vm.HeadStatus = req.doc.Status
+	}
+	if h.librarian.enabled() {
+		vm.AskURL = trailURL(trailAskAbout(t, i))
+	}
+}
+
 func (h *ReadingHandler) paneView(ctx context.Context, req *paneRequest) paneVM {
 	trailState, paneIndex := req.trail, req.index
 	addr, doc, overlay := req.addr, req.doc, req.overlay
@@ -356,19 +384,8 @@ func (h *ReadingHandler) paneView(ctx context.Context, req *paneRequest) paneVM 
 		Path:      doc.Path,
 		Status:    doc.Status,
 	}
-	// A prose pane offers the reader overlay; the overlay itself does not (it
-	// is already open). Floor/graph panes never reach paneView, but guard the
-	// kind anyway so a future caller can't mint a reader link to a non-prose
-	// pane that parseTrail would reject.
-	if overlay == "" && (addr.Kind == paneDoc || addr.Kind == paneTag) {
-		vm.ReaderURL = trailReaderURL(trailState, paneIndex)
-	}
-	// In the pane-scroll room the margin is summoned, not docked: the head
-	// offers "meta" beside "reader", the record opens as an overlay, and the
-	// status chip keeps the room's one at-rest trust signal visible.
-	if h.chrome.paneScroll && overlay == "" && addr.Kind == paneDoc && !domain.IsListingPath(addr.Value) {
-		vm.MetaURL = trailMetaURL(trailState, paneIndex)
-		vm.HeadStatus = doc.Status
+	if overlay == "" {
+		h.headAffordances(&vm, req)
 	}
 	if mode == "spine" {
 		return vm // spines carry title + status only; no body is rendered

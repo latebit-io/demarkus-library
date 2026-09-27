@@ -105,6 +105,7 @@ type LookupQuery struct {
 	Query  string
 	Filter string // comma-separated key=value predicate; tag pages pass tag=<tag>
 	Limit  int
+	Match  string // "" matches tags and titles; MatchBody asks for section text
 }
 
 // EditDraft is the source view the cataloging desk edits: a document's raw

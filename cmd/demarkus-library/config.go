@@ -55,6 +55,10 @@ type AppConfig struct {
 	// env-only LLM config.
 	LLMKeyStore bool
 
+	// LibrarianAsksPerHour caps each reader's librarian questions in a
+	// rolling hour; 0 keeps the librarian's own default.
+	LibrarianAsksPerHour int
+
 	// Branding lets an operator present the library as their own room.
 	// Branding is a path to the manifest (YAML: name, logo, css, terms,
 	// per-world overrides; see docs/theming.md). The single-value knobs
@@ -63,13 +67,14 @@ type AppConfig struct {
 	// shown beside it; ThemeCSS a stylesheet served after the built-in
 	// styles; TermUniverse renames the whole-knowledge scope readers see.
 	// All optional; unset keeps the stock room.
-	Branding     string // path to the branding manifest (empty ⇒ none)
-	Brand        string // display name (empty ⇒ manifest, else "demarkus Library")
-	Logo         string // path to a logo image file (empty ⇒ manifest, else none)
-	Favicon      string // path to a favicon image (empty ⇒ manifest, else the built-in mark)
-	ThemeCSS     string // path to an override stylesheet (empty ⇒ manifest, else none)
-	TermUniverse string // display term for the universe (empty ⇒ manifest, else "Universe")
-	StaticDir    string // directory whose files shadow the embedded /static/ assets (empty ⇒ none)
+	Branding      string // path to the branding manifest (empty ⇒ none)
+	Brand         string // display name (empty ⇒ manifest, else "demarkus Library")
+	Logo          string // path to a logo image file (empty ⇒ manifest, else none)
+	Favicon       string // path to a favicon image (empty ⇒ manifest, else the built-in mark)
+	ThemeCSS      string // path to an override stylesheet (empty ⇒ manifest, else none)
+	TermUniverse  string // display term for the universe (empty ⇒ manifest, else "Universe")
+	TermLibrarian string // display name for the librarian (empty ⇒ manifest, else "Librarian")
+	StaticDir     string // directory whose files shadow the embedded /static/ assets (empty ⇒ none)
 
 	// TLS serves the library itself over HTTPS when both are set. In the
 	// cluster the ingress terminates TLS and these stay empty; locally they
@@ -123,6 +128,13 @@ func NewAppConfig() (*AppConfig, error) {
 	if err != nil {
 		return nil, err
 	}
+	asksPerHour := 0
+	if v := strings.TrimSpace(os.Getenv("DEMARKUS_LIBRARIAN_ASKS_PER_HOUR")); v != "" {
+		// Strict: a typo must not silently lift the cost guard.
+		if asksPerHour, err = strconv.Atoi(v); err != nil || asksPerHour <= 0 {
+			return nil, fmt.Errorf("DEMARKUS_LIBRARIAN_ASKS_PER_HOUR must be a positive integer, got %q", v)
+		}
+	}
 	if sessionTTL <= 0 {
 		// A non-positive TTL would mint sessions that expire on arrival —
 		// a confusing login loop instead of a clear startup failure.
@@ -136,6 +148,8 @@ func NewAppConfig() (*AppConfig, error) {
 		PaneScroll:  paneScroll,
 		LLMKeyStore: llmKeyStore,
 
+		LibrarianAsksPerHour: asksPerHour,
+
 		// Trimmed so whitespace-only values stay unset instead of
 		// flipping the server into TLS mode and failing on file open.
 		TLSCert: strings.TrimSpace(getEnv("DEMARKUS_TLS_CERT", "")),
@@ -144,13 +158,14 @@ func NewAppConfig() (*AppConfig, error) {
 		// Blank (or whitespace) values stay unset so the manifest, then
 		// the stock room, fill in — an empty nav brand would leave the
 		// room unnamed.
-		Branding:     strings.TrimSpace(getEnv("DEMARKUS_BRANDING", "")),
-		Brand:        strings.TrimSpace(getEnv("DEMARKUS_BRAND", "")),
-		Logo:         strings.TrimSpace(getEnv("DEMARKUS_LOGO", "")),
-		Favicon:      strings.TrimSpace(getEnv("DEMARKUS_FAVICON", "")),
-		ThemeCSS:     strings.TrimSpace(getEnv("DEMARKUS_THEME_CSS", "")),
-		TermUniverse: strings.TrimSpace(getEnv("DEMARKUS_TERM_UNIVERSE", "")),
-		StaticDir:    strings.TrimSpace(getEnv("DEMARKUS_STATIC_DIR", "")),
+		Branding:      strings.TrimSpace(getEnv("DEMARKUS_BRANDING", "")),
+		Brand:         strings.TrimSpace(getEnv("DEMARKUS_BRAND", "")),
+		Logo:          strings.TrimSpace(getEnv("DEMARKUS_LOGO", "")),
+		Favicon:       strings.TrimSpace(getEnv("DEMARKUS_FAVICON", "")),
+		ThemeCSS:      strings.TrimSpace(getEnv("DEMARKUS_THEME_CSS", "")),
+		TermUniverse:  strings.TrimSpace(getEnv("DEMARKUS_TERM_UNIVERSE", "")),
+		TermLibrarian: strings.TrimSpace(getEnv("DEMARKUS_TERM_LIBRARIAN", "")),
+		StaticDir:     strings.TrimSpace(getEnv("DEMARKUS_STATIC_DIR", "")),
 
 		Host:       getEnv("DEMARKUS_HOST", "soul.demarkus.io"),
 		ReadToken:  getEnv("DEMARKUS_AUTH", ""),

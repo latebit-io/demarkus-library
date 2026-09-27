@@ -202,7 +202,10 @@ func (s *ReadingService) FloorCached(ctx context.Context) (domain.Floor, error) 
 // resolves each doc's badge exactly like the document margin does.
 type catalogRow struct {
 	domain.FloorDoc
-	World string
+	World   string
+	Anchor  string   // the matching section, on a body-match row
+	Tags    []string // the row's catalog tags, status axis included
+	Snippet string   // the matching excerpt, on a body-match row
 }
 
 func parseCatalogTable(body string, limit int) []domain.FloorDoc {
@@ -211,8 +214,8 @@ func parseCatalogTable(body string, limit int) []domain.FloorDoc {
 		return nil
 	}
 	out := make([]domain.FloorDoc, 0, len(rows))
-	for _, row := range rows {
-		out = append(out, row.FloorDoc)
+	for i := range rows {
+		out = append(out, rows[i].FloorDoc)
 	}
 	return out
 }
@@ -234,18 +237,20 @@ func parseCatalogRows(body, fallbackWorld string, qualifiedOnly bool, limit int)
 		if path == "" || path == "Path" || strings.HasPrefix(path, "-") {
 			continue
 		}
-		world := fallbackWorld
+		world, anchor := fallbackWorld, ""
 		if strings.HasPrefix(path, "/") {
 			if qualifiedOnly {
 				continue
 			}
+			// Body-match rows name the matching section after the path.
+			path, anchor, _ = strings.Cut(path, "#")
 		} else {
 			u, err := url.Parse(path)
 			if err != nil || u.Scheme != "mark" || u.Host == "" || u.User != nil ||
-				u.RawQuery != "" || u.Fragment != "" || !strings.HasPrefix(u.Path, "/") {
+				u.RawQuery != "" || !strings.HasPrefix(u.Path, "/") {
 				continue
 			}
-			world, path = u.Host, u.Path
+			world, path, anchor = u.Host, u.Path, u.Fragment
 		}
 		importance, _ := strconv.ParseFloat(strings.TrimSpace(cells[1]), 64)
 		title := unescapeMD(strings.TrimSpace(cells[2]))
@@ -253,15 +258,21 @@ func parseCatalogRows(body, fallbackWorld string, qualifiedOnly bool, limit int)
 			title = strings.TrimSuffix(path[strings.LastIndex(path, "/")+1:], ".md")
 		}
 		tags := splitTags(unescapeMD(strings.TrimSpace(cells[3])))
-		out = append(out, catalogRow{
+		row := catalogRow{
 			FloorDoc: domain.FloorDoc{
 				Path:       path,
 				Title:      title,
 				Importance: importance,
 				Status:     resolveStatus(tags, nil),
 			},
-			World: world,
-		})
+			World:  world,
+			Anchor: anchor,
+			Tags:   tags,
+		}
+		if len(cells) > 4 {
+			row.Snippet = unescapeMD(strings.TrimSpace(cells[4]))
+		}
+		out = append(out, row)
 		if len(out) >= limit {
 			break
 		}

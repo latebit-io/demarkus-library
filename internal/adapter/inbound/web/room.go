@@ -40,7 +40,10 @@ func NewRoom(reading port.ReadingService, defaultWorld, defaultDoc string) Room 
 // Branding through the view.
 func (r Room) WithBranding(b Branding) Room {
 	if b.Terms.Universe != "" {
-		r.terms = b.Terms
+		r.terms.Universe = b.Terms.Universe
+	}
+	if b.Terms.Librarian != "" {
+		r.terms.Librarian = b.Terms.Librarian
 	}
 	return r
 }
@@ -84,7 +87,10 @@ func (r Room) spatialPanes() spatialPanes {
 // librarianPanes is the pane builder the canvas and the librarian's own routes
 // share, so an answer renders the same in a pane and on the stream.
 func (r Room) librarianPanes() librarianPanes {
-	return librarianPanes{lib: r.lib, reader: r.reading, defaultWorld: r.defaultWorld, terms: r.terms}
+	return librarianPanes{
+		lib: r.lib, reader: r.reading, defaultWorld: r.defaultWorld,
+		identity: librarianIdentity{brands: r.brands, terms: r.terms},
+	}
 }
 
 // readingHandler builds the reading surfaces: documents, the catalog, and the
@@ -147,6 +153,7 @@ func (r Room) brandingHandler() BrandingHandler {
 //   - /w/:world/search?q=        the card catalog (LOOKUP) in that world
 //   - /w/:world/versions/<path>  edition history
 //   - /a, /a/ask, /a/stream      the AI librarian (Phase 4)
+//   - /a/stop, /a/new            stop the answer in flight; start the conversation over
 //
 // /w/ routes are the stable single-pane permalinks (and what the margin's
 // escape block points at); /t/ is where reading happens. The world-less 1a

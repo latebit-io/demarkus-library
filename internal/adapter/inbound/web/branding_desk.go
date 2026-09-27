@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/labstack/echo/v5"
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
@@ -47,11 +48,15 @@ type brandingVM struct {
 	Tokens     []tokenField
 	CSS        string // current in-world stylesheet source
 	LogoURL    string // current in-world logo (empty ⇒ none)
-	IsHub      bool   // this world brands the whole room (ADR 0008): the favicon field shows
+	IsHub      bool   // this world brands the whole room (ADR 0008): the favicon and librarian fields show
 	FaviconURL string
-	Error      string
-	Notice     string
-	CancelURL  string
+	// The room's librarian as the hub declares it (hub only).
+	LibrarianName         string
+	LibrarianInstructions string
+	InstructionsMax       int // the stated cap; the server enforces it, not maxlength (UTF-16 units)
+	Error                 string
+	Notice                string
+	CancelURL             string
 }
 
 // tokenField is one design-token input on the desk: the token an operator
@@ -71,6 +76,7 @@ type brandingForm struct {
 	clearCSS    bool
 	logoBody    string
 	faviconBody string
+	librarian   brandLibrarian
 }
 
 // The documents a save writes, titled once here so the body and its catalog
@@ -106,12 +112,15 @@ func (h *BrandingHandler) brandingVM(c *echo.Context, world string) brandingVM {
 		World:     world,
 		WorldPath: url.PathEscape(world),
 		CancelURL: "/w/" + url.PathEscape(world) + "/u",
+
+		InstructionsMax: domain.MaxLibrarianInstructions,
 	}
 	var stored brandDesk
 	if h.brands != nil {
 		stored = h.brands.Desk(c.Request().Context(), world)
 		vm.Name, vm.CSS, vm.LogoURL = stored.Name, stored.CSS, stored.LogoURL
 		vm.IsHub, vm.FaviconURL = world == h.brands.Hub(), stored.FaviconURL
+		vm.LibrarianName, vm.LibrarianInstructions = stored.Librarian.Name, stored.Librarian.Instructions
 	}
 	vm.Tokens = tokenFields(stored.Tokens)
 	return vm
@@ -169,6 +178,14 @@ func readBrandingForm(c *echo.Context) (brandingForm, error) {
 		css:      strings.TrimSpace(c.FormValue("css")),
 		clearCSS: c.FormValue("clear_css") != "",
 		tokens:   map[string]string{},
+		librarian: brandLibrarian{
+			Name: strings.TrimSpace(c.FormValue("librarian_name")),
+			// A submitted textarea's newlines are CRLF; the author typed one character.
+			Instructions: strings.TrimSpace(strings.ReplaceAll(c.FormValue("librarian_instructions"), "\r\n", "\n")),
+		},
+	}
+	if n := utf8.RuneCountInString(form.librarian.Instructions); n > domain.MaxLibrarianInstructions {
+		return form, fmt.Errorf("librarian instructions are %d characters; keep them to %d", n, domain.MaxLibrarianInstructions)
 	}
 	for _, name := range brandTokens {
 		if value := strings.TrimSpace(c.FormValue("token_" + name)); value != "" {
@@ -196,16 +213,20 @@ func readBrandingForm(c *echo.Context) (brandingForm, error) {
 func (f brandingForm) restore(vm *brandingVM) {
 	vm.Name, vm.CSS, vm.LogoSVG = f.name, f.css, f.logoSVG
 	vm.Tokens = tokenFields(f.tokens)
+	vm.LibrarianName, vm.LibrarianInstructions = f.librarian.Name, f.librarian.Instructions
 }
 
 // brandingDocs assembles what this save writes: the anchor always, the
 // stylesheet when submitted or cleared, the logo only when one was supplied.
 func brandingDocs(form brandingForm) []brandDoc {
 	docs := []brandDoc{{
-		path:    WorldBrandDoc,
-		title:   brandNameTitle,
-		body:    fencedDoc{Title: brandNameTitle, Summary: "How this world presents itself in the library.", Fence: fence{Lang: "yaml", Content: brandingYAML(form)}}.markdown(),
-		restore: func(vm *brandingVM) { vm.Name, vm.Tokens = form.name, tokenFields(form.tokens) },
+		path:  WorldBrandDoc,
+		title: brandNameTitle,
+		body:  fencedDoc{Title: brandNameTitle, Summary: "How this world presents itself in the library.", Fence: fence{Lang: "yaml", Content: brandingYAML(form)}}.markdown(),
+		restore: func(vm *brandingVM) {
+			vm.Name, vm.Tokens = form.name, tokenFields(form.tokens)
+			vm.LibrarianName, vm.LibrarianInstructions = form.librarian.Name, form.librarian.Instructions
+		},
 		// the logo rides its own document; nothing to restore here
 	}}
 	switch {
@@ -232,9 +253,14 @@ func brandingDocs(form brandingForm) []brandDoc {
 	return docs
 }
 
-// brandingYAML renders the anchor document's fence: the name and any tokens.
+// brandingYAML renders the anchor document's fence: the name, any tokens, and
+// the librarian block when the hub declares one.
 func brandingYAML(form brandingForm) string {
-	out, err := yaml.Marshal(brandingFile{Name: form.name, Theme: form.tokens})
+	declared := brandingFile{Name: form.name, Theme: form.tokens}
+	if form.librarian != (brandLibrarian{}) {
+		declared.Librarian = &form.librarian
+	}
+	out, err := yaml.Marshal(declared)
 	if err != nil {
 		return `name: ""`
 	}

@@ -3,6 +3,7 @@ package librarian
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"strings"
 	"sync"
 	"testing"
@@ -96,6 +97,7 @@ func newTestLibrarian(t *testing.T, p llm.Provider, ports *fakePorts) *Librarian
 	l, err := New(Config{
 		Provider:     p,
 		Reader:       ports,
+		Catalog:      ports,
 		Graph:        ports,
 		Map:          ports,
 		DefaultWorld: "root",
@@ -116,7 +118,7 @@ func TestAsk_StreamsTraceTokensAnswerDone(t *testing.T) {
 	ports := newFakePorts()
 	l := newTestLibrarian(t, provider, ports)
 
-	ch, err := l.Ask(context.Background(), "conv-1", "where is the deploy runbook?", "")
+	ch, err := l.Ask(context.Background(), domain.LibrarianAsk{Conversation: "conv-1", Question: "where is the deploy runbook?"})
 	if err != nil {
 		t.Fatalf("Ask: %v", err)
 	}
@@ -124,10 +126,11 @@ func TestAsk_StreamsTraceTokensAnswerDone(t *testing.T) {
 
 	got := kinds(evs)
 	want := []domain.LibrarianEventKind{
-		domain.LibrarianTrace,  // open path="/ops/deploy.md"
-		domain.LibrarianToken,  // "The runbook "
-		domain.LibrarianToken,  // "is at hand."
-		domain.LibrarianAnswer, // reconciled full message
+		domain.LibrarianTrace,        // opened /ops/deploy.md
+		domain.LibrarianSourceOpened, // the open succeeded
+		domain.LibrarianToken,        // "The runbook "
+		domain.LibrarianToken,        // "is at hand."
+		domain.LibrarianAnswer,       // reconciled full message
 		domain.LibrarianDone,
 	}
 	if len(got) != len(want) {
@@ -138,11 +141,15 @@ func TestAsk_StreamsTraceTokensAnswerDone(t *testing.T) {
 			t.Fatalf("event kinds = %v; want %v", got, want)
 		}
 	}
-	if !strings.Contains(evs[0].Text, `open path="/ops/deploy.md"`) {
-		t.Errorf("trace = %q; want the tool call rendered", evs[0].Text)
+	deploy := domain.Ref{World: "root", Path: "/ops/deploy.md"}
+	if evs[0].Text != "opened" || evs[0].Ref != deploy {
+		t.Errorf("trace = %+v; want the open narrated with its document", evs[0])
 	}
-	if evs[3].Text != "The runbook is at hand." {
-		t.Errorf("answer = %q; want the assembled message", evs[3].Text)
+	if evs[1].Text != "Deploy runbook" || evs[1].Ref != deploy {
+		t.Errorf("source = %+v; want the opened document with its title", evs[1])
+	}
+	if evs[4].Text != "The runbook is at hand." {
+		t.Errorf("answer = %q; want the assembled message", evs[4].Text)
 	}
 	if got := ports.rawCalls(); len(got) != 1 || got[0] != "root:/ops/deploy.md" {
 		t.Errorf("Raw calls = %v; want one read of root:/ops/deploy.md (default world applied)", got)
@@ -191,7 +198,7 @@ func TestAsk_BusyWhileRunInFlight(t *testing.T) {
 	l := newTestLibrarian(t, provider, newFakePorts())
 
 	ch := mustAsk(t, l, "conv-1", "slow question")
-	if _, err := l.Ask(context.Background(), "conv-1", "impatient question", ""); !errors.Is(err, domain.ErrLibrarianBusy) {
+	if _, err := l.Ask(context.Background(), domain.LibrarianAsk{Conversation: "conv-1", Question: "impatient question"}); !errors.Is(err, domain.ErrLibrarianBusy) {
 		t.Errorf("second Ask error = %v; want ErrLibrarianBusy", err)
 	}
 	// A different conversation is not blocked by conv-1's run.
@@ -211,10 +218,11 @@ func TestAsk_TurnCapTracedAndDone(t *testing.T) {
 	provider := &scriptedProvider{turns: [][]llm.StreamEvent{
 		toolTurn("c1", "worlds", "{}"),
 		toolTurn("c2", "worlds", "{}"),
+		textTurn("From what I found: ", "the floor."),
 	}}
 	ports := newFakePorts()
 	l, err := New(Config{
-		Provider: provider, Reader: ports, Graph: ports, Map: ports,
+		Provider: provider, Reader: ports, Catalog: ports, Graph: ports, Map: ports,
 		DefaultWorld: "root", MaxTurns: 2,
 	})
 	if err != nil {
@@ -237,8 +245,18 @@ func TestAsk_TurnCapTracedAndDone(t *testing.T) {
 	if !capTrace || !done {
 		t.Errorf("capTrace=%v done=%v; want both (events: %+v)", capTrace, done, evs)
 	}
-	if provider.callCount() != 2 {
-		t.Errorf("provider calls = %d; want 2 (cap enforced)", provider.callCount())
+	// Two capped turns, then one tool-less turn for the answer the cap promised.
+	if provider.callCount() != 3 {
+		t.Errorf("provider calls = %d; want 3 (cap enforced, then the final word)", provider.callCount())
+	}
+	provider.mu.Lock()
+	final := provider.calls[2]
+	provider.mu.Unlock()
+	if last := final[len(final)-1]; last.Role != "user" || last.Content != capNudge {
+		t.Errorf("final turn ends with %+v; want the cap nudge", last)
+	}
+	if hist := l.History("conv-1"); len(hist) != 1 || hist[0].Answer != "From what I found: the floor." {
+		t.Errorf("History = %+v; want the capped run's final answer kept", hist)
 	}
 }
 
@@ -246,7 +264,7 @@ func TestAsk_EmptyQuestionRejected(t *testing.T) {
 	t.Parallel()
 
 	l := newTestLibrarian(t, &scriptedProvider{}, newFakePorts())
-	if _, err := l.Ask(context.Background(), "conv-1", "   ", ""); err == nil {
+	if _, err := l.Ask(context.Background(), domain.LibrarianAsk{Conversation: "conv-1", Question: "   "}); err == nil {
 		t.Error("Ask with blank question succeeded; want error")
 	}
 }
@@ -260,7 +278,7 @@ func TestAsk_ClientCancelEndsStream(t *testing.T) {
 	l := newTestLibrarian(t, provider, newFakePorts())
 
 	ctx, cancel := context.WithCancel(context.Background())
-	ch, err := l.Ask(ctx, "conv-1", "question the reader abandons", "")
+	ch, err := l.Ask(ctx, domain.LibrarianAsk{Conversation: "conv-1", Question: "question the reader abandons"})
 	if err != nil {
 		t.Fatalf("Ask: %v", err)
 	}
@@ -281,7 +299,7 @@ func TestAsk_ClientCancelEndsStream(t *testing.T) {
 
 func mustAsk(t *testing.T, l *Librarian, conv, q string) <-chan domain.LibrarianEvent {
 	t.Helper()
-	ch, err := l.Ask(context.Background(), conv, q, "")
+	ch, err := l.Ask(context.Background(), domain.LibrarianAsk{Conversation: conv, Question: q})
 	if err != nil {
 		t.Fatalf("Ask(%s): %v", conv, err)
 	}
@@ -338,7 +356,7 @@ func TestAsk_TrailContextReachesModelNotHistory(t *testing.T) {
 	}}
 	l := newTestLibrarian(t, provider, newFakePorts())
 
-	ch, err := l.Ask(context.Background(), "conv-1", "what is this?", "<reader-context>focused: /x.md</reader-context>")
+	ch, err := l.Ask(context.Background(), domain.LibrarianAsk{Conversation: "conv-1", Question: "what is this?", Context: "<reader-context>focused: /x.md</reader-context>"})
 	if err != nil {
 		t.Fatalf("Ask: %v", err)
 	}
@@ -371,4 +389,212 @@ func TestAsk_TrailContextReachesModelNotHistory(t *testing.T) {
 			t.Errorf("stale context leaked into the next run: %+v", m)
 		}
 	}
+}
+
+func TestAsk_HistoryReplaysAnswersNotToolWork(t *testing.T) {
+	t.Parallel()
+
+	provider := &scriptedProvider{turns: [][]llm.StreamEvent{
+		toolTurn("c1", "open", `{"path":"/ops/deploy.md"}`),
+		textTurn("It is in ops."),
+		textTurn("Second answer."),
+	}}
+	l := newTestLibrarian(t, provider, newFakePorts())
+	collect(t, mustAsk(t, l, "conv-1", "where is the runbook?"))
+	collect(t, mustAsk(t, l, "conv-1", "and rollback?"))
+
+	provider.mu.Lock()
+	second := provider.calls[len(provider.calls)-1]
+	provider.mu.Unlock()
+	if len(second) != 4 {
+		t.Fatalf("second transcript = %d messages; want system + Q/A + question: %+v", len(second), second)
+	}
+	for _, m := range second {
+		if m.Role == "tool" || len(m.ToolCalls) > 0 {
+			t.Errorf("tool work replayed into the next ask: %+v", m)
+		}
+	}
+	if !strings.HasPrefix(second[2].Content, "It is in ops.") ||
+		!strings.Contains(second[2].Content, "Opened for this answer: mark://root/ops/deploy.md") {
+		t.Errorf("past answer = %q; want the answer and a note of its sources", second[2].Content)
+	}
+}
+
+func TestAsk_HistoryWindowIsBounded(t *testing.T) {
+	t.Parallel()
+
+	provider := &scriptedProvider{turns: [][]llm.StreamEvent{
+		textTurn("One."), textTurn("Two."), textTurn("Three."),
+	}}
+	ports := newFakePorts()
+	l, err := New(Config{Provider: provider, Reader: ports, Catalog: ports, Graph: ports, Map: ports, HistoryExchanges: 1})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	for _, q := range []string{"q1", "q2", "q3"} {
+		collect(t, mustAsk(t, l, "conv-1", q))
+	}
+	provider.mu.Lock()
+	third := provider.calls[2]
+	provider.mu.Unlock()
+	if len(third) != 4 || third[1].Content != "q2" || third[3].Content != "q3" {
+		t.Errorf("third transcript = %+v; want system, q2, Two., q3", third)
+	}
+	if got := len(l.History("conv-1")); got != 3 {
+		t.Errorf("History = %d exchanges; the pane keeps all of them, want 3", got)
+	}
+}
+
+func TestStop_EndsRunAndKeepsStoppedExchange(t *testing.T) {
+	t.Parallel()
+
+	release := make(chan struct{})
+	defer close(release)
+	l := newTestLibrarian(t, &blockingProvider{release: release}, newFakePorts())
+
+	ch := mustAsk(t, l, "conv-1", "a long question")
+	l.Stop("conv-1")
+	evs := collect(t, ch)
+
+	var stoppedTrace bool
+	for _, ev := range evs {
+		stoppedTrace = stoppedTrace || (ev.Kind == domain.LibrarianTrace && ev.Text == "stopped at your request")
+	}
+	if !stoppedTrace || evs[len(evs)-1].Kind != domain.LibrarianDone {
+		t.Errorf("events = %+v; want the stop narrated, then done", evs)
+	}
+	hist := l.History("conv-1")
+	if len(hist) != 1 || !hist[0].Stopped || hist[0].Question != "a long question" {
+		t.Errorf("History = %+v; want one stopped exchange", hist)
+	}
+	l.Stop("conv-1") // idle: a no-op, not a panic
+	l.Stop("nobody")
+}
+
+func TestReset_ClearsTranscriptNotWhileRunning(t *testing.T) {
+	t.Parallel()
+
+	release := make(chan struct{})
+	l := newTestLibrarian(t, &blockingProvider{release: release}, newFakePorts())
+
+	ch := mustAsk(t, l, "conv-1", "question")
+	if err := l.Reset("conv-1"); !errors.Is(err, domain.ErrLibrarianBusy) {
+		t.Errorf("Reset during a run = %v; want ErrLibrarianBusy", err)
+	}
+	close(release)
+	collect(t, ch)
+	if err := l.Reset("conv-1"); err != nil {
+		t.Fatalf("Reset: %v", err)
+	}
+	if hist := l.History("conv-1"); len(hist) != 0 {
+		t.Errorf("History after Reset = %+v; want empty", hist)
+	}
+	if err := l.Reset("nobody"); err != nil {
+		t.Errorf("Reset of an unknown conversation = %v; want nil", err)
+	}
+}
+
+func TestAsk_HourlyBudget(t *testing.T) {
+	t.Parallel()
+
+	provider := &scriptedProvider{}
+	ports := newFakePorts()
+	l, err := New(Config{Provider: provider, Reader: ports, Catalog: ports, Graph: ports, Map: ports, AsksPerHour: 2})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	clock := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
+	l.now = func() time.Time { return clock }
+
+	collect(t, mustAsk(t, l, "conv-1", "one"))
+	clock = clock.Add(10 * time.Minute)
+	collect(t, mustAsk(t, l, "conv-1", "two"))
+	if err := l.Reset("conv-1"); err != nil {
+		t.Fatalf("Reset: %v", err)
+	}
+
+	_, err = l.Ask(context.Background(), domain.LibrarianAsk{Conversation: "conv-1", Question: "three"})
+	var limit *domain.LibrarianLimitError
+	if !errors.As(err, &limit) || limit.RetryAfter != 50*time.Minute {
+		t.Fatalf("third ask err = %v; want a limit error retrying in 50m (Reset must not refill the budget)", err)
+	}
+	collect(t, mustAsk(t, l, "conv-2", "another reader")) // budgets are per conversation
+
+	clock = clock.Add(50 * time.Minute)
+	collect(t, mustAsk(t, l, "conv-1", "three"))
+}
+
+func TestAsk_PersonaShapesSystemPrompt(t *testing.T) {
+	t.Parallel()
+
+	provider := &scriptedProvider{}
+	l := newTestLibrarian(t, provider, newFakePorts())
+	ch, err := l.Ask(context.Background(), domain.LibrarianAsk{
+		Conversation: "conv-1", Question: "hello",
+		Persona: domain.LibrarianPersona{Name: "Ada", Universe: "Library", Instructions: "Speak plainly."},
+	})
+	if err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+	collect(t, ch)
+	collect(t, mustAsk(t, l, "conv-2", "stock"))
+
+	provider.mu.Lock()
+	branded, stock := provider.calls[0][0].Content, provider.calls[1][0].Content
+	provider.mu.Unlock()
+	if !strings.HasPrefix(branded, "You are Ada, the librarian of a demarkus library") ||
+		!strings.HasSuffix(branded, "Speak plainly.") {
+		t.Errorf("branded system prompt = %q", branded)
+	}
+	if !strings.HasPrefix(stock, "You are the librarian of a demarkus universe") || strings.Contains(stock, "House instructions") {
+		t.Errorf("stock system prompt = %q", stock)
+	}
+}
+
+func TestSystemPrompt_CapsInstructionsInCharacters(t *testing.T) {
+	t.Parallel()
+
+	long := strings.Repeat("é", domain.MaxLibrarianInstructions+10)
+	prompt := systemPrompt(domain.LibrarianPersona{Instructions: long})
+	if got := strings.Count(prompt, "é"); got != domain.MaxLibrarianInstructions {
+		t.Errorf("prompt keeps %d characters of the instructions; want %d", got, domain.MaxLibrarianInstructions)
+	}
+}
+
+func TestAsk_LogsUsageWithoutTheSessionKey(t *testing.T) {
+	t.Parallel()
+
+	var logs strings.Builder
+	var mu sync.Mutex
+	ports := newFakePorts()
+	l, err := New(Config{
+		Provider: &scriptedProvider{}, Reader: ports, Catalog: ports, Graph: ports, Map: ports,
+		Logger: slog.New(slog.NewTextHandler(&lockedWriter{mu: &mu, w: &logs}, nil)),
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	collect(t, mustAsk(t, l, "secret-session-cookie", "hello"))
+
+	mu.Lock()
+	line := logs.String()
+	mu.Unlock()
+	if !strings.Contains(line, `msg="librarian ask"`) || !strings.Contains(line, "outcome=answered") {
+		t.Errorf("usage line = %q", line)
+	}
+	if strings.Contains(line, "secret-session-cookie") {
+		t.Errorf("session key logged: %q", line)
+	}
+}
+
+// lockedWriter serializes log writes the test reads concurrently.
+type lockedWriter struct {
+	mu *sync.Mutex
+	w  *strings.Builder
+}
+
+func (lw *lockedWriter) Write(p []byte) (int, error) {
+	lw.mu.Lock()
+	defer lw.mu.Unlock()
+	return lw.w.Write(p)
 }

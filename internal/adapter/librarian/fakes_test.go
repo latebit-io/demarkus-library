@@ -1,7 +1,7 @@
 package librarian
 
-// fakePorts is a single stub satisfying the Reader, GraphService, and
-// MapService slices with canned data, recording the reads the tools make.
+// fakePorts is a single stub satisfying the Reader, Catalog, GraphService,
+// and MapService slices with canned data, recording the reads the tools make.
 
 import (
 	"context"
@@ -18,7 +18,12 @@ type fakePorts struct {
 	entries    []domain.IndexEntry
 	entriesErr error
 	raw        domain.RawDocument
+	rendered   domain.Document
 	hood       domain.Neighborhood
+	catalog    domain.CatalogResult
+	catalogErr error
+	queries    []domain.CatalogQuery
+	versions   domain.RawDocument
 }
 
 func newFakePorts() *fakePorts {
@@ -85,7 +90,7 @@ func (f *fakePorts) NameIndexCached(context.Context, string) ([]domain.IndexEntr
 	return f.entries, f.entriesErr
 }
 func (f *fakePorts) ReadCached(context.Context, string, string) (domain.Document, error) {
-	return domain.Document{}, nil
+	return f.rendered, nil
 }
 func (f *fakePorts) BrowseCached(context.Context, string, string) (domain.Document, error) {
 	return domain.Document{}, nil
@@ -116,4 +121,16 @@ func (f *fakePorts) WorldMap(context.Context, string) (domain.WorldMap, error) {
 }
 func (f *fakePorts) WorldMapCached(context.Context, string) (domain.WorldMap, error) {
 	return domain.WorldMap{}, nil
+}
+
+// Catalog
+
+func (f *fakePorts) Lookup(_ context.Context, q domain.CatalogQuery) (domain.CatalogResult, error) {
+	f.mu.Lock()
+	f.queries = append(f.queries, q)
+	f.mu.Unlock()
+	return f.catalog, f.catalogErr
+}
+func (f *fakePorts) Versions(context.Context, string, string) (domain.RawDocument, error) {
+	return f.versions, nil
 }

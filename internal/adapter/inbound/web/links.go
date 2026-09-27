@@ -2,7 +2,6 @@ package web
 
 import (
 	"net/url"
-	"path"
 	"regexp"
 	"strings"
 
@@ -114,63 +113,17 @@ func rewriteNode(n *html.Node, world, basePath string, edges *[]domain.Ref) {
 // for a document (not a listing/dir, anchor, or external link), so the caller
 // records a clean document-to-document edge for the observed-links map.
 func rewriteHref(href, world, basePath string) (string, domain.Ref, bool) {
-	if href == "" || strings.HasPrefix(href, "#") {
+	target, ok := domain.ResolveHref(href, world, basePath)
+	if !ok {
 		return href, domain.Ref{}, false
 	}
-
-	// VERSIONS emits percent-encoded paths (e.g. %2Fdoc.md/v2); decode first.
-	if dec, err := url.PathUnescape(href); err == nil {
-		href = dec
+	rewritten := docRoute(target.World, target.Path)
+	if target.Fragment != "" {
+		rewritten += "#" + target.Fragment
 	}
-
-	u, err := url.Parse(href)
-	if err != nil {
-		return href, domain.Ref{}, false
-	}
-
-	// Leave anything with a non-demarkus scheme alone (http, https, mailto, tel).
-	if u.Scheme != "" && u.Scheme != "mark" {
-		return href, domain.Ref{}, false
-	}
-
-	targetWorld := world
-	worldPath := u.Path
-	hadTrailingSlash := strings.HasSuffix(worldPath, "/")
-
-	switch {
-	case u.Scheme == "mark":
-		// mark://<world-or-host>/<path> — cross-world: the authority IS
-		// the target world (a knowledge-system name, or a host[:port] —
-		// u.Host carries the port when present).
-		if u.Host != "" {
-			targetWorld = u.Host
-		}
-		if worldPath == "" {
-			worldPath = "/"
-			hadTrailingSlash = true
-		}
-	case strings.HasPrefix(worldPath, "/"):
-		// already an absolute world path, current world
-	default:
-		// relative to the current document's directory, current world
-		worldPath = path.Join(path.Dir(basePath), worldPath)
-	}
-
-	worldPath = path.Clean(worldPath)
-	if worldPath == "." || worldPath == "/" {
-		worldPath = "/"
-	} else if hadTrailingSlash && !strings.HasSuffix(worldPath, "/") {
-		worldPath += "/" // preserve dir-ness so the route lists rather than fetches
-	}
-
-	rewritten := docRoute(targetWorld, worldPath)
-	if u.Fragment != "" {
-		rewritten += "#" + u.Fragment
-	}
-	// A document edge is a concrete path (not a listing/dir, which ends in a
-	// slash) — those are the nodes backlinks and the graph pane connect.
-	isDoc := !strings.HasSuffix(worldPath, "/")
-	return rewritten, domain.Ref{World: targetWorld, Path: worldPath}, isDoc
+	// A document edge is a concrete path, never a listing: those are the
+	// nodes backlinks and the graph pane connect.
+	return rewritten, target.Ref, !domain.IsListingPath(target.Path)
 }
 
 // docRoute builds the in-app document route for (world, path). The world

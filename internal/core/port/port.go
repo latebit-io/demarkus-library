@@ -14,7 +14,8 @@ import (
 // adapter drives. The concrete *service.ReadingService satisfies all four; a
 // narrower consumer (a preview-only handler, the Phase 4 librarian needing only
 // reads) can depend on just the slice it uses rather than the whole 20-method
-// surface.
+// surface. Catalog, the librarian's unrendered catalog reads, sits outside the
+// composite: only the librarian needs it.
 //
 // Every context-taking method takes the request context (cancellation + the
 // logged-in reader's bearer in broker mode, Phase 1b/ADR 0004) and a world: the
@@ -104,6 +105,18 @@ type MapService interface {
 	// the last build for an unfocused/parent pane.
 	WorldMap(ctx context.Context, world string) (domain.WorldMap, error)
 	WorldMapCached(ctx context.Context, world string) (domain.WorldMap, error)
+}
+
+// Catalog is the unrendered catalog the librarian reads: ranked LOOKUP hits and
+// edition lists as data, where Reader's Search and History render pages.
+type Catalog interface {
+	// Lookup searches one world's catalog, or every readable world when
+	// q.World is empty. A partial universe answer returns its hits together
+	// with a *domain.PartialLookupError.
+	Lookup(ctx context.Context, q domain.CatalogQuery) (domain.CatalogResult, error)
+	// Versions returns the edition list of the document at (world, path) as
+	// the world's markdown.
+	Versions(ctx context.Context, world, path string) (domain.RawDocument, error)
 }
 
 // Editor is the cataloging desk's write side (Phase 3).

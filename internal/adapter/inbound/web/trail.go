@@ -309,6 +309,19 @@ func trailAfterClick(t trail, idx int, target paneAddr) trail {
 	return trail{Panes: panes, Focus: len(panes) - 1, Reader: -1, Meta: -1}
 }
 
+// trailAskAbout opens the librarian beside pane idx: panes right of it drop
+// (the click algebra), a librarian already on the trail moves here rather
+// than duplicating — the conversation is server-side, so nothing is lost —
+// and it takes focus.
+func trailAskAbout(t trail, idx int) trail {
+	panes := slices.DeleteFunc(slices.Clone(t.Panes[:idx+1]), func(p paneAddr) bool { return p.Kind == paneLibrarian })
+	panes = append(panes, paneAddr{Kind: paneLibrarian})
+	if len(panes) > maxPanes {
+		panes = panes[len(panes)-maxPanes:]
+	}
+	return trail{Panes: panes, Focus: len(panes) - 1, Reader: -1, Meta: -1}
+}
+
 // trailFocused is the spine/header click: same path, attention moves.
 func trailFocused(t trail, idx int) trail {
 	return trail{Panes: t.Panes, Focus: idx, Reader: -1, Meta: -1}

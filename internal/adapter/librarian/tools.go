@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path"
 	"sort"
 	"strings"
 	"unicode/utf8"
@@ -35,6 +36,48 @@ const (
 	// maxFindRows caps find results; past this the model should narrow.
 	maxFindRows = 25
 )
+
+// stepDescriber narrates one call of a tool as a trace line a reader can
+// follow: what the librarian did, and the document it touched.
+type stepDescriber interface {
+	step(args string) domain.LibrarianStep
+}
+
+// toolWithStep is a librarian tool: callable by the model, legible in the
+// trace.
+type toolWithStep interface {
+	nibagent.Tool
+	stepDescriber
+}
+
+// describe narrates a tool call; an unknown tool or malformed arguments fall
+// back to the raw call, so the trace never hides what the model attempted.
+func (l *Librarian) describe(name, args string) domain.LibrarianStep {
+	if d, ok := l.steps[name]; ok {
+		if step := d.step(args); step.Text != "" {
+			return step
+		}
+	}
+	return domain.LibrarianStep{Text: traceLine(name, args)}
+}
+
+// docArgs are the arguments every document-addressed tool takes.
+type docArgs struct{ Path, World string }
+
+// docRef decodes a document-addressed call into the document it touches,
+// anchor stripped; ok is false when the path is missing or malformed.
+func docRef(args, defaultWorld string) (domain.Ref, string, bool) {
+	var in docArgs
+	if decodeArgs(args, &in) != nil || strings.TrimSpace(in.Path) == "" {
+		return domain.Ref{}, "", false
+	}
+	world := in.World
+	if world == "" {
+		world = defaultWorld
+	}
+	docPath, anchor, _ := strings.Cut(in.Path, "#")
+	return domain.Ref{World: world, Path: docPath}, anchor, true
+}
 
 // errResult wraps err as a tool failure the model can read and react to.
 func errResult(err error) nibagent.ToolResult {
@@ -62,6 +105,10 @@ func (t *worldsTool) Definition() llm.ToolDef {
 		// reject "required": null (nib sets []string{} on every tool).
 		Parameters: llm.FunctionParams{Type: "object", Properties: map[string]llm.FunctionParam{}, Required: []string{}},
 	}}
+}
+
+func (t *worldsTool) step(string) domain.LibrarianStep {
+	return domain.LibrarianStep{Text: "surveyed the worlds"}
 }
 
 func (t *worldsTool) Execute(ctx context.Context, _ llm.ToolCall) nibagent.ToolResult {
@@ -108,6 +155,22 @@ func (t *findTool) Definition() llm.ToolDef {
 			"world": {Type: "string", Description: "restrict to one world (default: all worlds)"},
 		}, Required: []string{"query"}},
 	}}
+}
+
+func (t *findTool) step(args string) domain.LibrarianStep {
+	var in struct{ Query, World string }
+	if decodeArgs(args, &in) != nil || in.Query == "" {
+		return domain.LibrarianStep{}
+	}
+	return domain.LibrarianStep{Text: fmt.Sprintf("searched names for %q%s", in.Query, inWorld(in.World))}
+}
+
+// inWorld phrases an optional world scope for a trace line.
+func inWorld(world string) string {
+	if world == "" {
+		return ""
+	}
+	return " in " + world
 }
 
 func (t *findTool) Execute(ctx context.Context, call llm.ToolCall) nibagent.ToolResult {
@@ -167,7 +230,7 @@ type openTool struct {
 func (t *openTool) Definition() llm.ToolDef {
 	return llm.ToolDef{Type: "function", Function: llm.FunctionDef{
 		Name:        "open",
-		Description: "Read a document's raw markdown source and catalog metadata. path is the document path (e.g. /plans/roadmap.md); append #<anchor> to read one section (anchors are GitHub-style heading slugs). Documents over 8KB return an outline — heading tree with anchors and the opening paragraph — instead of the body; open path#<anchor> for the section you need, or pass force for the full (16KB-capped) body. Paths ending in / are directory listings and cannot be opened — find their documents instead.",
+		Description: "Read a document's raw markdown source and catalog metadata. path is the document path (e.g. /plans/roadmap.md); append #<anchor> to read one section (anchors are GitHub-style heading slugs). Documents over 8KB return an outline — heading tree with anchors and the opening paragraph — instead of the body; open path#<anchor> for the section you need, or pass force for the full (16KB-capped) body. path/v<N> reads edition N (see versions). Paths ending in / are directory listings and cannot be opened — find their documents instead.",
 		Parameters: llm.FunctionParams{Type: "object", Properties: map[string]llm.FunctionParam{
 			"path":  {Type: "string", Description: "document path within the world; append #<anchor> for a single section"},
 			"world": {Type: "string", Description: "world to read from (default: the reading room's default world)"},
@@ -176,29 +239,37 @@ func (t *openTool) Definition() llm.ToolDef {
 	}}
 }
 
-func (t *openTool) Execute(ctx context.Context, call llm.ToolCall) nibagent.ToolResult {
-	var in struct {
-		Path, World string
-		Force       bool
+func (t *openTool) step(args string) domain.LibrarianStep {
+	ref, anchor, ok := docRef(args, t.defaultWorld)
+	if !ok {
+		return domain.LibrarianStep{}
 	}
+	if anchor != "" {
+		return domain.LibrarianStep{Text: "opened §" + anchor + " of", Ref: ref}
+	}
+	return domain.LibrarianStep{Text: "opened", Ref: ref}
+}
+
+func (t *openTool) Execute(ctx context.Context, call llm.ToolCall) nibagent.ToolResult {
+	var in struct{ Force bool }
 	if err := decodeArgs(call.Function.Arguments, &in); err != nil {
 		return errResult(err)
 	}
-	if strings.TrimSpace(in.Path) == "" {
-		return errResult(fmt.Errorf("open: path is required"))
+	ref, anchor, ok := docRef(call.Function.Arguments, t.defaultWorld)
+	if !ok {
+		return errResult(errors.New("open: path is required"))
 	}
-	world := in.World
-	if world == "" {
-		world = t.defaultWorld
-	}
-	path, anchor, _ := strings.Cut(in.Path, "#")
-	raw, err := t.reader.Raw(ctx, world, path)
+	world, docPath := ref.World, ref.Path
+	raw, err := t.reader.Raw(ctx, world, docPath)
 	if err != nil {
 		return errResult(err)
 	}
+	if r := runFrom(ctx); r != nil {
+		r.addSource(domain.LibrarianSource{Ref: ref, Title: sourceTitle(raw.Metadata["title"], docPath)})
+	}
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "mark://%s%s\n", world, path)
+	fmt.Fprintf(&b, "mark://%s%s\n", world, docPath)
 	keys := make([]string, 0, len(raw.Metadata))
 	for k := range raw.Metadata {
 		keys = append(keys, k)
@@ -219,7 +290,7 @@ func (t *openTool) Execute(ctx context.Context, call llm.ToolCall) nibagent.Tool
 			if available == "" {
 				available = "(document has no headings)"
 			}
-			return errResult(fmt.Errorf("open: section #%s not found in mark://%s%s; available anchors: %s", anchor, world, path, available))
+			return errResult(fmt.Errorf("open: section #%s not found in mark://%s%s; available anchors: %s", anchor, world, docPath, available))
 		}
 		fmt.Fprintf(&b, "section: #%s\n", anchor)
 		body = section
@@ -243,7 +314,7 @@ func (t *openTool) Execute(ctx context.Context, call llm.ToolCall) nibagent.Tool
 		// heading-heavy outline can never lose the navigation footer to
 		// the generic cut below — that would recreate the dead end this
 		// mode exists to remove.
-		footer := fmt.Sprintf("\nopen %s#<anchor> for a section; force for the full body\n", path)
+		footer := fmt.Sprintf("\nopen %s#<anchor> for a section; force for the full body\n", docPath)
 		outline := o.String()
 		if cut, dropped := truncateRuneSafe(outline, maxOpenBytes-len(footer)-64); dropped > 0 {
 			outline = cut + fmt.Sprintf("\n\n[outline truncated — %d more bytes]", dropped)
@@ -274,56 +345,23 @@ func truncateRuneSafe(s string, limit int) (cutStr string, dropped int) {
 	return s[:cut], len(s) - cut
 }
 
-// linksTool traces a document's neighborhood: observed outbound links and
-// backlinks (GraphService.Neighborhood). Store-only — zero world reads.
-type linksTool struct {
-	graph        port.GraphService
-	defaultWorld string
+// sourceTitle names an opened document for the sources list: its catalog
+// title, else its file name.
+func sourceTitle(title, docPath string) string {
+	if title = strings.TrimSpace(title); title != "" {
+		return title
+	}
+	return strings.TrimSuffix(path.Base(docPath), ".md")
 }
 
-func (t *linksTool) Definition() llm.ToolDef {
-	return llm.ToolDef{Type: "function", Function: llm.FunctionDef{
-		Name:        "links",
-		Description: "Show the documents a document links to and the documents observed linking to it (backlinks). The graph fills as the room is read — an empty answer means no edges observed yet, not no edges.",
-		Parameters: llm.FunctionParams{Type: "object", Properties: map[string]llm.FunctionParam{
-			"path":  {Type: "string", Description: "document path within the world"},
-			"world": {Type: "string", Description: "world the document lives in (default: the reading room's default world)"},
-		}, Required: []string{"path"}},
-	}}
-}
-
-func (t *linksTool) Execute(_ context.Context, call llm.ToolCall) nibagent.ToolResult {
-	var in struct{ Path, World string }
-	if err := decodeArgs(call.Function.Arguments, &in); err != nil {
-		return errResult(err)
+// traceLine renders one tool call raw, as a single legible line:
+// `find {"query":"deploy"}` → `find query="deploy"`.
+func traceLine(name, args string) string {
+	fields := compactArgs(args)
+	if fields == "" {
+		return name
 	}
-	if strings.TrimSpace(in.Path) == "" {
-		return errResult(fmt.Errorf("links: path is required"))
-	}
-	world := in.World
-	if world == "" {
-		world = t.defaultWorld
-	}
-	n := t.graph.Neighborhood(world, in.Path)
-	var b strings.Builder
-	fmt.Fprintf(&b, "mark://%s%s\n", n.Center.World, n.Center.Path)
-	if len(n.Out) == 0 && len(n.In) == 0 {
-		b.WriteString("No edges observed yet.\n")
-		return nibagent.ToolResult{Content: b.String()}
-	}
-	if len(n.Out) > 0 {
-		b.WriteString("links to:\n")
-		for _, r := range n.Out {
-			fmt.Fprintf(&b, "  mark://%s%s\n", r.World, r.Path)
-		}
-	}
-	if len(n.In) > 0 {
-		b.WriteString("referenced by:\n")
-		for _, r := range n.In {
-			fmt.Fprintf(&b, "  mark://%s%s\n", r.World, r.Path)
-		}
-	}
-	return nibagent.ToolResult{Content: b.String()}
+	return name + " " + fields
 }
 
 // compactArgs renders a tool call's JSON arguments as `key="value"` pairs in

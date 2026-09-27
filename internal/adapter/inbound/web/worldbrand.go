@@ -35,8 +35,16 @@ type rawReader interface {
 // brandingFile is the yaml fence of branding.md. Unknown keys are ignored so
 // a newer world does not break an older library.
 type brandingFile struct {
-	Name  string            `yaml:"name"`
-	Theme map[string]string `yaml:"theme,omitempty"`
+	Name      string            `yaml:"name"`
+	Theme     map[string]string `yaml:"theme,omitempty"`
+	Librarian *brandLibrarian   `yaml:"librarian,omitempty"`
+}
+
+// brandLibrarian is how a hub world presents the room's librarian: the name
+// it answers to and house instructions for its voice and focus.
+type brandLibrarian struct {
+	Name         string `yaml:"name,omitempty"`
+	Instructions string `yaml:"instructions,omitempty"`
 }
 
 // worldAsset is one unwrapped asset, ready to serve.
@@ -54,10 +62,14 @@ type worldBrand struct {
 	sheet   *worldAsset // tokens + rawCSS, ready to serve; nil ⇒ none
 	logo    *worldAsset
 	favicon *worldAsset // read for the hub only: the favicon link lives in the head
+	// librarian is honored for the hub only: the librarian serves the room.
+	librarian brandLibrarian
 
 	fetched time.Time
 }
 
+// empty reports whether the world brands its pages; a librarian block alone
+// does not, since it names no page identity.
 func (b worldBrand) empty() bool {
 	return b.name == "" && b.sheet == nil && b.logo == nil && b.favicon == nil
 }
@@ -69,6 +81,7 @@ type brandDesk struct {
 	CSS        string
 	LogoURL    string
 	FaviconURL string
+	Librarian  brandLibrarian
 }
 
 // WorldBrands resolves and caches in-world branding per world. Reads carry
@@ -133,6 +146,15 @@ func (w *WorldBrands) Room(ctx context.Context) (WorldBranding, bool) {
 	return w.For(ctx, w.hub)
 }
 
+// RoomLibrarian returns the librarian identity the hub world declares; the
+// zero value without a hub or when the hub is silent.
+func (w *WorldBrands) RoomLibrarian(ctx context.Context) brandLibrarian {
+	if w == nil || w.hub == "" {
+		return brandLibrarian{}
+	}
+	return w.get(ctx, w.hub).librarian
+}
+
 // Asset returns the bytes behind /theme/worlds/<world>/<file>.
 func (w *WorldBrands) Asset(ctx context.Context, world, file string) (worldAsset, bool) {
 	brand := w.get(ctx, world)
@@ -154,7 +176,7 @@ func (w *WorldBrands) Asset(ctx context.Context, world, file string) (worldAsset
 // Desk returns the world's stored branding as the desk's form fields.
 func (w *WorldBrands) Desk(ctx context.Context, world string) brandDesk {
 	brand := w.get(ctx, world)
-	desk := brandDesk{Name: brand.name, Tokens: brand.tokens, CSS: brand.rawCSS}
+	desk := brandDesk{Name: brand.name, Tokens: brand.tokens, CSS: brand.rawCSS, Librarian: brand.librarian}
 	if brand.logo != nil {
 		desk.LogoURL = themeWorldsPrefix + world + "/logo"
 	}
@@ -186,7 +208,7 @@ func (w *WorldBrands) get(ctx context.Context, world string) worldBrand {
 	// A read that failed for a reason other than absence keeps whatever was
 	// resolved before: the login page reads without a session, and a private
 	// hub must not lose its identity for a TTL every time that happens.
-	if err != nil && ok && !cached.empty() {
+	if err != nil && ok && (!cached.empty() || cached.librarian != brandLibrarian{}) {
 		brand = cached
 	}
 	brand.fetched = w.now()
@@ -213,6 +235,12 @@ func (w *WorldBrands) load(ctx context.Context, world string) (worldBrand, error
 		if yaml.Unmarshal([]byte(f.Content), &declared) == nil {
 			brand.name = strings.TrimSpace(declared.Name)
 			brand.tokens = declared.Theme
+			if declared.Librarian != nil && world == w.hub {
+				brand.librarian = brandLibrarian{
+					Name:         strings.TrimSpace(declared.Librarian.Name),
+					Instructions: strings.TrimSpace(declared.Librarian.Instructions),
+				}
+			}
 		}
 	}
 	// A stylesheet that could reach another origin is dropped whole, like an

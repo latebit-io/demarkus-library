@@ -93,6 +93,7 @@ func NewView() (*View, error) {
 			"tokensCSS": func() string { return "" },
 			"favicon":   func() string { return "" },
 			"universe":  func() string { return "" },
+			"librarian": func() string { return "" },
 			// Static: shared by previewize and the preview-link template.
 			"previewTrigger": func() string { return previewTrigger },
 		}).
@@ -109,7 +110,10 @@ func (v *View) WithBranding(b Branding) *View {
 		b.Name = DefaultBranding().Name
 	}
 	if b.Terms.Universe == "" {
-		b.Terms = DefaultTerms()
+		b.Terms.Universe = DefaultTerms().Universe
+	}
+	if b.Terms.Librarian == "" {
+		b.Terms.Librarian = DefaultTerms().Librarian
 	}
 	if b.FaviconURL == "" {
 		b.FaviconURL = DefaultFaviconURL
@@ -168,6 +172,7 @@ func (v *View) Render(c *echo.Context, w io.Writer, name string, data any) error
 		"tokensCSS": func() string { return b.TokensCSSURL },
 		"favicon":   func() string { return b.FaviconURL },
 		"universe":  func() string { return b.Terms.Universe },
+		"librarian": func() string { return librarianIdentity{brands: v.worlds, terms: b.Terms}.name(ctx) },
 	})
 	return cl.ExecuteTemplate(w, name, data)
 }

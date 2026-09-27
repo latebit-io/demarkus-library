@@ -54,7 +54,8 @@ library:
   # Branding / theming — present the library as your own room. name
   # replaces the "demarkus Library" wordmark in titles, nav, and the
   # login card (DEMARKUS_BRAND); universeTerm renames the whole-knowledge
-  # scope readers see (DEMARKUS_TERM_UNIVERSE). The manifest, logo, and
+  # scope readers see (DEMARKUS_TERM_UNIVERSE); librarianTerm names the AI
+  # librarian (DEMARKUS_TERM_LIBRARIAN). The manifest, logo, and
   # override stylesheet come from an operator-managed ConfigMap mounted
   # read-only into the pod:
   #
@@ -75,6 +76,7 @@ library:
   branding:
     name: ""
     universeTerm: ""
+    librarianTerm: ""
     configMap: ""
     manifestKey: ""
     # Only wired when configMap is set; the other keys refuse to render without one.
@@ -88,13 +90,16 @@ library:
   # MINIMAX_API_KEY, GEMINI_API_KEY, …) — and existingSecretRef points at
   # the operator-managed Secret holding it (ESO/OpenBao in this cluster;
   # no cleartext path by design). model optionally overrides the profile's
-  # default via LLM_MODEL.
+  # default via LLM_MODEL. asksPerHour caps each reader's questions in a
+  # rolling hour (DEMARKUS_LIBRARIAN_ASKS_PER_HOUR; empty keeps the binary's
+  # default of 30).
   librarian:
     keyEnv: ""
     existingSecretRef:
       name: ""
       key: ""
     model: ""
+    asksPerHour: ""
 
   # Skip TLS verification on direct QUIC dials (DEMARKUS_INSECURE) —
   # quic-mode home world and federation targets alike. Defaults true to

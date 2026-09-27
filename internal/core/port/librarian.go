@@ -15,23 +15,28 @@ import (
 // broker mode — and it can see exactly what the reader can see (plan D1). The
 // web adapter depends on this interface, never on the agent machinery.
 type Librarian interface {
-	// Ask streams the librarian's work on question within the conversation
-	// keyed by conversation (server-side state; the key never carries
-	// content — a session-scoped identifier). The channel closes after a
-	// LibrarianDone or LibrarianError event. ctx bounds the run: cancelling
-	// it (the client left) stops the agent and ends the stream.
-	//
-	// trailContext is the reader's current view — the trail's panes and the
-	// focused document's text (plan D5: trail = the librarian's context).
-	// It is injected for THIS run only and never becomes part of the saved
-	// transcript: History shows clean questions. Empty means no context.
+	// Ask streams the librarian's work on ask.Question within its
+	// conversation. The channel closes after a LibrarianDone or
+	// LibrarianError event. ctx bounds the run: cancelling it (the client
+	// left) stops the agent and ends the stream.
 	//
 	// One ask at a time per conversation: a second Ask while one is in
-	// flight returns domain.ErrLibrarianBusy.
-	Ask(ctx context.Context, conversation, question, trailContext string) (<-chan domain.LibrarianEvent, error)
+	// flight returns domain.ErrLibrarianBusy; an ask past the conversation's
+	// hourly budget returns a *domain.LibrarianLimitError.
+	Ask(ctx context.Context, ask domain.LibrarianAsk) (<-chan domain.LibrarianEvent, error)
 
 	// History returns the conversation's completed exchanges in order — the
 	// transcript the librarian pane renders. Memory-only (no world read, no
 	// error); an unknown conversation is simply empty.
 	History(conversation string) []domain.LibrarianExchange
+
+	// Stop ends the conversation's run in flight, keeping whatever was
+	// answered so far as a stopped exchange. With no run in flight it does
+	// nothing.
+	Stop(conversation string)
+
+	// Reset starts the conversation over: the transcript clears, the ask
+	// budget does not. Returns domain.ErrLibrarianBusy while a run is in
+	// flight.
+	Reset(conversation string) error
 }

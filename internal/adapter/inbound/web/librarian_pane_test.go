@@ -273,7 +273,7 @@ func TestNav_LibrarianDoorAppendsToTrail(t *testing.T) {
 	e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/t/u", http.NoBody))
 
 	// From the floor, the nav door appends the librarian to the current trail.
-	if !strings.Contains(rec.Body.String(), `class="nav-librarian" href="/t/u/~/a"`) {
+	if !strings.Contains(rec.Body.String(), `class="nav-key nav-librarian" href="/t/u/~/a"`) {
 		t.Errorf("nav missing the librarian door:\n%.1500s", rec.Body.String())
 	}
 
@@ -295,7 +295,7 @@ func TestNav_LibrarianDoorOnStandalonePages(t *testing.T) {
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/w/w.io/versions/x.md", http.NoBody))
 
-	if !strings.Contains(rec.Body.String(), `class="nav-librarian" href="/a"`) {
+	if !strings.Contains(rec.Body.String(), `class="nav-key nav-librarian" href="/a"`) {
 		t.Errorf("standalone page missing the librarian door:\n%.1200s", rec.Body.String())
 	}
 }
@@ -380,5 +380,91 @@ func TestTrailContext_NeutralizesWrapperTags(t *testing.T) {
 	}
 	if !strings.Contains(got, "[reader-context tag removed]") {
 		t.Errorf("tag lookalikes not defanged:\n%s", got)
+	}
+}
+
+func TestLibrarianPane_ExchangeShowsWorkAndSources(t *testing.T) {
+	t.Parallel()
+
+	deploy := domain.Ref{World: "w.io", Path: "/ops/deploy.md"}
+	lib := &fakeLibrarian{history: []domain.LibrarianExchange{
+		{
+			Question: "where?", Answer: "In ops.",
+			Steps:   []domain.LibrarianStep{{Text: "surveyed the worlds"}, {Text: "opened", Ref: deploy}},
+			Sources: []domain.LibrarianSource{{Ref: deploy, Title: "Deploy runbook"}},
+		},
+		{Question: "and then?", Stopped: true},
+	}}
+	e := librarianApp(t, lib)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/t/w.io/d/x.md/~/a", http.NoBody))
+	body := rec.Body.String()
+	for _, want := range []string{
+		`<details class="ask-steps"><summary>2 steps</summary>`,
+		`<li>surveyed the worlds</li>`,
+		`<li>opened <a href="/t/w.io/d/x.md/~/a/~/w.io/d/ops/deploy.md">w.io/ops/deploy.md</a></li>`,
+		`sources: <a href="/t/w.io/d/x.md/~/a/~/w.io/d/ops/deploy.md" title="w.io/ops/deploy.md">Deploy runbook</a>`,
+		`stopped before an answer`,
+		`<form class="ask-reset" method="post" action="/a/new">`, // start over, in the pane head
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("pane missing %q\nbody:\n%.4000s", want, body)
+		}
+	}
+	if strings.Contains(body, `class="ask-starters"`) {
+		t.Error("starters shown on a conversation already underway")
+	}
+}
+
+func TestLibrarianPane_EmptyOffersStartersAboutTheDocInView(t *testing.T) {
+	t.Parallel()
+
+	e := librarianApp(t, &fakeLibrarian{})
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/t/w.io/d/x.md/~/a", http.NoBody))
+	body := rec.Body.String()
+	for _, want := range []string{
+		`name="preset" value="Summarize this document" formnovalidate`,
+		`<textarea class="ask-input" name="question"`,
+		` autofocus>`, // the focused librarian takes the cursor
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("pane missing %q\nbody:\n%.4000s", want, body)
+		}
+	}
+
+	// With no document in view, the starters are about the collection.
+	rec = httptest.NewRecorder()
+	e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/t/a", http.NoBody))
+	if !strings.Contains(rec.Body.String(), `value="What is in this universe?"`) {
+		t.Errorf("collection starters missing:\n%.4000s", rec.Body.String())
+	}
+}
+
+func TestDocPane_OffersAskAboutThis(t *testing.T) {
+	t.Parallel()
+
+	rec := httptest.NewRecorder()
+	librarianApp(t, &fakeLibrarian{}).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/t/w.io/d/x.md", http.NoBody))
+	if !strings.Contains(rec.Body.String(), `class="reader-link ask-link" href="/t/w.io/d/x.md/~/a"`) {
+		t.Errorf("doc pane head missing the ask link:\n%.3000s", rec.Body.String())
+	}
+	rec = httptest.NewRecorder()
+	spikeApp(t).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/t/w.io/d/x.md", http.NoBody))
+	if strings.Contains(rec.Body.String(), "ask-link") {
+		t.Error("ask link offered without a librarian on duty")
+	}
+}
+
+func TestAskLibrarian_LibrarianFocusedCarriesTheDocBeside(t *testing.T) {
+	t.Parallel()
+
+	lib := &fakeLibrarian{events: []domain.LibrarianEvent{{Kind: domain.LibrarianDone}}}
+	e := librarianApp(t, lib)
+	postLibrarianForm(t, e, "/a/ask", url.Values{
+		"question": {"what is this?"}, "trail": {"w.io/d/x.md/~/a"}, "idx": {"1"}, "focus": {"1"},
+	}, false)
+	if len(lib.contexts) != 1 || !strings.Contains(lib.contexts[0], `The document open beside this conversation (mark://w.io/x.md — "X")`) {
+		t.Errorf("context = %v; want the document beside the librarian", lib.contexts)
 	}
 }

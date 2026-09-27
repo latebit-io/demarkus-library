@@ -47,8 +47,8 @@ type librarianReader interface {
 type librarianPanes struct {
 	lib          port.Librarian // nil = not configured; the pane says so and asks are rejected
 	reader       librarianReader
+	identity     librarianIdentity // carries the room's Terms too
 	defaultWorld string
-	terms        Terms
 }
 
 // enabled reports whether a librarian is on duty — the nav door and the ask
@@ -59,18 +59,39 @@ func (h librarianPanes) enabled() bool { return h.lib != nil }
 // as hidden fields so the POST can rebuild post-ask URLs and the stream can
 // trailize answer links.
 type librarianAskVM struct {
-	TrailRest string // the /t/* remainder for the current trail
-	Idx       int    // this pane's index on the trail
-	Focus     int    // the reader's URL focus — the pane their attention is on
-	Notice    string // busy/error line rendered above the form (no-JS PRG)
+	TrailRest string   // the /t/* remainder for the current trail
+	Idx       int      // this pane's index on the trail
+	Focus     int      // the reader's URL focus — the pane their attention is on
+	Notice    string   // busy/error line rendered above the form (no-JS PRG)
+	Starters  []string // suggested first questions, until the conversation begins
+	Autofocus bool     // the pane holds the reader's focus: the cursor goes to the ask box
+}
+
+// librarianStepVM is one trace line: what the librarian did, and a
+// trail-continuing link to the document it touched (Href "" when none).
+type librarianStepVM struct {
+	Text  string
+	Href  string
+	Label string
+}
+
+// librarianSourceVM is one document an answer was grounded in.
+type librarianSourceVM struct {
+	Title string
+	Href  string
+	Label string
 }
 
 // librarianExchangeVM renders one transcript exchange; Answer is the
-// document-pipeline-rendered HTML. Live exchanges (htmx ask response) carry
-// StreamURL instead — the SSE block that fills in as the librarian works.
+// document-pipeline-rendered HTML. A live exchange (htmx ask response)
+// carries StreamURL instead — the SSE block that fills in as the librarian
+// works.
 type librarianExchangeVM struct {
 	Question  string
 	Answer    template.HTML
+	Steps     []librarianStepVM
+	Sources   []librarianSourceVM
+	Stopped   bool
 	StreamURL string
 }
 
@@ -78,12 +99,12 @@ type librarianExchangeVM struct {
 type librarianPaneVM struct {
 	Enabled   bool
 	Exchanges []librarianExchangeVM
-	Ask       *librarianAskVM // nil unless the pane is focused and enabled
+	Ask       *librarianAskVM // nil unless the pane is expanded and enabled
 }
 
 // pane builds the librarian pane: transcript from History, rendered like any
-// pane body, ask form when focused. No world read, never errors — a librarian
-// problem is a notice, not a tombstone.
+// pane body, ask form when expanded. No world read, never errors — a
+// librarian problem is a notice, not a tombstone.
 func (h librarianPanes) pane(c *echo.Context, t trail, i int) paneVM {
 	focused := i == t.Focus
 	mode := "spine"
@@ -93,12 +114,15 @@ func (h librarianPanes) pane(c *echo.Context, t trail, i int) paneVM {
 	case i == t.Focus-1:
 		mode = "body"
 	}
+	name := h.identity.name(c.Request().Context())
+	// The head names the librarian; the pane has no title heading of its own,
+	// so the conversation starts right under the head.
 	vm := paneVM{
 		Mode:     mode,
 		Kind:     paneLibrarian,
 		FocusURL: trailURL(trailFocused(t, i)),
-		Title:    "Librarian",
-		World:    "librarian",
+		Title:    name,
+		World:    name,
 	}
 	if mode == "spine" {
 		return vm
@@ -107,10 +131,7 @@ func (h librarianPanes) pane(c *echo.Context, t trail, i int) paneVM {
 	lp := librarianPaneVM{Enabled: h.lib != nil}
 	if h.lib != nil {
 		for _, ex := range h.lib.History(conversationKey(c)) {
-			lp.Exchanges = append(lp.Exchanges, librarianExchangeVM{
-				Question: ex.Question,
-				Answer:   h.renderAnswer(ex.Answer, t, i),
-			})
+			lp.Exchanges = append(lp.Exchanges, h.exchangeVM(ex, t, i))
 		}
 		// The ask form rides every EXPANDED librarian pane, focused or not:
 		// reading a cited document focuses the doc pane, and that is exactly
@@ -121,10 +142,90 @@ func (h librarianPanes) pane(c *echo.Context, t trail, i int) paneVM {
 			Idx:       i,
 			Focus:     t.Focus,
 			Notice:    c.QueryParam("notice"),
+			Autofocus: focused,
+		}
+		if len(lp.Exchanges) == 0 {
+			lp.Ask.Starters = h.starters(t, t.Focus)
 		}
 	}
 	vm.Librarian = &lp
 	return vm
+}
+
+// exchangeVM renders one finished exchange for pane i of trail t.
+func (h librarianPanes) exchangeVM(ex domain.LibrarianExchange, t trail, i int) librarianExchangeVM {
+	vm := librarianExchangeVM{Question: ex.Question, Stopped: ex.Stopped}
+	if ex.Answer != "" {
+		vm.Answer = h.renderAnswer(ex.Answer, t, i)
+	}
+	for _, step := range ex.Steps {
+		vm.Steps = append(vm.Steps, stepVM(step, t, i))
+	}
+	for _, src := range ex.Sources {
+		vm.Sources = append(vm.Sources, sourceVM(src, t, i))
+	}
+	return vm
+}
+
+// stepVM links a trace step's document so the reader can follow the
+// librarian's path from pane i.
+func stepVM(step domain.LibrarianStep, t trail, i int) librarianStepVM {
+	vm := librarianStepVM{Text: step.Text}
+	if step.Ref.Path != "" {
+		vm.Href, vm.Label = librarianDocLink(step.Ref, t, i), step.Ref.World+step.Ref.Path
+	}
+	return vm
+}
+
+// sourceVM links one grounding document from pane i.
+func sourceVM(src domain.LibrarianSource, t trail, i int) librarianSourceVM {
+	return librarianSourceVM{Title: src.Title, Href: librarianDocLink(src.Ref, t, i), Label: src.World + src.Path}
+}
+
+// librarianDocLink is the trail-continuing URL for a document the librarian
+// names: the click algebra from the librarian pane, like a cited link.
+func librarianDocLink(ref domain.Ref, t trail, i int) string {
+	return trailURL(trailAfterClick(t, i, paneAddr{Kind: paneDoc, World: ref.World, Value: ref.Path}))
+}
+
+// starters suggests first questions: about the document in view when there
+// is one, about the collection otherwise.
+func (h librarianPanes) starters(t trail, focus int) []string {
+	if contextDoc(t, focus) >= 0 {
+		return []string{
+			"Summarize this document",
+			"What links here, and what does it link to?",
+			"What else covers this subject?",
+		}
+	}
+	return []string{
+		"What is in this " + h.identity.terms.UniverseLower() + "?",
+		"Where should I start reading?",
+		"Which documents matter most?",
+	}
+}
+
+// contextDoc is the index of the document the reader is asking about: the
+// focused pane when it is a document, else — when the librarian itself holds
+// focus — the nearest document to its left, the one open beside the
+// conversation. -1 when no document is in view.
+func contextDoc(t trail, focus int) int {
+	if focus < 0 || focus >= len(t.Panes) {
+		return -1
+	}
+	isDoc := func(p paneAddr) bool { return p.Kind == paneDoc && !domain.IsListingPath(p.Value) }
+	if isDoc(t.Panes[focus]) {
+		return focus
+	}
+	if t.Panes[focus].Kind != paneLibrarian {
+		return -1
+	}
+	for i := focus - 1; i >= 0; i-- {
+		if isDoc(t.Panes[i]) {
+			return i
+		}
+	}
+	return -1
 }
 
 // renderAnswer runs an answer's markdown through the document pipeline:
@@ -172,10 +273,15 @@ func (h librarianPanes) trailContext(ctx context.Context, t trail, focus int) st
 		}
 		b.WriteByte('\n')
 	}
-	if fa := t.Panes[focus]; fa.Kind == paneDoc && !domain.IsListingPath(fa.Value) {
+	if at := contextDoc(t, focus); at >= 0 {
+		fa := t.Panes[at]
 		if doc, err := h.reader.OpenCached(ctx, fa.World, fa.Value); err == nil {
+			which := "The focused document"
+			if at != focus {
+				which = "The document open beside this conversation"
+			}
 			text := truncateRunes(neutralizeContextTags(htmlText(doc.HTML)), trailContextBudget)
-			fmt.Fprintf(&b, "\nThe focused document (mark://%s%s — %q) as the reader sees it:\n\"\"\"\n%s\n\"\"\"\n", fa.World, fa.Value, neutralizeContextTags(doc.Title), text)
+			fmt.Fprintf(&b, "\n%s (mark://%s%s — %q) as the reader sees it:\n\"\"\"\n%s\n\"\"\"\n", which, fa.World, fa.Value, neutralizeContextTags(doc.Title), text)
 		}
 	}
 	b.WriteString("</reader-context>")
@@ -189,7 +295,7 @@ func (h librarianPanes) paneContextLabel(ctx context.Context, p paneAddr) string
 		return "this librarian conversation"
 	case paneFloor:
 		if p.World == "" {
-			return "the " + h.terms.UniverseLower() + " floor"
+			return "the " + h.identity.terms.UniverseLower() + " floor"
 		}
 		return "map of world " + p.World
 	case paneGraph:

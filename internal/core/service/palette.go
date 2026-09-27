@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"strconv"
 
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
 )
@@ -53,21 +52,12 @@ func (s *ReadingService) NameIndex(ctx context.Context, scope, world string) ([]
 	if err != nil {
 		return nil, err
 	}
-	var partial error
-	if raw.Metadata["status"] == "partial" {
-		failed, _ := strconv.Atoi(raw.Metadata["failed"])
-		worlds, _ := strconv.Atoi(raw.Metadata["worlds"])
-		partial = &domain.PartialLookupError{
-			Failed:       failed,
-			Worlds:       worlds,
-			FailedWorlds: parseLookupFailureWorlds(raw.Body),
-		}
-	}
-
+	partial := partialLookup(raw)
 	rows := parseCatalogRows(raw.Body, raw.Source, raw.Source == "", nameIndexMax)
 	out := make([]domain.IndexEntry, 0, len(rows))
 	orphans := make(map[string]map[string]bool)
-	for _, row := range rows {
+	for i := range rows {
+		row := &rows[i]
 		if _, ok := orphans[row.World]; !ok {
 			orphans[row.World] = worldOrphans(row.World, host2name, topo)
 		}

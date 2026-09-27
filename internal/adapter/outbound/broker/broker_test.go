@@ -137,6 +137,29 @@ func TestVerbsAndArgs(t *testing.T) {
 	if got := fc.gotArgs["limit"]; got != 500 {
 		t.Errorf("limit arg = %v, want 500", got)
 	}
+	if _, present := fc.gotArgs["match"]; present {
+		t.Errorf("empty match must be omitted (catalog mode), got %v", fc.gotArgs["match"])
+	}
+
+	// Body match rides along for both the per-world and the universe lookup.
+	for _, lookup := range []func(*Gateway) error{
+		func(g *Gateway) error {
+			_, err := g.Lookup(authedCtx(t), "soul", domain.LookupQuery{Scope: "/", Query: "sysctl", Match: domain.MatchBody})
+			return err
+		},
+		func(g *Gateway) error {
+			_, err := g.LookupAll(authedCtx(t), domain.LookupQuery{Scope: "/", Query: "sysctl", Match: domain.MatchBody})
+			return err
+		},
+	} {
+		fc = &fakeCaller{text: "status: ok\nmatch: body\n\nbody"}
+		if err := lookup(&Gateway{caller: fc}); err != nil {
+			t.Fatalf("body lookup: %v", err)
+		}
+		if got := fc.gotArgs["match"]; got != domain.MatchBody {
+			t.Errorf("%s match arg = %v, want body", fc.gotTool, got)
+		}
+	}
 }
 
 func TestLookupAllBuildsArgsAndAcceptsPartial(t *testing.T) {
