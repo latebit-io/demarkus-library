@@ -154,6 +154,7 @@ func TestFloorPaneRendersBrandedCards(t *testing.T) {
 	}
 	body := rec.Body.String()
 	for _, want := range []string{
+		`<h1 class="sr-only">Universe</h1>`, // the pane head names it; readers still get a heading
 		`<p class="floor-bar"><span class="floor-sum">2 worlds · 6&#43; docs · 1 unreadable · 1 portal</span>`, // html/template escapes "+"
 		`<li class="world-card" style="--world-accent: #8250df">`,
 		`<a class="world-door" href="/t/u/~/team-a/d/"><img class="world-logo" src="/theme/worlds/team-a/logo" alt=""><span class="world-name">Team Room</span></a>`,

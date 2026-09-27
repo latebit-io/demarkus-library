@@ -11,7 +11,8 @@
       {{- if .Librarian }}
       {{template "librarian-body" .Librarian}}
       {{- else if .Floor }}
-      <h1>{{ .Title }}</h1>
+      {{/* The pane head already names the universe; the heading stays for screen readers. */}}
+      <h1 class="sr-only">{{ .Title }}</h1>
       {{template "floor-body" .Floor}}
       {{- else }}
       <h1>{{ .Title }}</h1>
