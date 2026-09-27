@@ -147,14 +147,14 @@ func acceptedCount(docs []domain.FloorDoc) int {
 
 // sampledCount formats a count from the floor's catalog sample; truncated
 // marks it a lower bound, since the rest of the catalog went unread.
-func sampledCount(n int, one, many string, truncated bool) string {
+func sampledCount(count int, one, many string, truncated bool) string {
 	switch {
 	case truncated:
-		return fmt.Sprintf("%d+ %s", n, many)
-	case n == 1:
+		return fmt.Sprintf("%d+ %s", count, many)
+	case count == 1:
 		return "1 " + one
 	default:
-		return fmt.Sprintf("%d %s", n, many)
+		return fmt.Sprintf("%d %s", count, many)
 	}
 }
 
