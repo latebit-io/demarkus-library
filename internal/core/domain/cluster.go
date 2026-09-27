@@ -5,11 +5,9 @@ import (
 	"strings"
 )
 
-// ClusterByDir groups catalog docs by their top-level path segment (the
-// directory), preserving the catalog's importance order within each cluster.
-// The root cluster (docs directly under "/") sorts first, then directories
-// alphabetically. Each cluster keeps its top perCluster docs; the remainder
-// becomes the More count behind the dir's listing pane.
+// ClusterByDir groups docs by top-level directory in catalog (importance)
+// order: root cluster first, then directories alphabetically. Each keeps its
+// top perCluster docs; the rest become More, behind the dir's listing pane.
 func ClusterByDir(docs []FloorDoc, perCluster int) []WorldCluster {
 	order := []string{}
 	byDir := map[string][]FloorDoc{}

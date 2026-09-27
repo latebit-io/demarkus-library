@@ -81,6 +81,7 @@ func TestWorldCards(t *testing.T) {
 	if len(cards) != 3 {
 		t.Fatalf("cards = %d, want 3", len(cards))
 	}
+	exact := worldCards(testFloor(), tr, 0)
 	labels := func(links []cardLink) []string {
 		out := make([]string, 0, len(links))
 		for _, l := range links {
@@ -95,7 +96,8 @@ func TestWorldCards(t *testing.T) {
 	}{
 		{name: "door enters the stacks", got: cards[0].URL, want: "/t/u/~/team-a/d/"},
 		{name: "title from the root index", got: cards[0].Title, want: "Team Hub"},
-		{name: "stats read at least when sampled", got: cards[0].Stats, want: "6+ docs · 2 accepted · 3 sections · links to 1 world"},
+		{name: "sampled stats read at least", got: cards[0].Stats, want: "6+ docs · 2+ accepted · 3+ sections · links to 1 world"},
+		{name: "full catalog stats are exact", got: exact[0].Stats, want: "2 docs · 1 accepted · 1 section"},
 		{name: "sections largest first, then by name", got: labels(cards[0].Sections), want: []string{
 			"plans/ /t/u/~/team-a/d/plans/", "adr/ /t/u/~/team-a/d/adr/", "zeta/ /t/u/~/team-a/d/zeta/"}},
 		{name: "featured skips the root index", got: labels(cards[0].Featured), want: []string{
@@ -122,8 +124,9 @@ func TestFloorSummary(t *testing.T) {
 		floor domain.Floor
 		want  string
 	}{
-		{name: "sampled world reads at least", floor: atlasFloor(), want: "2 worlds · 6+ docs · 1 portal"},
-		{name: "exact counts without portals", floor: testFloor(), want: "2 worlds · 2 docs"},
+		{name: "sampled world reads at least", floor: atlasFloor(), want: "2 worlds · 6+ docs · 1 unreadable · 1 portal"},
+		{name: "unreadable world is named beside the total", floor: testFloor(), want: "2 worlds · 2 docs · 1 unreadable"},
+		{name: "exact when every world reads", floor: domain.Floor{Worlds: testFloor().Worlds[:1]}, want: "1 world · 2 docs"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -151,7 +154,7 @@ func TestFloorPaneRendersBrandedCards(t *testing.T) {
 	}
 	body := rec.Body.String()
 	for _, want := range []string{
-		`<p class="floor-bar"><span class="floor-sum">2 worlds · 6&#43; docs · 1 portal</span>`, // html/template escapes "+"
+		`<p class="floor-bar"><span class="floor-sum">2 worlds · 6&#43; docs · 1 unreadable · 1 portal</span>`, // html/template escapes "+"
 		`<li class="world-card" style="--world-accent: #8250df">`,
 		`<a class="world-door" href="/t/u/~/team-a/d/"><img class="world-logo" src="/theme/worlds/team-a/logo" alt=""><span class="world-name">Team Room</span></a>`,
 		`<p class="world-host">team-a</p>`,

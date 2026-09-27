@@ -52,17 +52,24 @@ type cardLink struct {
 
 // floorSummary counts the universe for the pane's summary line.
 func floorSummary(floor domain.Floor) string {
-	worlds, portals, docs, truncated := 0, 0, 0, false
+	worlds, portals, unreadable, docs, truncated := 0, 0, 0, 0, false
 	for _, fw := range floor.Worlds {
-		if fw.Portal {
+		switch {
+		case fw.Portal:
 			portals++
 			continue
+		case fw.Err:
+			unreadable++
 		}
 		worlds++
 		docs += len(contentDocs(fw.Docs))
 		truncated = truncated || fw.Truncated
 	}
-	parts := []string{plural(worlds, "world"), docCount(docs, truncated)}
+	// The total leaves out unreadable worlds, so they are named beside it.
+	parts := []string{plural(worlds, "world"), sampledCount(docs, "doc", "docs", truncated)}
+	if unreadable > 0 {
+		parts = append(parts, fmt.Sprintf("%d unreadable", unreadable))
+	}
 	if portals > 0 {
 		parts = append(parts, plural(portals, "portal"))
 	}
@@ -85,12 +92,12 @@ func worldCards(floor domain.Floor, t trail, idx int) []worldCardVM {
 			card.Sky = worldSky(docs)
 			card.Sections, card.MoreSections = worldSections(docs, open)
 			card.Featured = featuredDocs(docs, open)
-			stats = append(stats, docCount(len(docs), fw.Truncated))
+			stats = append(stats, sampledCount(len(docs), "doc", "docs", fw.Truncated))
 			if n := acceptedCount(docs); n > 0 {
-				stats = append(stats, fmt.Sprintf("%d accepted", n))
+				stats = append(stats, sampledCount(n, "accepted", "accepted", fw.Truncated))
 			}
 			if n := len(card.Sections) + card.MoreSections; n > 0 {
-				stats = append(stats, plural(n, "section"))
+				stats = append(stats, sampledCount(n, "section", "sections", fw.Truncated))
 			}
 		}
 		if n := linksOut[fw.World.Name]; n > 0 {
@@ -138,12 +145,17 @@ func acceptedCount(docs []domain.FloorDoc) int {
 	return n
 }
 
-// docCount reads "at least" when the floor sampled a larger catalog.
-func docCount(n int, truncated bool) string {
-	if truncated {
-		return fmt.Sprintf("%d+ docs", n)
+// sampledCount formats a count from the floor's catalog sample; truncated
+// marks it a lower bound, since the rest of the catalog went unread.
+func sampledCount(n int, one, many string, truncated bool) string {
+	switch {
+	case truncated:
+		return fmt.Sprintf("%d+ %s", n, many)
+	case n == 1:
+		return "1 " + one
+	default:
+		return fmt.Sprintf("%d %s", n, many)
 	}
-	return plural(n, "doc")
 }
 
 // worldSections are the world's top-level directories, largest first, and
