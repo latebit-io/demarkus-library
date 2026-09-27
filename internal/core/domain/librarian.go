@@ -44,8 +44,7 @@ type LibrarianPersona struct {
 }
 
 // MaxLibrarianInstructions bounds house instructions in characters (runes): a
-// voice and a focus, not a second prompt. Runes never outnumber a browser's
-// UTF-16 maxlength count, so what the desk's textarea accepts, the cap accepts.
+// voice and a focus, not a second prompt.
 const MaxLibrarianInstructions = 2048
 
 // LibrarianEventKind names the stream vocabulary the librarian emits — the

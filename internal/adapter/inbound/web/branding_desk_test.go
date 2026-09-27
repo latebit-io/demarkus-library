@@ -307,16 +307,19 @@ func TestBrandingDeskHubSetsTheLibrarian(t *testing.T) {
 	if rec := postForm(app, "/w/soul.demarkus.io/branding", form); rec.Code != http.StatusBadRequest {
 		t.Errorf("oversized instructions accepted: %d", rec.Code)
 	}
-	// The cap counts characters as the textarea's maxlength does: multi-byte
-	// runes and submitted CRLFs count once.
+	// The cap counts characters: multi-byte runes, astral runes (two UTF-16
+	// units), and submitted CRLFs each count once.
 	for name, fits := range map[string]string{
 		"non-ASCII": strings.Repeat("é", domain.MaxLibrarianInstructions),
+		"astral":    strings.Repeat("📚", domain.MaxLibrarianInstructions),
 		"CRLF":      strings.Repeat("x\r\n", domain.MaxLibrarianInstructions/2),
 	} {
-		form.Set("librarian_instructions", fits)
-		if rec := postForm(app, "/w/soul.demarkus.io/branding", form); rec.Code != http.StatusSeeOther {
-			t.Errorf("%s instructions at the cap refused: %d", name, rec.Code)
-		}
+		t.Run(name, func(t *testing.T) {
+			form.Set("librarian_instructions", fits)
+			if rec := postForm(app, "/w/soul.demarkus.io/branding", form); rec.Code != http.StatusSeeOther {
+				t.Errorf("instructions at the cap refused: %d", rec.Code)
+			}
+		})
 	}
 
 	app, _ = deskApp(t, svc)

@@ -53,7 +53,7 @@ type brandingVM struct {
 	// The room's librarian as the hub declares it (hub only).
 	LibrarianName         string
 	LibrarianInstructions string
-	InstructionsMax       int // the textarea's maxlength: domain.MaxLibrarianInstructions
+	InstructionsMax       int // the stated cap; the server enforces it, not maxlength (UTF-16 units)
 	Error                 string
 	Notice                string
 	CancelURL             string
@@ -180,7 +180,7 @@ func readBrandingForm(c *echo.Context) (brandingForm, error) {
 		tokens:   map[string]string{},
 		librarian: brandLibrarian{
 			Name: strings.TrimSpace(c.FormValue("librarian_name")),
-			// A submitted textarea's newlines are CRLF; maxlength counted them as one.
+			// A submitted textarea's newlines are CRLF; the author typed one character.
 			Instructions: strings.TrimSpace(strings.ReplaceAll(c.FormValue("librarian_instructions"), "\r\n", "\n")),
 		},
 	}

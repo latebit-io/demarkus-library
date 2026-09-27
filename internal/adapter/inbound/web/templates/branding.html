@@ -67,7 +67,7 @@
             <input type="text" name="librarian_name" value="{{ .LibrarianName }}" placeholder="Librarian">
           </label>
           <label>house instructions (up to {{ .InstructionsMax }} characters)
-            <textarea name="librarian_instructions" rows="4" maxlength="{{ .InstructionsMax }}" placeholder="Answer in plain language; point newcomers to the onboarding guide first.">{{ .LibrarianInstructions }}</textarea>
+            <textarea name="librarian_instructions" rows="4" placeholder="Answer in plain language; point newcomers to the onboarding guide first.">{{ .LibrarianInstructions }}</textarea>
           </label>
         </fieldset>
         {{- end }}
