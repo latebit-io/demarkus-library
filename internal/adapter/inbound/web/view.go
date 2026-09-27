@@ -43,6 +43,15 @@ type WorldBranding struct {
 	LogoURL    string
 	CSSURL     string
 	FaviconURL string
+	// Accent is the world's accent token, for surfaces that show several
+	// worlds at once and so cannot load each world's stylesheet.
+	Accent string
+}
+
+// AccentCSS is Accent for a style attribute. Every accent passed tokensCSS,
+// which bans anything that could end the declaration or fetch.
+func (r WorldBranding) AccentCSS() template.CSS {
+	return template.CSS(r.Accent) //nolint:gosec // validated by tokensCSS
 }
 
 // DefaultBranding is the stock room: the demarkus wordmark, no logo, no
@@ -85,15 +94,16 @@ func NewView() (*View, error) {
 	// executed, which keeps that per-request override valid.
 	t, err := template.New("library").
 		Funcs(template.FuncMap{
-			"csrf":      func() string { return "" },
-			"brand":     func(string) string { return "" },
-			"logoURL":   func(string) string { return "" },
-			"worldCSS":  func(string) string { return "" },
-			"themeCSS":  func() string { return "" },
-			"tokensCSS": func() string { return "" },
-			"favicon":   func() string { return "" },
-			"universe":  func() string { return "" },
-			"librarian": func() string { return "" },
+			"csrf":       func() string { return "" },
+			"brand":      func(string) string { return "" },
+			"worldBrand": func(string) WorldBranding { return WorldBranding{} },
+			"logoURL":    func(string) string { return "" },
+			"worldCSS":   func(string) string { return "" },
+			"themeCSS":   func() string { return "" },
+			"tokensCSS":  func() string { return "" },
+			"favicon":    func() string { return "" },
+			"universe":   func() string { return "" },
+			"librarian":  func() string { return "" },
 			// Static: shared by previewize and the preview-link template.
 			"previewTrigger": func() string { return previewTrigger },
 		}).
@@ -150,9 +160,7 @@ func (v *View) Render(c *echo.Context, w io.Writer, name string, data any) error
 		}
 		r := b.For(world)
 		if world != "" && v.worlds != nil {
-			if iw, ok := v.worlds.For(ctx, world); ok {
-				r = r.over(iw)
-			}
+			r = r.over(v.ownBranding(ctx, b, world))
 			// The hub's own sheet is already the room theme in the head; a
 			// second link in the body would only load it again. A manifest
 			// sheet for the hub world is not in the head, so it stays.
@@ -164,8 +172,14 @@ func (v *View) Render(c *echo.Context, w io.Writer, name string, data any) error
 		return r
 	}
 	cl.Funcs(template.FuncMap{
-		"csrf":      func() string { return token },
-		"brand":     func(world string) string { return resolve(world).Name },
+		"csrf":  func() string { return token },
+		"brand": func(world string) string { return resolve(world).Name },
+		"worldBrand": func(world string) WorldBranding {
+			if world == "" {
+				return WorldBranding{}
+			}
+			return v.ownBranding(ctx, b, world)
+		},
 		"logoURL":   func(world string) string { return resolve(world).LogoURL },
 		"worldCSS":  func(world string) string { return resolve(world).CSSURL },
 		"themeCSS":  func() string { return b.ThemeCSSURL },
@@ -204,6 +218,19 @@ func (v *View) roomBranding(ctx context.Context) Branding {
 	return b
 }
 
+// ownBranding is what a world declares for itself, its documents over its
+// manifest entry, with no room fallback: a page listing several worlds must
+// not give each one the room's name.
+func (v *View) ownBranding(ctx context.Context, b Branding, world string) WorldBranding {
+	own := b.Worlds[world]
+	if v.worlds != nil {
+		if iw, ok := v.worlds.For(ctx, world); ok {
+			own = own.over(iw)
+		}
+	}
+	return own
+}
+
 // over lays a world's own declaration over the resolved branding: each set
 // field replaces, each empty one inherits.
 func (r WorldBranding) over(iw WorldBranding) WorldBranding {
@@ -215,6 +242,9 @@ func (r WorldBranding) over(iw WorldBranding) WorldBranding {
 	}
 	if iw.CSSURL != "" {
 		r.CSSURL = iw.CSSURL
+	}
+	if iw.Accent != "" {
+		r.Accent = iw.Accent
 	}
 	return r
 }

@@ -692,25 +692,57 @@ body.edit-page { max-width: none; padding: 1.5rem 1.5rem 2rem; }
         flex: 1 1 auto; }
 .graph-canvas .world-map-new { flex: 0 0 auto; margin-top: .4rem; }
 
-/* ── World index (ADR 0006 §5): the universe lists worlds as doors, never
-      loose documents. A card carries door affordances (glyph, chevron) a
-      document row never has; federated worlds read as a remote server. ── */
+/* ── World index (ADR 0006 §5): the universe lists worlds as doors. A card
+      is one stretched link into the world's stacks, with its catalog at a
+      glance: a constellation of its documents, counts, sections, and
+      featured documents. Federated worlds read as a remote server. ── */
+.floor-bar { display: flex; align-items: baseline; gap: 1rem; margin: 0;
+        font-family: var(--font-ui); font-size: .75rem; color: var(--muted); }
+.floor-bar .floor-view { margin-left: auto; }
 .floor-view { font-family: var(--font-ui); font-size: .75rem;
         color: var(--muted); text-decoration: none; }
 .floor-view:hover { color: var(--ink); }
 .worlds { list-style: none; margin: 1rem 0 0; padding: 0;
-        display: grid; gap: .6rem; }
-.world-card { display: flex; align-items: center; gap: .7rem;
-        padding: .75rem 1rem; border: 1px solid var(--rule); border-radius: 4px;
-        text-decoration: none; color: inherit; font-family: var(--font-ui); }
+        display: grid; gap: .8rem; }
+.world-card { position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr);
+        align-items: start; gap: 1.1rem; padding: 1rem 1.1rem;
+        border: 1px solid var(--rule); border-radius: 4px; font-family: var(--font-ui); }
 .world-card:hover { border-color: var(--ink); background: var(--wash); }
+.world-card:has(.world-door:focus-visible) { outline: 2px solid var(--ink); outline-offset: 2px; }
+.world-door { color: inherit; text-decoration: none; }
+.world-door:focus-visible { outline: none; }
+.world-door::after { content: ""; position: absolute; inset: 0; }
+.world-sections a, .world-featured a { position: relative; z-index: 1; }
+.world-sky { width: 7rem; height: auto; overflow: visible; }
+.sky-dot { fill: var(--muted); opacity: .45; }
+.sky-dot.lit { fill: var(--world-accent, var(--ok)); opacity: 1; }
 .world-glyph { font-size: 1.1rem; color: var(--muted); }
-.world-name { font-weight: 600; }
+.world-main { min-width: 0; }
+.world-head { display: flex; align-items: center; gap: .5rem; margin: 0; }
+.world-logo { height: 1.3rem; width: auto; margin-right: .45rem; vertical-align: -.25rem; }
+.world-name { font-weight: 600; font-size: 1.05rem; }
 .world-chev { margin-left: auto; color: var(--muted); }
 .world-tag { margin-left: auto; font-size: .8rem; padding: 0 .35rem .05rem; }
+.world-host { margin: .1rem 0 0; font-family: var(--font-mono); font-size: .75rem;
+        color: var(--muted); overflow-wrap: anywhere; }
+.world-stats { margin: .4rem 0 0; font-size: .8rem; color: var(--muted); }
+.world-sections { display: flex; flex-wrap: wrap; gap: .3rem; margin: .6rem 0 0; }
+.world-sections a { padding: .05rem .5rem; border: 1px solid var(--rule); border-radius: 999px;
+        font-family: var(--font-mono); font-size: .75rem; color: var(--ink); text-decoration: none; }
+.world-sections a:hover { border-color: var(--ink); background: var(--paper); }
+.world-sections .world-more { border-style: dashed; color: var(--muted); }
+.world-featured { list-style: none; display: flex; flex-wrap: wrap; gap: .2rem 1.1rem;
+        margin: .6rem 0 0; padding: 0; font-size: .85rem; }
+.world-featured a { color: var(--ink); text-decoration-color: transparent; }
+.world-featured a:hover { text-decoration-color: currentColor; }
+.world-featured a::before { content: "★ "; color: var(--world-accent, var(--muted)); }
 .world-card.federated { border-style: dashed; }
 .world-card.federated .world-chev { margin-left: .4rem; }
 .world-card.gone { opacity: .55; }
+@media (max-width: 34rem) {
+  .world-card { grid-template-columns: minmax(0, 1fr); gap: .6rem; }
+  .world-sky { width: 5rem; }
+}
 /* Rich directory index (ADR 0006 §5), set as a table of contents: title,
    a dotted leader, then the *.md filename and status. Folders carry the
    world-card glyph; the open document is marked like a reading position. */

@@ -84,6 +84,7 @@ type paneVM struct {
 	Meta        []domain.Property // every other out-of-band metadata key, sorted
 	MarkURL     string
 	Librarian   *librarianPaneVM // the librarian pane's transcript + ask form (kind "a" only)
+	Floor       *floorVM         // the universe pane's cards or map (the floor only)
 	ReaderURL   string           // header/margin affordance: open this pane in the reader overlay (R4)
 	GraphURL    string           // margin affordance: open this doc's graph overlay (empty ⇒ no references)
 	GraphDegree int              // reference edges the graph affordance advertises

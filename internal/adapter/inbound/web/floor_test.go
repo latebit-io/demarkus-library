@@ -2,6 +2,7 @@ package web
 
 import (
 	"net/http"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
@@ -45,36 +46,124 @@ func TestFloorChunkRoundTrip(t *testing.T) {
 	}
 }
 
-func TestFloorCardsWorldsOnly(t *testing.T) {
-	floor := testFloor()
-	floor.Worlds = append(floor.Worlds, domain.FloorWorld{
-		World: domain.WorldInfo{Name: "remote.example.org"}, Portal: true,
-	})
-	tr := trail{Panes: []paneAddr{{Kind: paneFloor}}, Focus: 0}
-	out := string(floorCards(floor, tr, 0, DefaultTerms()))
+// atlasFloor is a universe with one catalogued world that links out, a portal
+// it links to, and an unreadable world.
+func atlasFloor() domain.Floor {
+	return domain.Floor{
+		Worlds: []domain.FloorWorld{
+			{World: domain.WorldInfo{Name: "team-a"}, Truncated: true, Docs: []domain.FloorDoc{
+				{Path: "/index.md", Title: "Team Hub", Importance: 0.95, Status: "accepted"},
+				{Path: "/.well-known/library/branding.md", Title: "Branding", Importance: 0.9},
+				{Path: "/adr/0001.md", Title: "ADR 1", Importance: 0.85, Status: "accepted"},
+				{Path: "/plans/a.md", Title: "Plan A", Importance: 0.8, Status: "draft"},
+				{Path: "/plans/b.md", Title: "Plan B", Importance: 0.7, Status: "draft"},
+				{Path: "/notes.md", Title: "Notes", Importance: 0.6, Status: "draft"},
+				{Path: "/zeta/z.md", Title: "Zeta", Importance: 0.1, Status: "draft"},
+			}},
+			{World: domain.WorldInfo{Name: "old-world"}, Err: true},
+			{World: domain.WorldInfo{Name: "remote.example.org"}, Portal: true},
+		},
+		Edges: []domain.Edge{
+			{From: domain.Ref{World: "team-a", Path: "/index.md"}, To: domain.Ref{World: "remote.example.org", Path: "/"}, Count: 2},
+			{From: domain.Ref{World: "team-a", Path: "/index.md"}, To: domain.Ref{World: "team-a", Path: "/notes.md"}},
+		},
+	}
+}
 
-	// Worlds render as door cards; no loose documents at the universe level.
-	if !strings.Contains(out, `class="world-card"`) {
-		t.Error("expected world door cards")
+// Each world is a door with its catalog at a glance: counts, sections
+// largest first, and featured documents, all trail-aware and none of the
+// world's machinery (dot directories).
+func TestWorldCards(t *testing.T) {
+	t.Parallel()
+
+	tr := trail{Panes: []paneAddr{{Kind: paneFloor}}, Focus: 0}
+	cards := worldCards(atlasFloor(), tr, 0)
+	if len(cards) != 3 {
+		t.Fatalf("cards = %d, want 3", len(cards))
 	}
-	if strings.Contains(out, "Hub") || strings.Contains(out, "ADR 0005") {
-		t.Errorf("universe must list worlds only, not documents: %s", out)
+	labels := func(links []cardLink) []string {
+		out := make([]string, 0, len(links))
+		for _, l := range links {
+			out = append(out, l.Label+" "+l.URL)
+		}
+		return out
 	}
-	// Entering a world lands on its stacks (root listing → rich index), not the
-	// map pane — the map is the `m` discovery overlay (ADR 0006 §5).
-	if !strings.Contains(out, `href="/t/u/~/team-a/d/"`) {
-		t.Errorf("world card should enter the world's stacks: %s", out)
+	tests := []struct {
+		name string
+		got  any
+		want any
+	}{
+		{name: "door enters the stacks", got: cards[0].URL, want: "/t/u/~/team-a/d/"},
+		{name: "title from the root index", got: cards[0].Title, want: "Team Hub"},
+		{name: "stats read at least when sampled", got: cards[0].Stats, want: "6+ docs · 2 accepted · 3 sections · links to 1 world"},
+		{name: "sections largest first, then by name", got: labels(cards[0].Sections), want: []string{
+			"plans/ /t/u/~/team-a/d/plans/", "adr/ /t/u/~/team-a/d/adr/", "zeta/ /t/u/~/team-a/d/zeta/"}},
+		{name: "featured skips the root index", got: labels(cards[0].Featured), want: []string{
+			"ADR 1 /t/u/~/team-a/d/adr/0001.md", "Plan A /t/u/~/team-a/d/plans/a.md", "Plan B /t/u/~/team-a/d/plans/b.md"}},
+		{name: "constellation drawn", got: strings.Count(string(cards[0].Sky), "<circle"), want: 6},
+		{name: "unreadable world has no catalog", got: cards[1].Stats + string(cards[1].Sky), want: ""},
+		{name: "portal counts its inbound links", got: cards[2].Stats, want: "linked from 1"},
 	}
-	if strings.Contains(out, `/team-a/u/`) {
-		t.Errorf("world card must not link to the map pane: %s", out)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if !reflect.DeepEqual(tt.got, tt.want) {
+				t.Errorf("got %v, want %v", tt.got, tt.want)
+			}
+		})
 	}
-	// Federated/remote world → dashed federated door with an external root link.
-	if !strings.Contains(out, "world-card federated") || !strings.Contains(out, "federated · sign-in") {
-		t.Errorf("portal world should render as a federated door: %s", out)
+}
+
+func TestFloorSummary(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		floor domain.Floor
+		want  string
+	}{
+		{name: "sampled world reads at least", floor: atlasFloor(), want: "2 worlds · 6+ docs · 1 portal"},
+		{name: "exact counts without portals", floor: testFloor(), want: "2 worlds · 2 docs"},
 	}
-	// Unreadable world still renders, tagged (absence would read as nonexistence).
-	if !strings.Contains(out, "unreadable") {
-		t.Errorf("unreadable world should render, tagged: %s", out)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := floorSummary(tt.floor); got != tt.want {
+				t.Errorf("floorSummary = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// A card lays the world's own branding over its catalog: the declared name,
+// logo, and accent win, and the address stays visible beneath the name.
+// Unreadable and portal worlds keep their bare names.
+func TestFloorPaneRendersBrandedCards(t *testing.T) {
+	svc := inWorldSvc("# Logo\n\nThe mark.\n\n```svg\n<svg xmlns='http://www.w3.org/2000/svg'/>\n```\n")
+	svc.raws[WorldBrandDoc] = domain.RawDocument{Body: "# Branding\n\nIdentity.\n\n```yaml\nname: Team Room\ntheme:\n  accent: \"#8250df\"\n```\n"}
+	svc.rawsWorld = "team-a"
+	svc.floor = atlasFloor()
+	app, _ := inWorldApp(t, svc)
+
+	rec := get(app, "/t/u")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	body := rec.Body.String()
+	for _, want := range []string{
+		`<p class="floor-bar"><span class="floor-sum">2 worlds · 6&#43; docs · 1 portal</span>`, // html/template escapes "+"
+		`<li class="world-card" style="--world-accent: #8250df">`,
+		`<a class="world-door" href="/t/u/~/team-a/d/"><img class="world-logo" src="/theme/worlds/team-a/logo" alt=""><span class="world-name">Team Room</span></a>`,
+		`<p class="world-host">team-a</p>`,
+		`<a href="/t/u/~/team-a/d/plans/" title="2 docs">plans/</a>`,
+		`<li class="world-card gone">`,
+		`<span class="world-name">old-world</span>`,
+		`<li class="world-card federated">`,
+		`federated · sign-in`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("universe missing %q", want)
+		}
 	}
 }
 

@@ -265,10 +265,13 @@ type FloorDoc struct {
 // universe made visible (ADR 0005 §16, plans addendum). A portal renders as a
 // small rim node with no satellites.
 type FloorWorld struct {
-	World  WorldInfo
-	Docs   []FloorDoc
-	Err    bool
-	Portal bool
+	World WorldInfo
+	Docs  []FloorDoc
+	// Truncated marks a catalog larger than the floor's sample, so a count
+	// of Docs reads as "at least".
+	Truncated bool
+	Err       bool
+	Portal    bool
 }
 
 // WorldCluster is one top-level directory of a world's catalog on the world

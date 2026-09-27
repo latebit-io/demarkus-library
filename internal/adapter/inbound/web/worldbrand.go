@@ -124,7 +124,7 @@ func (w *WorldBrands) For(ctx context.Context, world string) (WorldBranding, boo
 	if brand.empty() {
 		return WorldBranding{}, false
 	}
-	resolved := WorldBranding{Name: brand.name}
+	resolved := WorldBranding{Name: brand.name, Accent: strings.TrimSpace(brand.tokens["accent"])}
 	if brand.logo != nil {
 		resolved.LogoURL = themeWorldsPrefix + world + "/logo"
 	}

@@ -1,0 +1,43 @@
+{{/* The universe pane's body (ADR 0006 §5): world door cards by default, the
+     map on ?view=map. The bar carries the count and the switch. */}}
+{{define "floor-body"}}
+<p class="floor-bar">{{with .Summary}}<span class="floor-sum">{{ . }}</span>{{end}}{{ .Toggle }}</p>
+{{- if .Cards }}
+<ul class="worlds">
+  {{- range .Cards }}
+  {{template "world-card" .}}
+  {{- end }}
+</ul>
+{{- else }}
+{{ .Map }}
+{{- end }}
+{{end}}
+
+{{/* One world's door. The whole card enters the world's stacks (the door's
+     stretched link); sections and featured documents are links of their own
+     above it. Branding is read only for worlds the reader can open. */}}
+{{define "world-card"}}
+{{- $own := worldBrand "" }}{{ if not (or .Portal .Unreadable) }}{{ $own = worldBrand .World }}{{ end }}
+{{- $name := or $own.Name .Title .World }}
+<li class="world-card{{if .Portal}} federated{{end}}{{if .Unreadable}} gone{{end}}"{{with $own.Accent}} style="--world-accent: {{ $own.AccentCSS }}"{{end}}>
+  {{- if .Sky }}{{ .Sky }}{{ else }}<span class="world-glyph" aria-hidden="true">▤</span>{{ end }}
+  <div class="world-main">
+    <p class="world-head"><a class="world-door" href="{{ .URL }}">{{with $own.LogoURL}}<img class="world-logo" src="{{ . }}" alt="">{{end}}<span class="world-name">{{ $name }}</span></a>
+      {{- if .Portal }}<span class="world-tag">federated · sign-in</span><span class="world-chev" aria-hidden="true">↗</span>
+      {{- else if .Unreadable }}<span class="world-tag">unreadable</span>
+      {{- else }}<span class="world-chev" aria-hidden="true">›</span>{{ end }}</p>
+    {{- if ne $name .World }}
+    <p class="world-host">{{ .World }}</p>
+    {{- end }}
+    {{- with .Stats }}
+    <p class="world-stats">{{ . }}</p>
+    {{- end }}
+    {{- if .Sections }}
+    <p class="world-sections">{{ range .Sections }}<a href="{{ .URL }}" title="{{ .Hint }}">{{ .Label }}</a>{{ end }}{{ with .MoreSections }}<a class="world-more" href="{{ $.URL }}">+{{ . }} more</a>{{ end }}</p>
+    {{- end }}
+    {{- if .Featured }}
+    <ul class="world-featured">{{ range .Featured }}<li><a href="{{ .URL }}" title="{{ .Hint }}">{{ .Label }}</a></li>{{ end }}</ul>
+    {{- end }}
+  </div>
+</li>
+{{- end}}

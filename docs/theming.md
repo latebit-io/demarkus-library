@@ -94,6 +94,9 @@ head, so a head link would stick to the first world visited.
 
 The floor (the whole-universe view) and the login turnstile always show the
 room's identity; a world's identity appears once the reader is inside it.
+On the floor, each world's card shows that world's declared name and logo,
+and its `accent` token colours the card's accepted documents and featured
+links. The card never loads the world's stylesheet.
 
 ## Two layers: the room from files, a world from its documents
 

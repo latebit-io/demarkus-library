@@ -92,13 +92,15 @@ func (h spatialPanes) floorPane(ctx context.Context, t trail, i int, mapView boo
 		World:    h.terms.UniverseLower(),
 	}
 	if mode != "spine" {
-		// Worlds-only door cards by default (ADR 0006 §5); the SVG topology is
-		// the deliberate "view as map" secondary view.
-		body := floorCards(floor, t, i, h.terms)
-		if mapView {
-			body = floorSVG(floor, t, i, h.terms)
+		// World door cards by default (ADR 0006 §5); the SVG topology is the
+		// deliberate "view as map" secondary view, and holds the empty state.
+		fv := &floorVM{Toggle: floorViewToggle(t, mapView)}
+		if mapView || len(floor.Worlds) == 0 {
+			fv.Map = floorSVG(floor, t, i, h.terms)
+		} else {
+			fv.Summary, fv.Cards = floorSummary(floor), worldCards(floor, t, i)
 		}
-		vm.Content = floorViewToggle(t, mapView) + body
+		vm.Floor = fv
 	}
 	return vm, nil
 }

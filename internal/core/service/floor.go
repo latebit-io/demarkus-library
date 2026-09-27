@@ -143,7 +143,8 @@ func (s *ReadingService) buildFloor(ctx context.Context) (domain.Floor, error) {
 	floor := domain.Floor{Worlds: make([]domain.FloorWorld, 0, len(worlds))}
 	for _, w := range worlds {
 		fw := domain.FloorWorld{World: w}
-		raw, err := s.world.Lookup(ctx, w.Name, domain.LookupQuery{Scope: "/", Query: "*", Limit: floorSample})
+		// One row past the sample tells a full catalog from a larger one.
+		raw, err := s.world.Lookup(ctx, w.Name, domain.LookupQuery{Scope: "/", Query: "*", Limit: floorSample + 1})
 		switch {
 		case errors.Is(err, domain.ErrUnauthorized):
 			// The reader's identity died mid-assembly — that is the
@@ -152,7 +153,10 @@ func (s *ReadingService) buildFloor(ctx context.Context) (domain.Floor, error) {
 		case err != nil:
 			fw.Err = true
 		default:
-			fw.Docs = parseCatalogTable(raw.Body, floorSample)
+			fw.Docs = parseCatalogTable(raw.Body, floorSample+1)
+			if len(fw.Docs) > floorSample {
+				fw.Docs, fw.Truncated = fw.Docs[:floorSample], true
+			}
 		}
 		floor.Worlds = append(floor.Worlds, fw)
 	}
