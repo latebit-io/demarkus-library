@@ -554,6 +554,37 @@
     if (e.key === "Escape" && shown(u)) { e.preventDefault(); closeUniverse(); return; }
   });
 
+  // --- librarian (a) ---------------------------------------------------
+  // Keyboard glue for the ask box; the form itself is a real POST that works
+  // without any of this. `a` puts the cursor in the ask box when a librarian
+  // pane is open, else walks through the nav door (which joins the trail).
+  document.addEventListener("keydown", function (e) {
+    if (e.key !== "a" || e.ctrlKey || e.metaKey || e.altKey || typingIn(e)) return;
+    var p = palette();
+    if (p && !p.hidden) return;
+    var box = document.querySelector(".pane .ask-input");
+    var door = document.querySelector("a.nav-librarian");
+    if (!box && !door) return;
+    e.preventDefault();
+    box ? box.focus() : door.click();
+  });
+  // Enter asks, Shift+Enter breaks the line; nothing is sent while an answer
+  // is still streaming (the server would refuse it as busy anyway).
+  document.addEventListener("keydown", function (e) {
+    var box = e.target;
+    if (e.key !== "Enter" || e.shiftKey || e.isComposing || !box.matches || !box.matches("textarea.ask-input")) return;
+    e.preventDefault();
+    var form = box.form, room = form && form.closest(".librarian");
+    if (!box.value.trim() || (room && room.querySelector(".ask-live"))) return;
+    form.requestSubmit(form.querySelector(".ask-send"));
+  });
+  // A question that landed in the transcript clears the box for the next one.
+  document.addEventListener("htmx:after:swap", function (e) {
+    if (!e.target || e.target.id !== "librarian-exchanges") return;
+    var box = document.querySelector(".ask-form .ask-input");
+    if (box) { box.value = ""; box.focus(); }
+  });
+
   // --- node-hover highlight (map + graph) ------------------------------
   // ADR 0003 concession (JS island): a hover affordance can't be expressed in
   // SSR/CSS because an edge's two endpoints aren't DOM-adjacent to either node,

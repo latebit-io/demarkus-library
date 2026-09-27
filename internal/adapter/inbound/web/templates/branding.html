@@ -59,6 +59,17 @@
             <input type="file" name="favicon_file" accept="image/*">
           </label>
         </fieldset>
+
+        <fieldset class="branding-librarian">
+          <legend>librarian</legend>
+          <p class="edit-append-note">How the room's AI librarian presents itself. The name replaces "Librarian" in the nav and its pane; the house instructions shape its voice and focus, but never override its grounding in the catalog.</p>
+          <label>name
+            <input type="text" name="librarian_name" value="{{ .LibrarianName }}" placeholder="Librarian">
+          </label>
+          <label>house instructions (up to 2 KB)
+            <textarea name="librarian_instructions" rows="4" maxlength="2048" placeholder="Answer in plain language; point newcomers to the onboarding guide first.">{{ .LibrarianInstructions }}</textarea>
+          </label>
+        </fieldset>
         {{- end }}
 
         <fieldset class="branding-tokens">

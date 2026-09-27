@@ -191,6 +191,9 @@ func (g *Gateway) Lookup(ctx context.Context, world string, q domain.LookupQuery
 	if q.Limit > 0 {
 		args["limit"] = q.Limit
 	}
+	if q.Match != "" {
+		args["match"] = q.Match
+	}
 	return g.read(ctx, toolRead{Tool: "mark_lookup", World: world, Path: q.Scope, Args: args})
 }
 
@@ -205,6 +208,9 @@ func (g *Gateway) LookupAll(ctx context.Context, q domain.LookupQuery) (domain.R
 	}
 	if q.Limit > 0 {
 		args["limit"] = q.Limit
+	}
+	if q.Match != "" {
+		args["match"] = q.Match
 	}
 	return g.read(ctx, toolRead{
 		Tool:               "mark_lookup_all",

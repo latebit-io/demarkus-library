@@ -33,6 +33,9 @@ type ReadingService struct {
 // compile-time check that ReadingService satisfies the inbound port.
 var _ port.ReadingService = (*ReadingService)(nil)
 
+// compile-time check that ReadingService also serves the librarian's catalog.
+var _ port.Catalog = (*ReadingService)(nil)
+
 // NewReadingService wires the outbound ports into the core. cache may be nil.
 func NewReadingService(world port.WorldGateway, renderer port.Renderer, cache port.DocumentCache) *ReadingService {
 	return &ReadingService{world: world, renderer: renderer, cache: cache}

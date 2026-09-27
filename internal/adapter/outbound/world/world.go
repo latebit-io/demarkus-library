@@ -94,6 +94,9 @@ func (g *Gateway) Versions(_ context.Context, world, path string) (domain.RawDoc
 
 // Lookup queries the world's catalog for req.Query under req.Scope, optionally
 // narrowed by a comma-separated key=value filter (tag pages use tag=<tag>).
+// q.Match is not sent: this fetch client predates body match, so the answer is
+// the catalog match and its metadata carries no match echo, which callers read
+// as catalog fallback.
 func (g *Gateway) Lookup(_ context.Context, world string, q domain.LookupQuery) (domain.RawDocument, error) {
 	host := NormalizeHost(world)
 	res, err := g.client.Lookup(lookupCall{

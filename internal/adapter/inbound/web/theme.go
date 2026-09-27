@@ -58,14 +58,15 @@ type WorldTheme struct {
 }
 
 // Terms is the room's display vocabulary. Universe names the whole-knowledge
-// scope readers see (floor, overlay, dock); routes and internal scope keys
-// keep their own names.
+// scope readers see (floor, overlay, dock); Librarian names the AI librarian
+// (nav door, pane title). Routes and internal scope keys keep their own names.
 type Terms struct {
-	Universe string `yaml:"universe"`
+	Universe  string `yaml:"universe"`
+	Librarian string `yaml:"librarian"`
 }
 
 // DefaultTerms is the stock vocabulary.
-func DefaultTerms() Terms { return Terms{Universe: "Universe"} }
+func DefaultTerms() Terms { return Terms{Universe: "Universe", Librarian: "Librarian"} }
 
 // UniverseLower is the term in running text ("the knowledge floor").
 func (t Terms) UniverseLower() string { return strings.ToLower(t.Universe) }
@@ -109,6 +110,9 @@ func ThemeRoutes(e *echo.Echo, m ThemeManifest) (Branding, error) {
 	}
 	if u := strings.TrimSpace(m.Terms.Universe); u != "" {
 		b.Terms.Universe = u
+	}
+	if l := strings.TrimSpace(m.Terms.Librarian); l != "" {
+		b.Terms.Librarian = l
 	}
 	var err error
 	if b.LogoURL, err = serveAsset(e, ThemeLogoPath, m.resolve(m.Logo), ""); err != nil {

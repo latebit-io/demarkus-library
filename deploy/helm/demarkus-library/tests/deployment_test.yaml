@@ -319,6 +319,50 @@ tests:
             name: DEMARKUS_TERM_UNIVERSE
             value: Knowledge
 
+  - it: wires the librarian term when set
+    template: deployment.yaml
+    set:
+      library.branding.librarianTerm: Ada
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DEMARKUS_TERM_LIBRARIAN
+            value: Ada
+
+  - it: wires the librarian key, model, and ask budget together
+    template: deployment.yaml
+    set:
+      library.librarian.keyEnv: ANTHROPIC_API_KEY
+      library.librarian.existingSecretRef.name: llm-key
+      library.librarian.existingSecretRef.key: api-key
+      library.librarian.asksPerHour: 12
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: ANTHROPIC_API_KEY
+            valueFrom:
+              secretKeyRef:
+                name: llm-key
+                key: api-key
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DEMARKUS_LIBRARIAN_ASKS_PER_HOUR
+            value: "12"
+
+  - it: leaves the ask budget to the binary without a librarian key
+    template: deployment.yaml
+    set:
+      library.librarian.asksPerHour: 12
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DEMARKUS_LIBRARIAN_ASKS_PER_HOUR
+            value: "12"
+
   - it: fails render when manifestKey is set without a configMap
     template: deployment.yaml
     set:

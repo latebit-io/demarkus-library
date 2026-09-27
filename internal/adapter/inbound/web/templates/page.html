@@ -62,7 +62,7 @@
     {{- if .LibrarianURL }}
     <!-- The librarian door: joins the CURRENT trail, so the conversation
          arrives with the reader's context (Phase 4). -->
-    <a class="nav-librarian" href="{{ .LibrarianURL }}">Librarian</a>
+    <a class="nav-key nav-librarian" href="{{ .LibrarianURL }}" title="Ask {{ librarian }} (a)">{{ librarian }} <kbd>a</kbd></a>
     {{- end }}
     {{- if .Authenticated }}
     {{- if .User }}<span class="user" title="signed in as">{{ .User }}</span>{{ end }}

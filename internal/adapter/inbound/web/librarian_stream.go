@@ -1,18 +1,18 @@
 package web
 
 // The librarian's SSE surface (Phase 4, plan D4). GET /a/stream speaks the
-// stream vocabulary — trace lines, token deltas, the reconciling `answer`
-// text and `rendered` HTML, done — into the pane's htmx SSE block. On the
-// wire (htmx 4) the swapping frames are unnamed <hx-partial> events aimed
-// at the block's regions; answer and done stay named events (see sseFrame).
-// A real ask arrives only as a one-shot token from POST /a/ask. ?slow= is the one
-// survivor of the transport spike that proved this path (build order step
-// 1): a once-a-second soak, kept as the operational diagnostic for the
-// timeout/proxy/ingress questions every new environment re-asks.
+// stream vocabulary into the pane's htmx SSE block: linked trace lines, the
+// answer re-rendered through the document pipeline as it streams, then the
+// settled steps, sources, and done. On the wire (htmx 4) the swapping frames
+// are unnamed <hx-partial> events aimed at the block's regions; done stays a
+// named event (see sseFrame). A real ask arrives only as a one-shot token
+// from POST /a/ask. ?slow= is the one survivor of the transport spike that
+// proved this path (build order step 1): a once-a-second soak, kept as the
+// operational diagnostic for the timeout/proxy/ingress questions every new
+// environment re-asks.
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"html"
 	"net/http"
@@ -40,6 +40,10 @@ const (
 // soakCap bounds the ?slow= soak so a crafted URL cannot pin a goroutine
 // for hours; 120s is comfortably past every timeout under test.
 const soakCap = 120
+
+// renderInterval paces the streamed answer's re-renders: often enough to read
+// as live, rarely enough that an e-ink panel is not repainting every token.
+const renderInterval = 300 * time.Millisecond
 
 // LibrarianStream is the SSE endpoint. A real ask arrives only as a
 // pending-ask token from POST /a/ask (?ask=<token>) — the question never
@@ -87,24 +91,9 @@ func (h *LibrarianHandler) LibrarianStream(c *echo.Context) error {
 	flusher.Flush()
 
 	ctx := c.Request().Context()
-	send := func(event, data string) bool {
-		if ctx.Err() != nil {
-			return false
-		}
-		// Data is model/user-derived text headed into an hx-swap target:
-		// HTML-escape at the boundary. Multi-line payloads (answer markdown,
-		// token deltas with paragraph breaks) become one data: line per SSE
-		// spec line — the extension reassembles them with newlines.
-		if _, err := fmt.Fprint(w, sseFrame(event, html.EscapeString(data))); err != nil {
-			return false
-		}
-		flusher.Flush()
-		return true
-	}
-	// sendHTML frames already-safe HTML (the rendered answer) — the payload
-	// went through the sanitizing render pipeline; escaping it again would
-	// show markup as text.
-	sendHTML := func(event, markup string) bool {
+	// send frames markup that is already wire-safe: callers escape text
+	// (html.EscapeString) and hand over rendered HTML as is.
+	send := func(event, markup string) bool {
 		if ctx.Err() != nil {
 			return false
 		}
@@ -122,11 +111,12 @@ func (h *LibrarianHandler) LibrarianStream(c *echo.Context) error {
 	if token != "" {
 		pa, ok := h.asks.take(token)
 		if !ok || pa.convKey != conversationKey(c) {
-			send("trace", "this ask expired — try again")
-			send("done", "∎")
+			send("trace", traceNote("this ask expired — try again"))
+			settle(send)
 			return nil
 		}
-		return h.streamAsk(ctx, c, pa, sseSink{send: send, sendHTML: sendHTML})
+		h.streamAsk(ctx, c, pa, send)
+		return nil
 	}
 	streamSoak(ctx, slow, send)
 	return nil
@@ -145,86 +135,115 @@ func streamSoak(ctx context.Context, slow int, send func(event, data string) boo
 		}
 	}
 
-	send("trace", fmt.Sprintf("soak: one tick per second for %ds", slow))
+	send("trace", traceNote(fmt.Sprintf("soak: one tick per second for %ds", slow)))
 	start := time.Now()
 	for i := 1; i <= slow; i++ {
 		if !sleep(time.Second) {
 			return
 		}
-		if !send("token", fmt.Sprintf("tick %d/%d (%.0fs elapsed) ", i, slow, time.Since(start).Seconds())) {
+		if !send("trace", traceNote(fmt.Sprintf("tick %d/%d (%.0fs elapsed)", i, slow, time.Since(start).Seconds()))) {
 			return
 		}
 	}
-	send("done", fmt.Sprintf("soak survived %ds — stream outlived the handler timeout", slow))
-}
-
-// sseSink is the pair of writers one ask streams through: plain events and
-// pre-rendered HTML fragments.
-type sseSink struct {
-	send     func(event, data string) bool
-	sendHTML func(event, data string) bool
+	send("rendered", "<p>"+html.EscapeString(fmt.Sprintf("soak survived %ds — stream outlived the handler timeout", slow))+"</p>")
+	settle(send)
 }
 
 // streamAsk runs one real librarian ask and maps the domain events onto the
-// SSE vocabulary. The pending ask carries the pane's trail context server-side,
-// so the rendered answer's citations continue the trail.
-func (h *LibrarianHandler) streamAsk(ctx context.Context, c *echo.Context, pa pendingAsk, sink sseSink) error {
+// SSE vocabulary. The pending ask carries the pane's trail server-side, so
+// every link the stream renders continues the trail from the librarian pane.
+func (h *LibrarianHandler) streamAsk(ctx context.Context, c *echo.Context, pa pendingAsk, send func(event, markup string) bool) {
 	t := pa.t
-	send, sendHTML := sink.send, sink.sendHTML
-
-	events, err := h.lib.Ask(ctx, pa.convKey, pa.question, pa.context)
+	events, err := h.lib.Ask(ctx, domain.LibrarianAsk{
+		Conversation: pa.convKey,
+		Question:     pa.question,
+		Context:      pa.context,
+		Persona:      h.identity.persona(ctx),
+	})
 	if err != nil {
-		if errors.Is(err, domain.ErrLibrarianBusy) {
-			send("trace", "the librarian is still answering your previous question")
-		} else {
-			// Internal detail (provider errors can carry endpoint/request
-			// specifics) stays in the server log; the pane gets a generic
-			// line.
-			c.Logger().Error("librarian ask failed", "err", err)
-			send("trace", "⚠ the librarian could not take that question — try again")
-		}
-		send("done", "∎")
-		return nil
+		send("trace", traceNote(askRefusal(c, err)))
+		settle(send)
+		return
 	}
-	done := false
+
+	var steps []librarianStepVM
+	var sources []librarianSourceVM
+	var pending strings.Builder // the message in progress, not yet rendered in full
+	var rendered time.Time
+	render := func(markdown string) {
+		send("rendered", string(h.renderAnswer(markdown, t, t.Focus)))
+		rendered = time.Now()
+	}
 	for ev := range events {
 		switch ev.Kind {
 		case domain.LibrarianToken:
-			send("token", ev.Text)
-		case domain.LibrarianTrace:
-			send("trace", ev.Text)
+			pending.WriteString(ev.Text)
+			if time.Since(rendered) >= renderInterval {
+				render(pending.String())
+			}
 		case domain.LibrarianAnswer:
-			send("answer", ev.Text)
-			// The pane swaps this in whole: the answer through the document
-			// pipeline, citations as trail-continuing links.
-			sendHTML("rendered", string(h.renderAnswer(ev.Text, t, t.Focus)))
+			// The authoritative message: render it whole; the next message's
+			// tokens start fresh.
+			pending.Reset()
+			render(ev.Text)
+		case domain.LibrarianTrace:
+			step := stepVM(domain.LibrarianStep{Text: ev.Text, Ref: ev.Ref}, t, t.Focus)
+			steps = append(steps, step)
+			send("trace", h.fragment(c, "librarian-step", step))
+		case domain.LibrarianSourceOpened:
+			sources = append(sources, sourceVM(domain.LibrarianSource{Ref: ev.Ref, Title: ev.Text}, t, t.Focus))
 		case domain.LibrarianError:
 			c.Logger().Error("librarian run failed", "err", ev.Text)
-			send("trace", "⚠ the librarian hit an error mid-answer")
-		case domain.LibrarianDone:
-			done = true
-			send("done", "∎")
+			step := librarianStepVM{Text: "⚠ the librarian hit an error mid-answer"}
+			steps = append(steps, step)
+			send("trace", h.fragment(c, "librarian-step", step))
 		}
 	}
-	if !done {
-		// The port may end a stream on Error alone; the client still needs
-		// its close signal (hx-sse:close="done") or the connection — exempt
-		// from the handler timeout — would dangle.
-		send("done", "∎")
+	if pending.Len() > 0 {
+		render(pending.String()) // a stopped run ends mid-message
 	}
-	return nil
+	send("steps", h.fragment(c, "librarian-steps", steps))
+	send("sources", h.fragment(c, "librarian-sources", sources))
+	settle(send)
+}
+
+// settle ends a live exchange: the working line and stop button go, and done
+// closes the stream (hx-sse:close) so the client never reconnects to a spent
+// one-shot token.
+func settle(send func(event, markup string) bool) {
+	send("settled", "")
+	send("done", "∎")
+}
+
+// traceNote is a plain trace line: text only, no document.
+func traceNote(text string) string {
+	return "<li>" + html.EscapeString(text) + "</li>"
+}
+
+// fragment renders one named template for the stream, so a live exchange
+// settles into exactly the markup a reload renders from History. A failure
+// is logged and frames nothing: the reload still shows the exchange whole.
+func (h *LibrarianHandler) fragment(c *echo.Context, name string, data any) string {
+	var b strings.Builder
+	if err := c.Echo().Renderer.Render(c, &b, name, data); err != nil {
+		c.Logger().Error("librarian fragment render failed", "template", name, "err", err)
+		return ""
+	}
+	return b.String()
 }
 
 // sseRegions maps the swapping half of the stream vocabulary onto the
 // exchange block's regions. htmx 4 swaps only UNNAMED SSE frames, so each
 // of these goes out as an <hx-partial> aimed (relative to the connecting
-// block, hence `find`) at its region with its swap style. Names absent here
-// (answer, done) travel as named events: DOM events on the block, no swap;
-// done also closes the stream via hx-sse:close.
+// block, hence `find`) at its region with its swap style. done is absent: it
+// travels as a named event (a DOM event on the block, no swap) that closes
+// the stream via hx-sse:close.
 var sseRegions = map[string]struct{ target, swap string }{
 	"trace":    {"find .ask-trace", "beforeend"},
-	"token":    {"find .ask-stream", "beforeend"},
 	"rendered": {"find .ask-answer", "innerHTML"},
+	"steps":    {"find .ask-steps", "outerHTML"},
+	"sources":  {"find .ask-sources", "outerHTML"},
+	"settled":  {"find .ask-live", "outerHTML"},
 }
 
 // sseFrame renders one complete wire frame (trailing blank line included)

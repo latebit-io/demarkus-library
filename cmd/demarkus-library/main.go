@@ -206,7 +206,9 @@ func main() {
 	// Feature-dark unless nib's llmconfig resolves an LLM provider (global
 	// llm.json or LLM_API_KEY/LLM_BASE_URL/LLM_MODEL) — without one the pane
 	// reads "not on duty" and /a/stream serves only the ?slow= soak.
-	lib := buildLibrarian(logger, reading, defaultWorld, config.LLMKeyStore)
+	lib := buildLibrarian(logger, reading, librarianSettings{
+		defaultWorld: defaultWorld, keyStore: config.LLMKeyStore, asksPerHour: config.LibrarianAsksPerHour,
+	})
 	// In-world branding (ADR 0008): worlds brand themselves through documents
 	// under /.well-known/library/, resolved ahead of the manifest's entries.
 	// The hub world's documents brand the room as a whole, ahead of the files.
@@ -265,6 +267,9 @@ func themeManifest(config *AppConfig) web.ThemeManifest {
 	if config.TermUniverse != "" {
 		m.Terms.Universe = config.TermUniverse
 	}
+	if config.TermLibrarian != "" {
+		m.Terms.Librarian = config.TermLibrarian
+	}
 	return m
 }
 
@@ -307,18 +312,25 @@ func serve(app *echo.Echo, config *AppConfig) error {
 	return sc.StartTLS(ctx, app, cert, key)
 }
 
+// librarianSettings are the operator knobs the librarian is built with.
+type librarianSettings struct {
+	defaultWorld string
+	keyStore     bool
+	asksPerHour  int
+}
+
 // buildLibrarian resolves an LLM provider through nib's llmconfig and, when
 // one is configured, assembles the librarian over the reading service's
 // read-only port slices. Returns nil — the feature-dark posture (plan D6) —
 // when no provider is configured; OAuth-profile auth is a nib-code concern
 // and intentionally unsupported here (servers use API keys).
-func buildLibrarian(logger *slog.Logger, reading *service.ReadingService, defaultWorld string, keyStore bool) port.Librarian {
+func buildLibrarian(logger *slog.Logger, reading *service.ReadingService, settings librarianSettings) port.Librarian {
 	_, resolved := llmconfig.Resolve("")
 	if resolved.OAuthProvider != "" {
 		logger.Info("librarian disabled: OAuth LLM profiles are not supported server-side; configure an API-key profile")
 		return nil
 	}
-	if !resolved.HasProvider() && keyStore {
+	if !resolved.HasProvider() && settings.keyStore {
 		// The key may live in nib's keystore (`nib` TUI-entered keys in
 		// <UserConfigDir>/nib/keys.json) rather than the environment — the
 		// same fallback nib's own binaries use. Env keys keep priority;
@@ -349,9 +361,12 @@ func buildLibrarian(logger *slog.Logger, reading *service.ReadingService, defaul
 	lib, err := librarian.New(librarian.Config{
 		Provider:     provider,
 		Reader:       reading,
+		Catalog:      reading,
 		Graph:        reading,
 		Map:          reading,
-		DefaultWorld: defaultWorld,
+		DefaultWorld: settings.defaultWorld,
+		Logger:       logger,
+		AsksPerHour:  settings.asksPerHour,
 	})
 	if err != nil {
 		logger.Warn("librarian disabled", "err", err)

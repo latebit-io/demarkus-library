@@ -126,6 +126,10 @@ spec:
             - name: DEMARKUS_TERM_UNIVERSE
               value: {{ . | quote }}
             {{- end }}
+            {{- with trim .Values.library.branding.librarianTerm }}
+            - name: DEMARKUS_TERM_LIBRARIAN
+              value: {{ . | quote }}
+            {{- end }}
             {{- if trim .Values.library.branding.configMap }}
             {{- with trim .Values.library.branding.manifestKey }}
             - name: DEMARKUS_BRANDING
@@ -160,6 +164,10 @@ spec:
                   key: {{ .Values.library.librarian.existingSecretRef.key | quote }}
             {{- with trim .Values.library.librarian.model }}
             - name: LLM_MODEL
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with trim (toString .Values.library.librarian.asksPerHour) }}
+            - name: DEMARKUS_LIBRARIAN_ASKS_PER_HOUR
               value: {{ . | quote }}
             {{- end }}
             {{- end }}

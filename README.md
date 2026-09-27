@@ -31,9 +31,15 @@ Plans and ADRs live in the soul world (source of truth:
   save comes back as a merge candidate to review, never a silent overwrite.
   Agent-facing style rules in
   [docs/authoring-contract.md](docs/authoring-contract.md).
-- **AI librarian** (`/a`) — a nib-backed agent over the core's read-only ports,
-  answering as an SSE-streamed pane on the canvas. Feature-dark unless an LLM
-  provider is configured (nib `llm.json`, `LLM_API_KEY`/`LLM_BASE_URL`/
+- **AI librarian** (`/a`, hotkey `a`, or "ask" on any document) — a
+  nib-backed agent over the core's read-only ports, answering as an
+  SSE-streamed pane on the canvas. It searches the catalog (tags, titles, and
+  section text where the world supports it), reads documents and their
+  editions, and traces links; each answer shows its linked steps and sources.
+  Readers can stop an answer or start over; each gets
+  `DEMARKUS_LIBRARIAN_ASKS_PER_HOUR` questions an hour. The hub world can name
+  it and give it house instructions (docs/theming.md). Feature-dark unless an
+  LLM provider is configured (nib `llm.json`, `LLM_API_KEY`/`LLM_BASE_URL`/
   `LLM_MODEL`, or the nib key store); without one the pane reads "not on duty".
 - **Federation** — `mark://` links to demarkus hosts outside the home
   world/knowledge system resolve as direct, anonymous, tokenless QUIC reads
@@ -104,6 +110,7 @@ Configuration (environment):
 | `DEMARKUS_HUB` | home world (quic) / _(empty)_ | world publishing the universe topology for the floor |
 | `DEMARKUS_PANE_SCROLL` | `true` | pane-scroll room (ADR 0007); `false` = legacy page-scroll room |
 | `DEMARKUS_LLM_KEYSTORE` | `true` | let the librarian read nib's on-disk key store; `false` = env-only |
+| `DEMARKUS_LIBRARIAN_ASKS_PER_HOUR` | `30` | each reader's librarian questions per rolling hour |
 | `DEMARKUS_TLS_CERT` / `DEMARKUS_TLS_KEY` | _(empty)_ | serve HTTPS directly (local dev; the cluster ingress terminates TLS) |
 | `DEMARKUS_BRANDING` | _(empty)_ | path to a branding manifest (YAML: name, logo, css, `terms`, per-world `worlds`); the vars below layer over it |
 | `DEMARKUS_BRAND` | `demarkus Library` | display name in titles, nav, and the login card |
@@ -111,6 +118,7 @@ Configuration (environment):
 | `DEMARKUS_FAVICON` | _(empty)_ | path to the browser-tab icon (served at `/theme/favicon`; a built-in mark otherwise) |
 | `DEMARKUS_THEME_CSS` | _(empty)_ | path to an override stylesheet, loaded after the built-in styles (served at `/theme/site.css`) |
 | `DEMARKUS_TERM_UNIVERSE` | `Universe` | display word for the whole-knowledge scope (floor, overlay, dock) |
+| `DEMARKUS_TERM_LIBRARIAN` | `Librarian` | display name for the AI librarian (nav, pane, and the name it answers to) |
 | `DEMARKUS_STATIC_DIR` | _(empty)_ | directory whose files shadow the embedded `/static/` assets (replace `library.css` without a build) |
 
 Theming: the built-in styles live in one stylesheet

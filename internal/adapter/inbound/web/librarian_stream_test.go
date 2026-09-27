@@ -42,13 +42,18 @@ type fakeLibrarian struct {
 	events   []domain.LibrarianEvent
 	history  []domain.LibrarianExchange
 	askErr   error
+	resetErr error
 	asked    []string
 	contexts []string
+	personas []domain.LibrarianPersona
+	stopped  []string
+	resets   []string
 }
 
-func (f *fakeLibrarian) Ask(_ context.Context, _, question, trailContext string) (<-chan domain.LibrarianEvent, error) {
-	f.asked = append(f.asked, question)
-	f.contexts = append(f.contexts, trailContext)
+func (f *fakeLibrarian) Ask(_ context.Context, ask domain.LibrarianAsk) (<-chan domain.LibrarianEvent, error) {
+	f.asked = append(f.asked, ask.Question)
+	f.contexts = append(f.contexts, ask.Context)
+	f.personas = append(f.personas, ask.Persona)
 	if f.askErr != nil {
 		return nil, f.askErr
 	}
@@ -61,6 +66,11 @@ func (f *fakeLibrarian) Ask(_ context.Context, _, question, trailContext string)
 }
 
 func (f *fakeLibrarian) History(string) []domain.LibrarianExchange { return f.history }
+func (f *fakeLibrarian) Stop(conversation string)                  { f.stopped = append(f.stopped, conversation) }
+func (f *fakeLibrarian) Reset(conversation string) error {
+	f.resets = append(f.resets, conversation)
+	return f.resetErr
+}
 
 // askToken POSTs a question through /a/ask (htmx) and extracts the one-shot
 // stream URL from the returned exchange fragment — the full token handoff.
@@ -85,8 +95,10 @@ func askToken(t *testing.T, e *echo.Echo, question string) string {
 func TestLibrarianStream_LibrarianPathMapsEvents(t *testing.T) {
 	t.Parallel()
 
+	deploy := domain.Ref{World: "w.io", Path: "/ops/deploy.md"}
 	lib := &fakeLibrarian{events: []domain.LibrarianEvent{
-		{Kind: domain.LibrarianTrace, Text: `open path="/ops/deploy.md"`},
+		{Kind: domain.LibrarianTrace, Text: "opened", Ref: deploy},
+		{Kind: domain.LibrarianSourceOpened, Text: "Deploy <runbook>", Ref: deploy},
 		{Kind: domain.LibrarianToken, Text: "It lives "},
 		{Kind: domain.LibrarianToken, Text: "in ops.\nSee the runbook."},
 		{Kind: domain.LibrarianAnswer, Text: "It lives in ops.\nSee the runbook."},
@@ -104,17 +116,21 @@ func TestLibrarianStream_LibrarianPathMapsEvents(t *testing.T) {
 
 	body := rec.Body.String()
 	// Swapping frames are unnamed <hx-partial> events aimed at the exchange
-	// block's regions (htmx 4 swaps only unnamed SSE messages); answer and
-	// done stay named events.
+	// block's regions (htmx 4 swaps only unnamed SSE messages); done stays a
+	// named event.
+	link := `<a href="/t/a/~/w.io/d/ops/deploy.md">w.io/ops/deploy.md</a>`
 	for _, want := range []string{
-		"data: <hx-partial hx-target=\"find .ask-trace\" hx-swap=\"beforeend\">open path=&#34;/ops/deploy.md&#34;</hx-partial>\n\n",
-		"data: <hx-partial hx-target=\"find .ask-stream\" hx-swap=\"beforeend\">It lives </hx-partial>\n\n",
+		// Trace steps link the document they touched, continuing the trail.
+		`data: <hx-partial hx-target="find .ask-trace" hx-swap="beforeend"><li>opened ` + link + "</li></hx-partial>\n\n",
+		// The first token renders at once, through the document pipeline.
+		`data: <hx-partial hx-target="find .ask-answer" hx-swap="innerHTML"><p>It lives </p></hx-partial>` + "\n\n",
 		// A newline inside one event becomes two data: lines of one frame.
-		"data: <hx-partial hx-target=\"find .ask-stream\" hx-swap=\"beforeend\">in ops.\ndata: See the runbook.</hx-partial>\n\n",
-		"event: answer\ndata: It lives in ops.\ndata: See the runbook.",
-		// The rendered frame carries the answer through the document
-		// pipeline (the fake wraps in <p>) — unescaped HTML by design.
-		"data: <hx-partial hx-target=\"find .ask-answer\" hx-swap=\"innerHTML\"><p>It lives in ops.",
+		`data: <hx-partial hx-target="find .ask-answer" hx-swap="innerHTML"><p>It lives in ops.` + "\ndata: See the runbook.</p></hx-partial>\n\n",
+		// Settling: steps collapse, sources appear (escaped), the live
+		// controls go, done closes the stream.
+		`data: <hx-partial hx-target="find .ask-steps" hx-swap="outerHTML"><details class="ask-steps"><summary>1 step</summary>`,
+		`data: <hx-partial hx-target="find .ask-sources" hx-swap="outerHTML"><p class="ask-sources">sources: <a href="/t/a/~/w.io/d/ops/deploy.md" title="w.io/ops/deploy.md">Deploy &lt;runbook&gt;</a></p></hx-partial>`,
+		`data: <hx-partial hx-target="find .ask-live" hx-swap="outerHTML"></hx-partial>` + "\n\n",
 		"event: done",
 	} {
 		if !strings.Contains(body, want) {
@@ -209,7 +225,7 @@ func TestLibrarianStream_ErrorPathIsGenericAndCloses(t *testing.T) {
 	if strings.Contains(body, "secret-internal-detail") {
 		t.Errorf("internal error text reached the wire:\n%s", body)
 	}
-	if !strings.Contains(body, "hx-swap=\"beforeend\">⚠") {
+	if !strings.Contains(body, "hx-swap=\"beforeend\"><li>⚠") {
 		t.Errorf("missing generic error trace:\n%s", body)
 	}
 	if !strings.Contains(body, "event: done") {

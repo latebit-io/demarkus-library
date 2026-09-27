@@ -89,3 +89,20 @@ func TestNewAppConfigPaneScrollDefaultsOn(t *testing.T) {
 		t.Errorf("DEMARKUS_PANE_SCROLL=false should select the page-scroll room (err %v)", err)
 	}
 }
+
+func TestNewAppConfigLibrarianAsksPerHour(t *testing.T) {
+	cfg, err := NewAppConfig()
+	if err != nil || cfg.LibrarianAsksPerHour != 0 {
+		t.Fatalf("unset: %d, %v; want 0 (the librarian's default)", cfg.LibrarianAsksPerHour, err)
+	}
+	t.Setenv("DEMARKUS_LIBRARIAN_ASKS_PER_HOUR", "12")
+	if cfg, err = NewAppConfig(); err != nil || cfg.LibrarianAsksPerHour != 12 {
+		t.Errorf("12: %d, %v", cfg.LibrarianAsksPerHour, err)
+	}
+	for _, bad := range []string{"0", "-3", "lots"} {
+		t.Setenv("DEMARKUS_LIBRARIAN_ASKS_PER_HOUR", bad)
+		if _, err := NewAppConfig(); err == nil {
+			t.Errorf("%q accepted; a typo must not lift the cost guard", bad)
+		}
+	}
+}
