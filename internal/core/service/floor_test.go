@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -92,6 +94,47 @@ func TestFloorAssemblesWorlds(t *testing.T) {
 	}
 	if called != "" {
 		t.Errorf("FloorCached hit the gateway: %s", called)
+	}
+}
+
+// The floor samples each catalog; one row past the sample marks it larger, so
+// the universe can say "at least" rather than a wrong exact count.
+func TestFloorMarksTruncatedCatalogs(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name      string
+		rows      int
+		wantDocs  int
+		truncated bool
+	}{
+		{name: "catalog fits the sample", rows: floorSample, wantDocs: floorSample},
+		{name: "catalog exceeds the sample", rows: floorSample + 1, wantDocs: floorSample, truncated: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var table strings.Builder
+			table.WriteString("| Path | Importance | Title | Tags |\n|---|---|---|---|\n")
+			for i := range tt.rows {
+				fmt.Fprintf(&table, "| /d%d.md | 0.5 | D%d | x |\n", i, i)
+			}
+			var limit int
+			svc := NewReadingService(fakeGateway{limit: &limit,
+				worlds: []domain.WorldInfo{{Name: "big"}},
+				raw:    domain.RawDocument{Body: table.String()},
+			}, fakeRenderer{}, nil)
+			floor, err := svc.Floor(t.Context())
+			if err != nil {
+				t.Fatalf("Floor: %v", err)
+			}
+			got := floor.Worlds[0]
+			if len(got.Docs) != tt.wantDocs || got.Truncated != tt.truncated {
+				t.Errorf("docs = %d, truncated = %v; want %d, %v", len(got.Docs), got.Truncated, tt.wantDocs, tt.truncated)
+			}
+			if limit != floorSample+1 {
+				t.Errorf("lookup limit = %d, want %d", limit, floorSample+1)
+			}
+		})
 	}
 }
 

@@ -199,48 +199,6 @@ func floorWorldNode(b *strings.Builder, fw *domain.FloorWorld, it *wmItem, href 
 	fmt.Fprintf(b, `<title>%s</title></a>`, html.EscapeString(title))
 }
 
-// floorCards renders the universe as worlds-only "door" cards (ADR 0006 §5):
-// the universe lists worlds, never loose documents. Each card reads as a door at
-// rest — a container glyph, the world name, a trailing chevron — affordances a
-// document row never has. Federated/remote worlds (portals) get a dashed,
-// external-link treatment: visibly "a server you connect to," not a local world
-// you enter. This is the default cold-entry view; floorSVG is the "view as map".
-func floorCards(floor domain.Floor, t trail, idx int, terms Terms) template.HTML {
-	if len(floor.Worlds) == 0 {
-		return floorEmpty(terms)
-	}
-	var b strings.Builder
-	b.WriteString(`<ul class="worlds">`)
-	for _, fw := range floor.Worlds {
-		cls := "world-card"
-		// Entering a world lands on its stacks — the root listing, rendered as
-		// the rich title-first index (ADR 0006 §5). That is the nav surface; the
-		// world map is discovery-only, summoned as the `m` overlay. (Both local
-		// and federated worlds enter at the root listing.)
-		href := trailURL(trailAfterClick(t, idx, paneAddr{Kind: paneDoc, World: fw.World.Name, Value: "/"}))
-		if fw.Portal {
-			cls += " federated"
-		}
-		if fw.Err {
-			cls += " gone"
-		}
-		fmt.Fprintf(&b, `<li><a class="%s" href="%s">`, cls, html.EscapeString(href))
-		b.WriteString(`<span class="world-glyph" aria-hidden="true">▤</span>`)
-		fmt.Fprintf(&b, `<span class="world-name">%s</span>`, html.EscapeString(fw.World.Name))
-		switch {
-		case fw.Portal:
-			b.WriteString(`<span class="world-tag">federated · sign-in</span><span class="world-chev" aria-hidden="true">↗</span>`)
-		case fw.Err:
-			b.WriteString(`<span class="world-tag">unreadable</span>`)
-		default:
-			b.WriteString(`<span class="world-chev" aria-hidden="true">›</span>`)
-		}
-		b.WriteString(`</a></li>`)
-	}
-	b.WriteString(`</ul>`)
-	return template.HTML(b.String()) //nolint:gosec // built from html.EscapeString'd parts only
-}
-
 // floorViewToggle is the "view as map / worlds" switch (ADR 0006 §5): the
 // universe is worlds-by-default, with the federation topology a deliberate
 // secondary view. With JS the "view as map" link summons the full-viewport

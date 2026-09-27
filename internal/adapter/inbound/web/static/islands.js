@@ -216,7 +216,7 @@
   var wordsPerMinute = 230;
   function progressEl(pane) {
     var body = pane.querySelector(".doc-body"), head = pane.querySelector(".pane-head");
-    if (!body || !head || body.querySelector(".listing, #librarian-transcript")) return null;
+    if (!body || !head || body.querySelector(".listing, #librarian-transcript, .floor-bar")) return null;
     var el = head.querySelector(".pane-progress");
     if (!el) {
       el = head.appendChild(document.createElement("span"));

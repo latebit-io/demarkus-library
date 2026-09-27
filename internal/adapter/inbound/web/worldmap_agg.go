@@ -395,12 +395,17 @@ func wmAggRadius(count int) int {
 	return int(math.Min(34, 8+3*math.Sqrt(float64(count))))
 }
 
+// wmDocRadius sizes a document node by its catalog importance.
+func wmDocRadius(importance float64) int {
+	return 5 + int(importance*9)
+}
+
 // wmMeasure computes footprints bottom up. A group of leaves is a sunflower;
 // a group with expanded children is spiral-packed by footprint.
 func wmMeasure(it *wmItem) float64 {
 	switch it.kind {
 	case wmItemDoc:
-		it.r = 5 + int(it.doc.Importance*9)
+		it.r = wmDocRadius(it.doc.Importance)
 		it.foot = wmPitch / 2
 		return it.foot
 	case wmItemGroup, wmItemMore:

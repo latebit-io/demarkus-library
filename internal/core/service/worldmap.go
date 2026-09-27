@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"sort"
-	"strings"
 
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
 )
@@ -63,7 +62,7 @@ func (s *ReadingService) WorldMap(ctx context.Context, world string) (domain.Wor
 		return domain.WorldMap{World: domain.WorldInfo{Name: world}, Unreadable: true}, nil
 	}
 	docs := parseCatalogTable(raw.Body, worldMapMaxDocs)
-	clusters := worldClusters(docs, worldMapClusterDocs)
+	clusters := domain.ClusterByDir(docs, worldMapClusterDocs)
 
 	wm := domain.WorldMap{World: domain.WorldInfo{Name: world}, Clusters: clusters}
 
@@ -126,56 +125,6 @@ func (s *ReadingService) WorldMapCached(ctx context.Context, world string) (doma
 		return wm, nil
 	}
 	return s.WorldMap(ctx, world)
-}
-
-// worldClusters groups catalog docs by their top-level path segment (the
-// directory), preserving the catalog's importance order within each cluster.
-// The root cluster (docs directly under "/") sorts first, then directories
-// alphabetically. Each cluster keeps its top perCluster docs as labeled nodes;
-// the remainder becomes the More count behind the dir's listing pane.
-func worldClusters(docs []domain.FloorDoc, perCluster int) []domain.WorldCluster {
-	order := []string{}
-	byDir := map[string][]domain.FloorDoc{}
-	for _, d := range docs {
-		dir := topDir(d.Path)
-		if _, seen := byDir[dir]; !seen {
-			order = append(order, dir)
-		}
-		byDir[dir] = append(byDir[dir], d)
-	}
-	sort.SliceStable(order, func(i, j int) bool {
-		if (order[i] == "") != (order[j] == "") {
-			return order[i] == "" // root cluster first
-		}
-		return order[i] < order[j]
-	})
-
-	out := make([]domain.WorldCluster, 0, len(order))
-	for _, dir := range order {
-		group := byDir[dir]
-		cl := domain.WorldCluster{Dir: dir, ListPath: "/"}
-		if dir != "" {
-			cl.ListPath = "/" + dir + "/"
-		}
-		if len(group) > perCluster {
-			cl.Docs = group[:perCluster]
-			cl.More = len(group) - perCluster
-		} else {
-			cl.Docs = group
-		}
-		out = append(out, cl)
-	}
-	return out
-}
-
-// topDir returns a path's top-level directory segment — "plans" for
-// "/plans/reading-room.md", "" for a root-level doc like "/index.md".
-func topDir(path string) string {
-	p := strings.TrimPrefix(path, "/")
-	if dir, _, found := strings.Cut(p, "/"); found {
-		return dir
-	}
-	return ""
 }
 
 // intraWorldEdges keeps the document-level edges whose endpoints both belong to

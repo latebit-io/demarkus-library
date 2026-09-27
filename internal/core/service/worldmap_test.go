@@ -25,51 +25,6 @@ const worldMapCatalog = `
 | /adr/0001.md     | 0.90 | ADR 1  | adr,status:accepted |
 `
 
-func TestWorldClustersGroupsByTopDirWithAggregate(t *testing.T) {
-	docs := parseCatalogTable(worldMapCatalog, 100)
-	clusters := worldClusters(docs, 2) // cap 2 labeled docs per cluster
-
-	// Root cluster first, then "adr", then "plans" (alphabetical).
-	dirs := make([]string, 0, len(clusters))
-	for _, c := range clusters {
-		dirs = append(dirs, c.Dir)
-	}
-	if !reflect.DeepEqual(dirs, []string{"", "adr", "plans"}) {
-		t.Fatalf("dirs = %v, want [\"\" adr plans]", dirs)
-	}
-
-	root := clusters[0]
-	if root.ListPath != "/" || len(root.Docs) != 1 || root.More != 0 {
-		t.Errorf("root cluster = %+v", root)
-	}
-	plans := clusters[2]
-	if plans.ListPath != "/plans/" {
-		t.Errorf("plans ListPath = %q, want /plans/", plans.ListPath)
-	}
-	// 3 plans docs, cap 2 → 2 labeled + 1 aggregated.
-	if len(plans.Docs) != 2 || plans.More != 1 {
-		t.Errorf("plans cluster = %+v, want 2 docs + More 1", plans)
-	}
-	// Importance order preserved within the cluster.
-	if plans.Docs[0].Path != "/plans/a.md" || plans.Docs[1].Path != "/plans/b.md" {
-		t.Errorf("plans docs out of importance order: %+v", plans.Docs)
-	}
-}
-
-func TestTopDir(t *testing.T) {
-	cases := map[string]string{
-		"/index.md":         "",
-		"/plans/reading.md": "plans",
-		"/a/b/c.md":         "a",
-		"index.md":          "", // tolerate a missing leading slash
-	}
-	for path, want := range cases {
-		if got := topDir(path); got != want {
-			t.Errorf("topDir(%q) = %q, want %q", path, got, want)
-		}
-	}
-}
-
 func TestIntraWorldEdgesJoinAndFilter(t *testing.T) {
 	// Labeled (rendered) docs: a.md, b.md. c.md is aggregated (not labeled).
 	labeled := map[string]bool{"/plans/a.md": true, "/plans/b.md": true}

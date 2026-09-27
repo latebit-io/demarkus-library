@@ -22,8 +22,9 @@ Plans and ADRs live in the soul world (source of truth:
 - **Hover preview cards** — in-app document links load a tiny server fragment on
   `mouseenter` (htmx + CSS anchor positioning, no custom JS) showing title,
   status, and opening line, served from the rendered-document cache.
-- **The floor** (`/u`) — the universe view over the hub's published topology
-  (falls back to `mark_worlds` + observed links); per-world map at
+- **The floor** (`/u`) — the universe view: a card per world with its
+  constellation, counts, sections, and featured documents, and a map over the
+  hub's published topology (falls back to `mark_worlds` + observed links); per-world map at
   `/w/:world/u` and a link-graph canvas at `/w/:world/g/*`.
 - **Cataloging desk** — create (`/w/:world/new`), edit (`/w/:world/edit/*`),
   and append (`/w/:world/append/*`) with a side-by-side live preview rendered

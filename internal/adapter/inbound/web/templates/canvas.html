@@ -10,6 +10,9 @@
     <article class="doc-body">
       {{- if .Librarian }}
       {{template "librarian-body" .Librarian}}
+      {{- else if .Floor }}
+      <h1>{{ .Title }}</h1>
+      {{template "floor-body" .Floor}}
       {{- else }}
       <h1>{{ .Title }}</h1>
       {{ .Content }}

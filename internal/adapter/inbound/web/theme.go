@@ -164,6 +164,7 @@ func ThemeRoutes(e *echo.Echo, m ThemeManifest) (Branding, error) {
 		if err != nil {
 			return b, fmt.Errorf("worlds.%s.theme: %w", world, err)
 		}
+		wb.Accent = strings.TrimSpace(wt.Theme["accent"])
 		if path := m.resolve(wt.CSS); path != "" {
 			blob, err := os.ReadFile(path)
 			if err != nil {
