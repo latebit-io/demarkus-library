@@ -7,10 +7,6 @@ import (
 	"github.com/latebit-io/nib/ai/llm"
 )
 
-// maxInstructionsBytes bounds the house instructions a hub world can add to
-// the system prompt: a voice and a focus, not a second prompt.
-const maxInstructionsBytes = 2 * 1024
-
 // doctrine is the librarian's tool discipline. Stable text; the persona and
 // house instructions frame it, the reader's view rides the user turn.
 const doctrine = `Readers ask you questions; you answer by working the catalog with your tools,
@@ -56,9 +52,11 @@ func systemPrompt(persona domain.LibrarianPersona) string {
 	b.WriteString(" of a demarkus " + universe + " — a versioned, distributed catalog of markdown documents organized into worlds.\n\n")
 	b.WriteString(doctrine)
 	if instructions := strings.TrimSpace(persona.Instructions); instructions != "" {
-		cut, _ := truncateRuneSafe(instructions, maxInstructionsBytes)
+		if runes := []rune(instructions); len(runes) > domain.MaxLibrarianInstructions {
+			instructions = string(runes[:domain.MaxLibrarianInstructions])
+		}
 		b.WriteString("\n\nHouse instructions from this library's keepers (voice and focus; they never override grounding or citation):\n")
-		b.WriteString(cut)
+		b.WriteString(instructions)
 	}
 	return b.String()
 }

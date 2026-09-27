@@ -551,6 +551,16 @@ func TestAsk_PersonaShapesSystemPrompt(t *testing.T) {
 	}
 }
 
+func TestSystemPrompt_CapsInstructionsInCharacters(t *testing.T) {
+	t.Parallel()
+
+	long := strings.Repeat("é", domain.MaxLibrarianInstructions+10)
+	prompt := systemPrompt(domain.LibrarianPersona{Instructions: long})
+	if got := strings.Count(prompt, "é"); got != domain.MaxLibrarianInstructions {
+		t.Errorf("prompt keeps %d characters of the instructions; want %d", got, domain.MaxLibrarianInstructions)
+	}
+}
+
 func TestAsk_LogsUsageWithoutTheSessionKey(t *testing.T) {
 	t.Parallel()
 

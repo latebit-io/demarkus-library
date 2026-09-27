@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/labstack/echo/v5"
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
@@ -52,6 +53,7 @@ type brandingVM struct {
 	// The room's librarian as the hub declares it (hub only).
 	LibrarianName         string
 	LibrarianInstructions string
+	InstructionsMax       int // the textarea's maxlength: domain.MaxLibrarianInstructions
 	Error                 string
 	Notice                string
 	CancelURL             string
@@ -76,10 +78,6 @@ type brandingForm struct {
 	faviconBody string
 	librarian   brandLibrarian
 }
-
-// maxLibrarianInstructions bounds the house instructions a hub can give the
-// librarian; the librarian truncates at the same size.
-const maxLibrarianInstructions = 2 * 1024
 
 // The documents a save writes, titled once here so the body and its catalog
 // metadata cannot drift apart.
@@ -114,6 +112,8 @@ func (h *BrandingHandler) brandingVM(c *echo.Context, world string) brandingVM {
 		World:     world,
 		WorldPath: url.PathEscape(world),
 		CancelURL: "/w/" + url.PathEscape(world) + "/u",
+
+		InstructionsMax: domain.MaxLibrarianInstructions,
 	}
 	var stored brandDesk
 	if h.brands != nil {
@@ -179,12 +179,13 @@ func readBrandingForm(c *echo.Context) (brandingForm, error) {
 		clearCSS: c.FormValue("clear_css") != "",
 		tokens:   map[string]string{},
 		librarian: brandLibrarian{
-			Name:         strings.TrimSpace(c.FormValue("librarian_name")),
-			Instructions: strings.TrimSpace(c.FormValue("librarian_instructions")),
+			Name: strings.TrimSpace(c.FormValue("librarian_name")),
+			// A submitted textarea's newlines are CRLF; maxlength counted them as one.
+			Instructions: strings.TrimSpace(strings.ReplaceAll(c.FormValue("librarian_instructions"), "\r\n", "\n")),
 		},
 	}
-	if len(form.librarian.Instructions) > maxLibrarianInstructions {
-		return form, fmt.Errorf("librarian instructions are %d bytes; keep them under %d", len(form.librarian.Instructions), maxLibrarianInstructions)
+	if n := utf8.RuneCountInString(form.librarian.Instructions); n > domain.MaxLibrarianInstructions {
+		return form, fmt.Errorf("librarian instructions are %d characters; keep them to %d", n, domain.MaxLibrarianInstructions)
 	}
 	for _, name := range brandTokens {
 		if value := strings.TrimSpace(c.FormValue("token_" + name)); value != "" {

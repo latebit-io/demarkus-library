@@ -47,6 +47,8 @@ func TestResolveHref(t *testing.T) {
 		{name: "mark URL crosses worlds", href: "mark://soul/adr/", want: LinkTarget{Ref: Ref{World: "soul", Path: "/adr/"}}, wantOK: true},
 		{name: "bare mark authority is the world root", href: "mark://soul", want: LinkTarget{Ref: Ref{World: "soul", Path: "/"}}, wantOK: true},
 		{name: "percent-encoded version path decodes", href: "%2Fops%2Fdeploy.md/v2", want: LinkTarget{Ref: Ref{World: "root", Path: "/ops/deploy.md/v2"}}, wantOK: true},
+		{name: "escaped hash stays in the file name", href: "a%23b.md#top", want: LinkTarget{Ref: Ref{World: "root", Path: "/ops/a#b.md"}, Fragment: "top"}, wantOK: true},
+		{name: "escaped question mark stays in the file name", href: "a%3Fb.md", want: LinkTarget{Ref: Ref{World: "root", Path: "/ops/a?b.md"}}, wantOK: true},
 		{name: "external scheme is not ours", href: "https://example.com/x.md"},
 		{name: "in-page anchor is not a target", href: "#steps"},
 		{name: "empty href", href: ""},

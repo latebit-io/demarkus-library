@@ -56,10 +56,8 @@ func ResolveHref(href, world, basePath string) (LinkTarget, bool) {
 	if href == "" || strings.HasPrefix(href, "#") {
 		return LinkTarget{}, false
 	}
-	// VERSIONS emits percent-encoded paths (e.g. %2Fdoc.md/v2); decode first.
-	if dec, err := url.PathUnescape(href); err == nil {
-		href = dec
-	}
+	// u.Path is decoded, so VERSIONS' %2Fdoc.md/v2 resolves while an escaped
+	// %23 or %3F stays part of the file name.
 	u, err := url.Parse(href)
 	if err != nil || (u.Scheme != "" && u.Scheme != "mark") {
 		return LinkTarget{}, false

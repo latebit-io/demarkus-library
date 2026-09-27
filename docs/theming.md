@@ -145,9 +145,9 @@ name: Fritz's Soul
 
 The hub's `branding.md` may also present the room's AI librarian: the name
 it answers to (over `terms.librarian`) and house instructions that shape its
-voice and focus. Instructions are capped at 2 KB and follow the librarian's
-own rules, so they can steer tone and emphasis but never talk it out of
-grounding answers in the catalog. Other worlds' `librarian` blocks are
+voice and focus. Instructions are capped at 2,048 characters and follow the
+librarian's own rules, so they can steer tone and emphasis but never talk it
+out of grounding answers in the catalog. Other worlds' `librarian` blocks are
 ignored: the librarian serves the room.
 
 ````markdown

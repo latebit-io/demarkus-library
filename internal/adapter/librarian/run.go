@@ -85,15 +85,15 @@ func (r *run) unsentSources() []domain.LibrarianSource {
 	return fresh
 }
 
-// exchange is the run as the transcript keeps it.
+// exchange is the run as the transcript keeps it, owning its own slices.
 func (r *run) exchange(answer string) domain.LibrarianExchange {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return domain.LibrarianExchange{
 		Question: r.question,
 		Answer:   answer,
-		Steps:    r.steps,
-		Sources:  r.sources,
+		Steps:    slices.Clone(r.steps),
+		Sources:  slices.Clone(r.sources),
 		Stopped:  r.stopped,
 	}
 }
