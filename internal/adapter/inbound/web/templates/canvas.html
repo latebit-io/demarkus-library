@@ -64,9 +64,15 @@
 {{- if .Has}}
 <div id="graph-overlay" class="graph-backdrop" hidden>
   <div class="graph-panel" role="dialog" aria-modal="true" aria-label="Document graph">
-    <div class="graph-head"><span class="graph-title">{{ .Title }}</span><span class="graph-hint">g · esc · shift-click explores · wheel or + − zooms · drag pans · 0 resets</span></div>
+    <div class="graph-head">
+      <span class="graph-kind">Local graph</span><span class="graph-title">{{ .Title }}</span>
+      <input type="search" class="map-filter" placeholder="Find a document…" aria-label="Filter graph nodes by title or path" hidden>
+      <button type="button" class="graph-tool" data-graph-action="explore" aria-pressed="false" title="Click neighbours to explore without leaving the graph">Explore links</button>
+      {{template "graph-controls"}}
+    </div>
+    <nav class="graph-crumbs" aria-label="Graph exploration history" hidden></nav>
     <div class="graph-canvas">{{ .Content }}</div>
-    <p class="graph-foot" aria-live="polite" data-idle="Hover a document to trace its links."></p>
+    <p class="graph-foot" aria-live="polite" data-idle="Click to read · Shift-click to explore · Scroll to zoom · Drag to pan"></p>
   </div>
 </div>
 {{- end}}
@@ -80,9 +86,14 @@
 {{- if .MapHas}}
 <div id="map-overlay" class="graph-backdrop" hidden data-map-url="/w/{{ .MapWorldPath }}/u?overlay=1">
   <div class="graph-panel" role="dialog" aria-modal="true" aria-labelledby="map-title">
-    <div class="graph-head"><span id="map-title" class="graph-title">Map: {{ .MapWorld }}</span><input type="search" class="map-filter" placeholder="Filter by title or path" aria-label="Filter map nodes by title or path" hidden><span class="graph-hint">m · esc · wheel or + − zooms · drag pans · 0 resets</span></div>
+    <div class="graph-head">
+      <span class="graph-kind">World graph</span><span id="map-title" class="graph-title">{{ .MapWorld }}</span>
+      <input type="search" class="map-filter" placeholder="Find a document…" aria-label="Filter map nodes by title or path" hidden>
+      <button type="button" class="graph-tool" data-graph-action="refresh" title="Reload the world graph">Refresh</button>
+      {{template "graph-controls"}}
+    </div>
     <div id="map-canvas" class="graph-canvas"></div>
-    <p class="graph-foot" aria-live="polite" data-idle="Hover a document to trace its links."></p>
+    <p class="graph-foot" aria-live="polite" data-idle="Click to read · Scroll to zoom · Drag to pan · 0 to fit"></p>
   </div>
 </div>
 {{- end}}
@@ -98,12 +109,26 @@
 {{- if .FloorHas}}
 <div id="universe-overlay" class="graph-backdrop" hidden data-universe-url="/u?overlay=1">
   <div class="graph-panel" role="dialog" aria-modal="true" aria-labelledby="universe-title">
-    <div class="graph-head"><span id="universe-title" class="graph-title">{{ universe }}</span><input type="search" class="map-filter" placeholder="Filter worlds" aria-label="Filter worlds by name" hidden><span class="graph-hint">esc · wheel or + − zooms · drag pans · 0 resets</span></div>
+    <div class="graph-head">
+      <span class="graph-kind">Universe graph</span><span id="universe-title" class="graph-title">{{ universe }}</span>
+      <input type="search" class="map-filter" placeholder="Find a world…" aria-label="Filter worlds by name" hidden>
+      <button type="button" class="graph-tool" data-graph-action="refresh" title="Reload the universe graph">Refresh</button>
+      {{template "graph-controls"}}
+    </div>
     <div id="universe-canvas" class="graph-canvas"></div>
-    <p class="graph-foot" aria-live="polite" data-idle="Hover a world to trace its links."></p>
+    <p class="graph-foot" aria-live="polite" data-idle="Click to read · Scroll to zoom · Drag to pan · 0 to fit"></p>
   </div>
 </div>
 {{- end}}
+{{end}}
+
+{{define "graph-controls"}}
+<div class="graph-controls" role="group" aria-label="Graph view controls">
+  <button type="button" class="graph-tool" data-graph-action="out" aria-label="Zoom out" title="Zoom out (−)">−</button>
+  <button type="button" class="graph-tool graph-fit" data-graph-action="fit" title="Fit graph (0)">Fit</button>
+  <button type="button" class="graph-tool" data-graph-action="in" aria-label="Zoom in" title="Zoom in (+)">+</button>
+  <button type="button" class="graph-tool graph-close" data-graph-action="close" aria-label="Close graph" title="Close graph (Esc)">✕</button>
+</div>
 {{end}}
 
 {{/* The trail dock (ADR 0006 §2): the bottom orientation strip. A <details>

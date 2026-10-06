@@ -153,14 +153,12 @@
     if (pr.left < cr.left) canvas.scrollLeft -= cr.left - pr.left;
   }
 
-  // Page swaps (the body) and map redraws cross-fade through a view
-  // transition; library.css times each (maps are named and fade longer).
-  // Other fragment swaps stay instant; the graph re-centre inks in instead.
+  // Page navigation cross-fades; camera and graph exploration stay immediate.
   document.addEventListener("htmx:config:request", function (e) {
     var ctx = e.detail && e.detail.ctx, t = ctx && ctx.target;
     if (!ctx || calm.matches) return;
     if (typeof t === "string") t = document.querySelector(t);
-    if (t === document.body || (t && t.matches && t.matches("#map-canvas, #universe-canvas"))) ctx.transition = true;
+    if (t === document.body) ctx.transition = true;
   });
 
   // htmx boosts only tagName "A", never an SVG <a>, so graph and map nodes
@@ -170,6 +168,7 @@
     if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
     var node = e.target.closest && e.target.closest("svg a[href]");
     if (!node || node.hasAttribute("hx-get") || !window.htmx) return;
+    if (node.hasAttribute("data-recenter") && node.closest(".graph-panel.exploring")) return;
     var proxy = document.createElement("a");
     proxy.href = node.getAttribute("href");
     proxy.hidden = true;
@@ -250,7 +249,12 @@
   // Saved before a page swap, restored on settle (below): settle runs inside
   // the view transition, before the new state is captured, so no jump.
   document.addEventListener("htmx:before:swap", function (e) {
-    if (e.detail && e.detail.ctx && e.detail.ctx.target === document.body) savePositions();
+    if (e.detail && e.detail.ctx && e.detail.ctx.target === document.body) {
+      savePositions();
+      releaseBackground();
+      endPan(false);
+      stopMotion();
+    }
   });
   window.addEventListener("pagehide", savePositions);
 
@@ -302,6 +306,7 @@
   function openPalette() {
     var p = palette();
     if (!p) return;
+    hideOverlay(openOverlay());
     p.hidden = false;
     var input = document.getElementById("palette-input");
     if (input) { input.value = ""; input.focus(); }
@@ -355,17 +360,32 @@
   // Hotkeys stay out of text fields.
   function typingIn(e) {
     var tag = (e.target.tagName || "").toLowerCase();
-    return tag === "input" || tag === "textarea" || !!e.target.isContentEditable;
+    return tag === "input" || tag === "textarea" || tag === "select" || !!e.target.isContentEditable;
   }
   var calm = window.matchMedia("(prefers-reduced-motion: reduce)");
   var overlayFade = 140; // ms: matches .graph-backdrop.closing in library.css
   // Fading out counts as closed, so a hotkey pressed mid-fade reopens.
   function shown(el) { return !!el && !el.hidden && !el.classList.contains("closing"); }
+  var inertBackground = [];
+  function releaseBackground() {
+    inertBackground.forEach(function (el) { el.inert = false; });
+    inertBackground = [];
+  }
   function showOverlay(el, restore) {
     if (!el) return;
+    var previous = openOverlay();
+    var returnTo = previous ? previous._restoreFocus : restore || document.activeElement;
+    if (previous && previous !== el) { hideOverlay(previous); previous.hidden = true; }
+    releaseBackground();
+    Array.from(document.body.children).forEach(function (child) {
+      if (child !== el && !child.inert && !child.matches("script, style, link")) {
+        child.inert = true;
+        inertBackground.push(child);
+      }
+    });
     clearTimeout(el._closing); // re-summoned mid-fade: keep it open
     el.classList.remove("closing");
-    el._restoreFocus = restore || document.activeElement;
+    el._restoreFocus = returnTo;
     el.hidden = false;
     var panel = el.querySelector(".graph-panel") || el;
     panel.setAttribute("tabindex", "-1");
@@ -374,26 +394,14 @@
     panel.querySelectorAll(".graph-canvas svg").forEach(function (svg) {
       if (wmStates.has(svg)) wmSyncView(svg);
     });
-    inkIn(panel);
-  }
-  // The graph inks in on each summon and each re-centre: edges draw from the
-  // centre over their own length (measurable only once shown), then nodes
-  // settle (.refresh in library.css).
-  function inkIn(panel) {
-    if (calm.matches) return;
-    panel.querySelectorAll(".graph-canvas svg.graph line.graph-edge").forEach(function (l) {
-      l.style.setProperty("--len", Math.ceil(l.getTotalLength()));
-    });
-    panel.classList.remove("refresh");
-    void panel.offsetWidth; // restart the animation on a re-open
-    panel.classList.add("refresh");
-    clearTimeout(panel._refresh);
-    panel._refresh = setTimeout(function () { panel.classList.remove("refresh"); }, 900);
   }
   function hideOverlay(el) {
     if (!el || el.hidden || el.classList.contains("closing")) return;
+    stopMotion();
+    endPan(false);
+    releaseBackground();
     var r = el._restoreFocus;
-    if (r && r.focus) r.focus();
+    if (r && r.isConnected && r.focus) r.focus();
     if (calm.matches) { el.hidden = true; return; }
     el.classList.add("closing");
     el._closing = setTimeout(function () {
@@ -401,6 +409,45 @@
       el.classList.remove("closing");
     }, overlayFade);
   }
+
+  // One keyboard scope: Tab stays in the workspace and Escape never also
+  // dismisses the reader underneath it. Filter Escape clears its query first.
+  document.addEventListener("keydown", function (e) {
+    var overlay = openOverlay();
+    if (!overlay) return;
+    if (e.key === "Escape" && !(e.target.matches(".map-filter") && e.target.value)) {
+      e.preventDefault(); e.stopPropagation(); hideOverlay(overlay); return;
+    }
+    if (e.key !== "Tab") return;
+    var stops = Array.from(overlay.querySelectorAll("a[href], button, input, [tabindex]"))
+      .filter(function (el) { return el.getAttribute("tabindex") !== "-1" && !el.disabled && el.getClientRects().length; });
+    var index = stops.indexOf(document.activeElement);
+    if (!stops.length) { e.preventDefault(); return; }
+    if (index < 0 || (e.shiftKey ? index === 0 : index === stops.length - 1)) {
+      e.preventDefault(); stops[e.shiftKey ? stops.length - 1 : 0].focus();
+    }
+  }, true);
+
+  document.addEventListener("click", function (e) {
+    var button = e.target.closest && e.target.closest("[data-graph-action]");
+    if (!button) return;
+    var overlay = button.closest(".graph-backdrop"), panel = button.closest(".graph-panel");
+    if (!overlay || !panel) return;
+    var svg = panel.querySelector(zoomable), action = button.dataset.graphAction;
+    if (action === "close") { hideOverlay(overlay); return; }
+    if (action === "refresh") { loadMap(overlay, true); return; }
+    if (action === "explore") {
+      var on = panel.classList.toggle("exploring");
+      button.setAttribute("aria-pressed", String(on));
+      panel.querySelector(".graph-foot").dataset.idle = on ?
+        "Click a neighbour to explore · Use the history above to go back" :
+        "Click to read · Shift-click to explore · Scroll to zoom · Drag to pan";
+      return;
+    }
+    if (!svg) return;
+    if (action === "fit") resetBox(svg);
+    else glideBox(svg, zoomTarget(svg, action === "in" ? wmKeyStep : 1 / wmKeyStep, null));
+  });
 
   // --- graph overlay (g) — ADR 0006 §4 ----------------------------------
   // The overlay is server-rendered (templates/graph-overlay); this is the
@@ -436,11 +483,7 @@
   }
   function renderCrumbs(g) {
     var walk = g.overlay._walk || [], nav = g.overlay.querySelector(".graph-crumbs");
-    if (!nav) {
-      nav = document.createElement("span");
-      nav.className = "graph-crumbs";
-      g.title.parentNode.insertBefore(nav, g.title);
-    }
+    nav.hidden = !walk.length;
     nav.replaceChildren();
     walk.forEach(function (step, i) {
       var b = document.createElement("button");
@@ -451,40 +494,64 @@
       nav.appendChild(b);
       nav.appendChild(document.createTextNode(" \u203a "));
     });
+    nav.appendChild(document.createTextNode(g.title.textContent));
+    wmDropRects();
+    var svg = g.canvas.querySelector("svg.graph");
+    if (svg && wmStates.has(svg)) wmSyncView(svg);
   }
   function recentre(node) {
     var g = graphParts();
-    if (!g || !window.htmx) return;
+    if (!g || !window.htmx || g.overlay._loading) return;
     // Keep this view to step back to, minus any hover highlight.
     var keep = g.canvas.cloneNode(true);
     clearHot(keep);
-    (g.overlay._walk = g.overlay._walk || []).push({ title: g.title.textContent, html: keep.innerHTML });
-    renderCrumbs(g);
-    window.htmx.ajax("GET", node.getAttribute("data-recenter"), g.canvas);
+    var original = g.canvas.firstElementChild, svg = g.canvas.querySelector("svg.graph");
+    var state = svg && wmState(svg);
+    var step = { title: g.title.textContent, html: keep.innerHTML,
+      base: state && state.base.slice(), box: state && curBox(svg).slice() };
+    g.overlay._loading = true;
+    g.canvas.setAttribute("aria-busy", "true");
+    window.htmx.ajax("GET", node.getAttribute("data-recenter"), g.canvas).then(function () {
+      if (g.canvas.firstElementChild === original) throw new Error("graph response was not rendered");
+      var walk = g.overlay._walk = g.overlay._walk || [];
+      walk.push(step);
+      if (walk.length > 40) walk.shift();
+      renderCrumbs(g);
+    }).catch(function (err) {
+      console.warn("graph exploration unavailable:", err);
+      g.panel.querySelector(".graph-foot").textContent = "Could not load this neighbourhood. Try again.";
+    }).finally(function () {
+      g.overlay._loading = false;
+      g.canvas.removeAttribute("aria-busy");
+    });
   }
   function stepBack(i) {
     var g = graphParts(), walk = g && g.overlay._walk;
-    if (!walk || i < 0 || i >= walk.length) return;
+    if (!walk || g.overlay._loading || i < 0 || i >= walk.length) return;
     var step = walk[i];
     g.overlay._walk = walk.slice(0, i);
     g.canvas.innerHTML = step.html; // markup this page rendered earlier
+    g.title.textContent = step.title;
+    var svg = g.canvas.querySelector("svg.graph");
+    if (svg && step.base) svg.setAttribute("viewBox", step.base.join(" "));
     renderCrumbs(g);
-    hydrateMaps(g.canvas); // re-binds zoom and inks the restored graph in (graphArrived)
+    hydrateMaps(g.canvas);
+    if (svg && step.box) setBox(svg, step.box);
   }
-  // A re-centred graph arriving from the server: name its centre, ink it in.
+  // A re-centred graph arriving from the server names its centre immediately.
   function graphArrived(svg) {
     var g = graphParts();
-    if (!g || g.overlay.hidden || !g.canvas.contains(svg)) return;
+    if (!g || !g.canvas.contains(svg)) return;
     var centre = svg.querySelector(".graph-center-label");
     if (centre) g.title.textContent = centre.textContent;
-    inkIn(g.panel);
+    renderCrumbs(g);
   }
   document.addEventListener("click", function (e) {
     var crumb = e.target.closest && e.target.closest(".graph-crumb");
     if (crumb) { stepBack(+crumb.dataset.step); return; }
-    if (!e.shiftKey) return;
     var node = e.target.closest && e.target.closest("#graph-overlay svg a[data-recenter]");
-    if (!node) return;
+    if (!node || e.metaKey || e.ctrlKey || e.altKey || e.button !== 0) return;
+    if (!e.shiftKey && !node.closest(".exploring")) return;
     e.preventDefault(); // shift-click would open a new window
     recentre(node);
   });
@@ -504,7 +571,31 @@
     var m = mapOverlay();
     if (!m) return;
     showOverlay(m, restore);
-    if (window.htmx) window.htmx.ajax("GET", m.dataset.mapUrl, "#map-canvas");
+    loadMap(m);
+  }
+  // Reopening keeps the camera, filter and expanded groups. Refresh is explicit;
+  // failed loads remain retryable, and rapid summons share the in-flight request.
+  function loadMap(overlay, refresh) {
+    var canvas = overlay.querySelector(".graph-canvas");
+    if (!window.htmx || overlay._loading || (overlay._loaded && !refresh)) return;
+    overlay._loading = true;
+    var original = canvas.firstElementChild;
+    canvas.removeAttribute("data-error");
+    canvas.setAttribute("aria-busy", "true");
+    var url = overlay.dataset.mapUrl || overlay.dataset.universeUrl;
+    window.htmx.ajax("GET", url, canvas).then(function () {
+      if (canvas.firstElementChild === original || !canvas.querySelector("svg, .floor-empty")) {
+        throw new Error("graph response was not rendered");
+      }
+      overlay._loaded = true;
+    }).catch(function (err) {
+      console.warn("map unavailable:", err);
+      canvas.setAttribute("data-error", "Graph unavailable. Use Refresh to try again.");
+      overlay.querySelector(".graph-foot").textContent = "Could not load the graph. Use Refresh to try again.";
+    }).finally(function () {
+      overlay._loading = false;
+      canvas.removeAttribute("aria-busy");
+    });
   }
   function closeMap() { hideOverlay(mapOverlay()); }
   document.addEventListener("click", function (e) {
@@ -541,7 +632,7 @@
     var u = universeOverlay();
     if (!u) return;
     showOverlay(u, restore);
-    if (window.htmx) window.htmx.ajax("GET", u.dataset.universeUrl, "#universe-canvas");
+    loadMap(u);
   }
   function closeUniverse() { hideOverlay(universeOverlay()); }
   document.addEventListener("click", function (e) {
@@ -561,7 +652,7 @@
   document.addEventListener("keydown", function (e) {
     if (e.key !== "a" || e.ctrlKey || e.metaKey || e.altKey || typingIn(e)) return;
     var p = palette();
-    if (p && !p.hidden) return;
+    if ((p && !p.hidden) || openOverlay()) return;
     var box = document.querySelector(".pane .ask-input");
     var door = document.querySelector("a.nav-librarian");
     if (!box && !door) return;
@@ -622,7 +713,7 @@
     svg.querySelectorAll("[data-node]").forEach(function (a) {
       var path = a.getAttribute("data-node"), t = a.querySelector("title");
       st.nodes.set(path, a);
-      st.search.push({ path: path, node: path, text: (t ? t.textContent : path).toLowerCase() });
+      if (a.matches("a[href]")) st.search.push({ path: path, node: path, text: (t ? t.textContent : path).toLowerCase() });
     });
     // Documents folded into an aggregate: searchable, surfaced through the
     // node that holds them (the server's undrawn .wm-members index).
@@ -652,9 +743,10 @@
     st.dim = st.stage.appendChild(document.createElement("div"));
     st.dim.className = "wm-dim";
     st.focus = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    st.focus.setAttribute("class", "floor wm-focus");
+    st.focus.setAttribute("class", svg.getAttribute("class") + " wm-focus");
     st.focus.setAttribute("viewBox", svg.getAttribute("viewBox"));
     st.focus.setAttribute("aria-hidden", "true");
+    if (st.k) st.focus.style.setProperty("--wm-k", st.k.toFixed(4));
     st.stage.appendChild(st.focus);
     st.rect = null; // reparented: re-measure on the next gesture
     return st;
@@ -662,6 +754,7 @@
   // One renderer for hover and filter: the lifted set is the hot node's
   // neighbourhood while there is one, else the filter matches, else nothing.
   function wmRender(svg) {
+    if (svg.classList.contains("graph")) { renderLocalGraph(svg); return; }
     var st = wmStageOf(svg), lift = null, lines = [], inc = null;
     if (st.hot) {
       inc = incident(svg, st.hot);
@@ -761,17 +854,24 @@
   function clearHot(root) {
     root.querySelectorAll(".edge-hot, .node-hot").forEach(function (n) { n.classList.remove("edge-hot", "node-hot"); });
   }
+  function renderLocalGraph(svg) {
+    var st = wmState(svg), inc = st.hot ? incident(svg, st.hot) : null;
+    wmLive(svg, st, inc);
+    clearHot(svg);
+    svg.querySelectorAll(".wm-sel").forEach(function (a) { a.classList.remove("wm-sel"); });
+    if (inc) {
+      inc.lines.forEach(function (l) { l.classList.add("edge-hot"); });
+      inc.nodes.forEach(function (p) { var a = st.nodes.get(p); if (a) a.classList.add("node-hot"); });
+    }
+    var match = st.matches[st.sel], selected = match && st.nodes.get(match.node);
+    if (selected) selected.classList.add("wm-sel");
+  }
   function setHot(svg, p) {
     var st = wmState(svg);
     if (st.hot === (p || "")) return;
     st.hot = p || "";
     wmFoot(svg);
-    if (svg.classList.contains("floor")) { wmRender(svg); return; }
-    clearHot(svg);
-    if (!p) return;
-    var inc = incident(svg, p);
-    inc.lines.forEach(function (l) { l.classList.add("edge-hot"); });
-    inc.nodes.forEach(function (q) { var a = st.nodes.get(q); if (a) a.classList.add("node-hot"); });
+    wmRender(svg);
   }
   // Leaving a node does not clear at once: the cursor crossing a gap between
   // nodes would strobe the highlight. Switching to another node also waits a
@@ -784,6 +884,7 @@
     hotClear = setTimeout(function () { hotClear = null; setHot(svg, null); }, wmHoverHold);
   }
   function hotFrom(e, immediate) {
+    if (pan && pan.moved) return;
     var svg = hotRoot(e.target);
     if (!svg) return;
     var holder = e.target.closest("[data-node]");
@@ -809,7 +910,7 @@
   // past wmDragSlop pans and swallows the click that would follow. Only a
   // drawing in an overlay canvas is zoomable (world map, universe, graph); a
   // trail-pane map keeps normal scrolling.
-  var zoomable = ".graph-canvas svg.floor, .graph-canvas svg.graph";
+  var zoomable = ".graph-canvas svg.floor:not(.wm-focus), .graph-canvas svg.graph";
   function mapSVG(target) { return target.closest && target.closest(zoomable); }
   function openOverlay() {
     return [graphOverlay(), mapOverlay(), universeOverlay()].filter(shown)[0] || null;
@@ -820,7 +921,7 @@
   }
   function filterSVG(input) {
     var panel = input.closest(".graph-panel");
-    return panel && panel.querySelector("svg.floor");
+    return panel && panel.querySelector(zoomable);
   }
   function curBox(svg) { var st = wmState(svg); return st.box || st.base; }
   // viewBox writes coalesce to one per frame: a trackpad emits dozens of
@@ -831,6 +932,7 @@
     if (st.pending) return;
     st.pending = requestAnimationFrame(function () {
       st.pending = null;
+      if (!svg.isConnected) return;
       var vb = st.box.join(" ");
       svg.setAttribute("viewBox", vb);
       if (st.focus) st.focus.setAttribute("viewBox", vb);
@@ -843,25 +945,22 @@
     });
   }
   function resetBox(svg) { glideBox(svg, wmState(svg).base.slice()); }
-  // Keeps the canvas in step with the view: the graph-paper dots track the
-  // drawing's plane (one SVG-space step, doubled or halved to a comfortable
-  // screen pitch) and map labels hold their screen size (--wm-k is the zoom).
+  // Labels hold their screen size; the fit control doubles as a zoom readout.
   function wmSyncView(svg) {
     var canvas = svg.closest(".graph-canvas"), st = wmState(svg);
     if (!canvas) return;
     var w = wmView(svg);
     if (!w.k) return; // hidden: measured once shown
-    var c = st.crect || (st.crect = canvas.getBoundingClientRect());
-    var step = 28 * w.k;
-    while (step < 16) step *= 2;
-    while (step > 56) step /= 2;
-    // Background properties, not inherited custom properties: a pan frame
-    // must not restyle the whole map subtree.
-    canvas.style.backgroundSize = step + "px " + step + "px";
-    canvas.style.backgroundPosition = (w.left - w.box[0] * w.k - c.left) + "px " + (w.top - w.box[1] * w.k - c.top) + "px";
+    var panel = canvas.closest(".graph-panel"), fit = panel && panel.querySelector(".graph-fit");
+    if (fit) {
+      var percent = Math.round(st.base[2] / w.box[2] * 100) + "%";
+      if (fit.textContent !== percent) fit.textContent = percent;
+      fit.setAttribute("aria-label", "Fit graph (current zoom " + percent + ")");
+    }
     if (st.k !== w.k) {
       st.k = w.k;
       svg.style.setProperty("--wm-k", w.k.toFixed(4));
+      if (st.focus) st.focus.style.setProperty("--wm-k", w.k.toFixed(4));
       clearTimeout(st.cullTimer);
       st.cullTimer = setTimeout(function () { wmCull(svg); }, wmCullSettle);
     }
@@ -888,13 +987,14 @@
   }
   // Keyed zoom and reset glide instead of jumping; the pan coasts after a
   // flick. One motion at a time, and any new gesture stops it.
-  var motionRaf = 0;
-  function stopMotion() { cancelAnimationFrame(motionRaf); motionRaf = 0; }
+  var motionRaf = 0, wheelGoal = null;
+  function stopMotion() { cancelAnimationFrame(motionRaf); motionRaf = 0; wheelGoal = null; }
   function glideBox(svg, to) {
     stopMotion();
     if (calm.matches) { setBox(svg, to); return; }
     var from = curBox(svg).slice(), start = performance.now(), dur = 260;
     (function step(now) {
+      if (!svg.isConnected) { stopMotion(); return; }
       var t = Math.min(1, (now - start) / dur), ease = 1 - Math.pow(1 - t, 3);
       setBox(svg, from.map(function (v, i) { return v + (to[i] - v) * ease; }));
       motionRaf = t < 1 ? requestAnimationFrame(step) : 0;
@@ -905,6 +1005,7 @@
     if (calm.matches || Math.hypot(vx, vy) < 0.25) return;
     var last = performance.now();
     (function step(now) {
+      if (!svg.isConnected) { stopMotion(); return; }
       var dt = Math.min(48, now - last), b = curBox(svg), decay = Math.pow(0.93, dt / 16);
       last = now;
       setBox(svg, [b[0] - vx * dt / k, b[1] - vy * dt / k, b[2], b[3]]);
@@ -915,14 +1016,14 @@
   // Screen-to-SVG mapping without a layout flush per event: the element box
   // is measured once (re-measured on resize) and preserveAspectRatio's
   // letterbox is applied by hand.
-  function wmView(svg) {
-    var st = wmState(svg), v = curBox(svg);
+  function wmView(svg, box) {
+    var st = wmState(svg), v = box || curBox(svg);
     var r = st.rect && st.rect.width ? st.rect : (st.rect = svg.getBoundingClientRect());
     var k = Math.min(r.width / v[2], r.height / v[3]);
     return { box: v, k: k, left: r.left + (r.width - v[2] * k) / 2, top: r.top + (r.height - v[3] * k) / 2 };
   }
-  function svgPoint(svg, cx, cy) {
-    var w = wmView(svg);
+  function svgPoint(svg, cx, cy, box) {
+    var w = wmView(svg, box);
     return { x: w.box[0] + (cx - w.left) / w.k, y: w.box[1] + (cy - w.top) / w.k };
   }
   // The cached rect is viewport-relative: drop it whenever anything scrolls
@@ -930,15 +1031,19 @@
   function wmDropRects() {
     document.querySelectorAll(".graph-canvas svg").forEach(function (svg) {
       var st = wmStates.get(svg);
-      if (st) { st.rect = null; st.crect = null; }
+      if (st) st.rect = null;
     });
   }
-  window.addEventListener("resize", wmDropRects);
+  window.addEventListener("resize", function () {
+    wmDropRects();
+    var overlay = openOverlay(), svg = overlay && overlay.querySelector(zoomable);
+    if (svg) wmSyncView(svg);
+  });
   window.addEventListener("scroll", wmDropRects, { passive: true, capture: true });
   // The box after zooming by factor k about an SVG-space point (the centre
   // when null), clamped to [wmZoomMin, wmZoomMax] of the base box.
-  function zoomTarget(svg, k, p) {
-    var v = curBox(svg), b = wmState(svg).base;
+  function zoomTarget(svg, k, p, box) {
+    var v = box || curBox(svg), b = wmState(svg).base;
     var scale = b[2] / (v[2] * k);
     if (scale < wmZoomMin) k = b[2] / (v[2] * wmZoomMin);
     if (scale > wmZoomMax) k = b[2] / (v[2] * wmZoomMax);
@@ -953,28 +1058,50 @@
   function onWheel(e) {
     var svg = e.currentTarget;
     e.preventDefault();
-    var d = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
+    if (pan) return;
+    var d = e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? svg.clientHeight : 1);
     var rate = e.ctrlKey ? wmPinchRate : wmWheelRate;
     var k = Math.exp(Math.max(-wmWheelClamp, Math.min(wmWheelClamp, d)) * rate);
+    var box = wheelGoal && wheelGoal.svg === svg ? wheelGoal.box : curBox(svg);
+    var to = zoomTarget(svg, k, svgPoint(svg, e.clientX, e.clientY, box), box);
+    if (calm.matches) { stopMotion(); setBox(svg, to); return; }
+    if (wheelGoal && wheelGoal.svg === svg) { wheelGoal.box = to; return; }
     stopMotion();
-    setBox(svg, zoomTarget(svg, k, svgPoint(svg, e.clientX, e.clientY)));
+    wheelGoal = { svg: svg, box: to };
+    var last = performance.now();
+    motionRaf = requestAnimationFrame(function step(now) {
+      if (!svg.isConnected) { stopMotion(); return; }
+      var goal = wheelGoal.box, current = curBox(svg);
+      var ease = 1 - Math.exp(-(now - last) / 45);
+      last = now;
+      var next = current.map(function (v, i) { return v + (goal[i] - v) * ease; });
+      var settled = next.every(function (v, i) { return Math.abs(v - goal[i]) < goal[2] * 0.00005; });
+      setBox(svg, settled ? goal : next);
+      if (settled) { motionRaf = 0; wheelGoal = null; }
+      else motionRaf = requestAnimationFrame(step);
+    });
   }
   // pan: {svg, x, y, box, k, moved, t, vx, vy}; v is the release velocity in px/ms.
   var pan = null, swallowClick = false;
   document.addEventListener("pointerdown", function (e) {
     swallowClick = false;
     var svg = mapSVG(e.target);
-    if (!svg || e.button !== 0) return;
+    if (!svg || e.button !== 0 || pan) return;
     stopMotion();
     var w = wmView(svg);
-    pan = { svg: svg, x: e.clientX, y: e.clientY, box: w.box, k: w.k, moved: false,
+    pan = { svg: svg, pointer: e.pointerId, x: e.clientX, y: e.clientY, box: w.box, k: w.k, moved: false,
       t: performance.now(), px: e.clientX, py: e.clientY, vx: 0, vy: 0 };
   });
   document.addEventListener("pointermove", function (e) {
-    if (!pan) return;
-    if (e.buttons === 0) { endPan(); return; } // released off-document: no pointerup came
+    if (!pan || pan.pointer !== e.pointerId) return;
+    if (e.buttons === 0) { endPan(false); return; }
     var dx = e.clientX - pan.x, dy = e.clientY - pan.y;
     if (!pan.moved && Math.hypot(dx, dy) < wmDragSlop) return;
+    if (!pan.moved) {
+      pan.svg.setPointerCapture(e.pointerId);
+      clearTimeout(hotClear); clearTimeout(hotSwitch);
+      setHot(pan.svg, null);
+    }
     pan.moved = true;
     pan.svg.classList.add("panning");
     var b = pan.box, now = performance.now(), dt = Math.max(1, now - pan.t);
@@ -984,19 +1111,23 @@
     pan.t = now; pan.px = e.clientX; pan.py = e.clientY;
     setBox(pan.svg, [b[0] - dx / pan.k, b[1] - dy / pan.k, b[2], b[3]]);
   });
-  function endPan() {
+  function endPan(inertia) {
     if (!pan) return;
     pan.svg.classList.remove("panning");
+    if (pan.svg.hasPointerCapture(pan.pointer)) pan.svg.releasePointerCapture(pan.pointer);
     swallowClick = pan.moved;
     // A release after a pause is a placement, not a flick.
-    if (pan.moved && performance.now() - pan.t < 60) coast(pan.svg, pan.vx, pan.vy, pan.k);
+    if (inertia && pan.moved && performance.now() - pan.t < 60) coast(pan.svg, pan.vx, pan.vy, pan.k);
     pan = null;
   }
-  document.addEventListener("pointerup", endPan);
-  document.addEventListener("pointercancel", endPan);
+  document.addEventListener("pointerup", function (e) { if (pan && pan.pointer === e.pointerId) endPan(true); });
+  document.addEventListener("pointercancel", function (e) { if (pan && pan.pointer === e.pointerId) endPan(false); });
+  window.addEventListener("blur", function () { endPan(false); stopMotion(); });
+  document.addEventListener("dragstart", function (e) { if (mapSVG(e.target)) e.preventDefault(); });
   document.addEventListener("click", function (e) {
     if (!swallowClick) return;
     swallowClick = false;
+    if (!mapSVG(e.target)) return;
     e.preventDefault();
     e.stopPropagation();
   }, true);
@@ -1011,6 +1142,7 @@
     var svg = filterSVG(input);
     if (!svg) return;
     var st = wmState(svg), q = input.value.trim().toLowerCase();
+    st.hot = "";
     st.query = q;
     st.matches = q ? st.search.filter(function (n) { return n.text.indexOf(q) !== -1; }) : [];
     st.matchNodes = st.matches.map(function (m) { return m.node; });
@@ -1084,7 +1216,7 @@
       if (wmStates.has(svg)) return;
       clearTimeout(hotClear); hotClear = null;
       clearTimeout(hotSwitch); hotSwitch = null;
-      pan = null;
+      endPan(false);
       stopMotion();
       wmState(svg);
       wmSyncView(svg);
