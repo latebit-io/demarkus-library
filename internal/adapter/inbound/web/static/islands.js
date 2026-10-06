@@ -432,6 +432,7 @@
     var button = e.target.closest && e.target.closest("[data-graph-action]");
     if (!button) return;
     var overlay = button.closest(".graph-backdrop"), panel = button.closest(".graph-panel");
+    if (!overlay || !panel) return;
     var svg = panel.querySelector(zoomable), action = button.dataset.graphAction;
     if (action === "close") { hideOverlay(overlay); return; }
     if (action === "refresh") { loadMap(overlay, true); return; }
