@@ -27,6 +27,7 @@
      rebrand the room by overriding :root alone. */
   --font-prose: Literata, Charter, 'Bitstream Charter', 'Sitka Text', Cambria, Georgia, serif;
   --font-ui: Literata, Charter, Georgia, serif;
+  --font-graph: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
   --ok: light-dark(#45623f, #93b08a);
   --warn: light-dark(#86632a, #cba766);
@@ -354,8 +355,7 @@ svg a:focus-visible { outline: none; }
 /* The scrim is paper under a dot screen, so the receded map reads as
    dithered grey the way e-paper renders a mid tone. */
 .wm-dim { position: absolute; inset: 0; z-index: 1; opacity: 0;
-        background: radial-gradient(color-mix(in srgb, var(--ink) 24%, transparent) .7px, transparent 1.1px) 0 0 / 4px 4px,
-                    color-mix(in srgb, var(--paper) 86%, transparent);
+        background: color-mix(in srgb, var(--paper) 86%, transparent);
         pointer-events: none; transition: opacity .18s ease-out; will-change: opacity; }
 .wm-stage.wm-lit .wm-dim { opacity: 1; }
 /* Map labels hold a screen size at every zoom (islands.js sets --wm-k) and
@@ -365,15 +365,15 @@ svg.world-map .wm-below { dominant-baseline: hanging; transform: translateY(calc
 svg.world-map .wm-above { transform: translateY(calc(-5px / var(--wm-k, 1))); }
 .floor .wm-cull { visibility: hidden; }
 /* Filtering: the receded map is out of reach, not just out of sight. */
-.floor.wm-filtering a[data-node]:not(.wm-live) { pointer-events: none; }
+.wm-filtering a[data-node]:not(.wm-live) { pointer-events: none; }
 /* The chosen match reads solid, as the palette's selection inverts. */
 .wm-focus .wm-sel circle { fill: var(--ink); stroke: var(--ink); stroke-width: 3; stroke-dasharray: none; opacity: 1; }
 .wm-focus .wm-sel .floor-agg-glyph { fill: var(--paper); }
 .wm-focus .wm-sel text:not(.floor-agg-glyph) { font-weight: 700; }
 .wm-focus { position: absolute; inset: 0; z-index: 2; width: 100%; height: 100%;
         pointer-events: none; }
-.graph-canvas svg.floor, .graph-canvas svg.graph { cursor: grab; touch-action: none; }
-.graph-canvas svg.panning { cursor: grabbing; }
+.graph-canvas svg.floor, .graph-canvas svg.graph { cursor: grab; touch-action: none; user-select: none; }
+.graph-canvas svg.panning, .graph-canvas svg.panning a { cursor: grabbing; }
 .map-filter { font: inherit; font-size: .8rem; padding: .2rem .55rem; width: 14rem;
         background: var(--paper); color: var(--ink); border: 1px solid var(--rule);
         border-radius: 3px; }
@@ -470,14 +470,6 @@ svg.graph .graph-center-label { font-size: 15px; font-weight: 620; fill: var(--i
 .graph-node-label { font-size: 12px; }
 .graph-more { font-size: 12px; font-style: italic; }
 svg.graph a:hover circle, svg.graph a:focus-visible circle { stroke-width: 3; }
-/* Summoned, the neighbourhood is drawn in: edges ink outward from the
-   centre, then the nodes settle. Once per open (islands.js .refresh). */
-.refresh svg.graph .graph-edge { marker-end: none; }
-.refresh svg.graph .graph-edge:not(.edge-rel) { stroke-dasharray: var(--len, 1400);
-        animation: ink-draw .6s cubic-bezier(.4, 0, .2, 1) both; }
-.refresh svg.graph .graph-edge.edge-rel,
-.refresh svg.graph a[data-node] { animation: ink-settle .35s .35s ease-out both; }
-@keyframes ink-draw { from { stroke-dashoffset: var(--len, 1400); } to { stroke-dashoffset: 0; } }
 @keyframes ink-settle { from { opacity: 0; } }
 .graph-empty { color: var(--muted); font-style: italic; }
 
@@ -640,37 +632,44 @@ body.edit-page { max-width: none; padding: 1.5rem 1.5rem 2rem; }
 /* ── Graph overlay (ADR 0006 §4): on-demand pull-up of the focused doc's
       reference neighborhood. Hidden until summoned by `g`. ───────────── */
 .graph-backdrop { position: fixed; inset: 0; z-index: 90;
-        background: var(--scrim);
-        display: flex; justify-content: center; align-items: center;
-        padding: 4vh 2vw; }
+        background: var(--paper); display: flex; }
 .graph-backdrop[hidden] { display: none; }
 /* The dialog takes focus to hold the keyboard, not to show a ring. */
 .graph-panel:focus, .reader-panel:focus { outline: none; }
-.graph-panel { position: relative; background: var(--paper); color: var(--ink);
-        border: 1.5px solid var(--ink); border-radius: 4px;
-        /* The summoned map/graph is near-fullscreen — the content fills
-           the overlay rather than shrinking to the SVG's intrinsic ~760px. */
-        width: 99vw; height: 97vh; max-width: 99vw; max-height: 97vh;
+.graph-panel { --font-ui: var(--font-graph); position: relative; background: var(--paper); color: var(--ink);
+        width: 100%; height: 100%; min-width: 0;
         overflow: hidden; display: flex; flex-direction: column; }
-.graph-head { display: flex; justify-content: space-between; align-items: baseline;
-        gap: 1rem; padding: .55rem 1rem; border-bottom: 1px solid var(--rule);
-        font-family: var(--font-ui); }
-.graph-title { font-weight: 620; font-size: 1rem; }
+.graph-head { display: flex; align-items: center; flex-wrap: wrap; flex: 0 0 auto;
+        gap: .65rem; padding: .6rem 1rem; border-bottom: 1px solid var(--faint);
+        font-family: var(--font-ui); background: var(--wash); }
+.graph-kind { font-size: .72rem; color: var(--muted); white-space: nowrap; }
+.graph-title { font-weight: 620; font-size: .9rem; min-width: 0; flex: 1 1 8rem;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.graph-head .map-filter { width: clamp(9rem, 20vw, 18rem); padding: .4rem .65rem; }
+.graph-controls { display: flex; align-items: center; gap: .2rem; margin-left: auto; }
+.graph-tool { font-family: var(--font-ui); font-size: .8rem; line-height: 1;
+        min-width: 2.2rem; min-height: 2.2rem; padding: .45rem .6rem; cursor: pointer;
+        border: 1px solid transparent; border-radius: 5px; background: transparent; color: var(--muted); }
+.graph-tool:hover, .graph-tool[aria-pressed="true"] { color: var(--ink); background: var(--paper); border-color: var(--rule); }
+.graph-tool:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.graph-close { margin-left: .45rem; }
+.graph-fit { min-width: 3.4rem; font-variant-numeric: tabular-nums; }
 /* The exploration breadcrumb (islands.js): earlier centres, then the title. */
-#graph-overlay .graph-head { justify-content: flex-start; }
-#graph-overlay .graph-hint { margin-left: auto; }
-.graph-crumbs { font-size: .9rem; color: var(--muted); }
+.graph-crumbs { display: block; margin: 0; flex: 0 0 auto; padding: .4rem 1rem; overflow-x: auto; white-space: nowrap;
+        border-bottom: 1px solid var(--faint); font: .8rem var(--font-ui); color: var(--muted); }
+.graph-crumbs[hidden] { display: none; }
 .graph-crumb { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer;
         text-decoration: underline; text-decoration-color: var(--rule); text-underline-offset: 3px; }
 .graph-crumb:hover { color: var(--ink); text-decoration-color: currentColor; }
 .graph-hint { font-size: .74rem; color: var(--muted); }
 /* The reading line: the hovered node's full name and reach, in the
    footer register of an e-reader. Empty, it says what to do. */
-.graph-foot { margin: 0; display: flex; gap: .8rem; align-items: baseline; min-height: 1.5em;
-        padding: .45rem 1rem; border-top: 1px solid var(--rule);
-        font-family: var(--font-ui); font-size: .85rem; color: var(--muted); }
+.graph-foot { margin: 0; display: flex; gap: .8rem; align-items: baseline; min-height: 2.3em; flex: 0 0 auto;
+        padding: .45rem 1rem; border-top: 1px solid var(--faint); overflow: hidden; white-space: nowrap;
+        font-family: var(--font-ui); font-size: .75rem; color: var(--muted); }
+.graph-foot b, .graph-foot span { overflow: hidden; text-overflow: ellipsis; }
 .graph-foot b { color: var(--ink); font-weight: 600; }
-.graph-foot:empty::before { content: attr(data-idle); font-style: italic; }
+.graph-foot:empty::before { content: attr(data-idle); }
 /* Overlays fade in and out rather than snap: a hard cut over a full
    screen reads as flicker. islands.js holds .closing until the fade ends.
    The lazy map fades in on arrival instead of popping in after the panel. */
@@ -681,16 +680,39 @@ body.edit-page { max-width: none; padding: 1.5rem 1.5rem 2rem; }
 @keyframes overlay-out { to { opacity: 0; } }
 /* Canvas fills the panel below the head; its SVG scales up to the box
    (viewBox + preserveAspectRatio keeps the layout centered, not stretched). */
-/* Graph paper under the drawing; islands.js keeps its grid in step with
-   pan and zoom so the plane feels continuous. */
-.graph-canvas { padding: .15rem; flex: 1 1 auto; min-height: 0;
-        background: radial-gradient(color-mix(in srgb, var(--ink) 22%, transparent) .9px, transparent 1.2px)
-                    0 0 / 28px 28px;
+.graph-canvas { flex: 1 1 auto; min-height: 0; position: relative;
         display: flex; flex-direction: column; align-items: stretch;
-        justify-content: center; overflow: auto; }
+        justify-content: center; overflow: hidden; }
 .graph-canvas svg { width: 100%; height: 100%; max-width: 100%; min-height: 0;
         flex: 1 1 auto; }
 .graph-canvas .world-map-new { flex: 0 0 auto; margin-top: .4rem; }
+/* Quiet dots and fine links keep the drawing legible while the camera moves. */
+.graph-canvas .graph-edge, .graph-canvas .floor-edge { vector-effect: non-scaling-stroke; }
+.graph-canvas .graph-edge { marker-end: none; }
+.graph-canvas .graph-edge.edge-hot { animation: none; stroke-dasharray: none;
+        stroke-width: 1.5; marker-end: url(#arrow-hot); }
+.graph-canvas .graph-edge.edge-hot.edge-rel { stroke-dasharray: 6 4; }
+.graph-canvas .graph-node { fill: var(--muted); stroke: var(--paper); stroke-width: 1.2; }
+.graph-canvas .floor-doc { fill: var(--muted); stroke-width: 1; }
+.graph-canvas .floor-doc.status-accepted { fill: var(--ok); }
+.graph-canvas .floor-doc.status-wip { fill: var(--warn); }
+.graph-canvas .floor-doc.world-map-orphan { fill: var(--paper); }
+.graph-canvas .graph-node.graph-walked, .graph-canvas .node-hot .graph-node { fill: var(--ink); }
+.graph-canvas svg.graph .graph-node-label { font-size: calc(12px / var(--wm-k, 1)); }
+.graph-canvas svg.graph .graph-center-label { font-size: calc(14px / var(--wm-k, 1)); }
+.graph-canvas svg.graph.wm-filtering a[data-node]:not(.wm-live) { opacity: .12; }
+.graph-canvas svg.graph.wm-filtering .graph-edge { opacity: .12; }
+.graph-canvas svg.graph .wm-sel .graph-node { fill: var(--ink); stroke: var(--ink); stroke-width: 3; }
+.graph-canvas:empty::before { content: "Loading graph…"; align-self: center; color: var(--muted); font: .85rem var(--font-ui); }
+.graph-canvas[data-error]:empty::before { content: attr(data-error); }
+@media (max-width: 640px) {
+  .graph-head { gap: .35rem; padding: .45rem .6rem; }
+  .graph-kind { display: none; }
+  .graph-title { flex-basis: 4rem; }
+  .graph-head .map-filter { order: 1; width: 100%; }
+  .graph-tool { min-width: 2.5rem; min-height: 2.5rem; }
+  .graph-foot { padding-inline: .6rem; }
+}
 
 /* ── World index (ADR 0006 §5, §8): each card is one stretched link into a
       world's stacks, with its catalog at a glance. Federated worlds read as

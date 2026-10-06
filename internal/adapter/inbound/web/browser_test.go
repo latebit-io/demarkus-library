@@ -247,7 +247,11 @@ func (c *cdp) navigate(t *testing.T, url string) {
 
 func (c *cdp) key(t *testing.T, key string) {
 	t.Helper()
-	c.call(t, "Input.dispatchKeyEvent", map[string]any{"type": "keyDown", "key": key, "text": key})
+	params := map[string]any{"type": "keyDown", "key": key}
+	if len([]rune(key)) == 1 {
+		params["text"] = key
+	}
+	c.call(t, "Input.dispatchKeyEvent", params)
 	c.call(t, "Input.dispatchKeyEvent", map[string]any{"type": "keyUp", "key": key})
 	time.Sleep(300 * time.Millisecond) // the overlay's entrance
 }
