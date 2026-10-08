@@ -1,0 +1,38 @@
+suite: networkpolicy
+templates:
+  - networkpolicy.yaml
+set:
+  library.broker.url: https://broker.example.com
+  library.broker.clientID: library-web
+  library.broker.clientSecret: shh
+  library.broker.redirectURI: https://library.example.com/auth/callback
+  library.broker.world: root
+tests:
+  - it: without internalURL egress is DNS, 443 and QUIC only
+    asserts:
+      - lengthEqual:
+          path: spec.egress
+          count: 3
+  - it: internalURL with explicit port adds a TCP egress rule for it
+    set:
+      library.broker.internalURL: http://knowledge.demarkus-knowledge.svc.cluster.local:8080
+    asserts:
+      - lengthEqual:
+          path: spec.egress
+          count: 4
+      - contains:
+          path: spec.egress
+          content:
+            ports:
+              - protocol: TCP
+                port: 8080
+  - it: internalURL without a port falls back to the scheme default
+    set:
+      library.broker.internalURL: https://broker.ns.svc
+    asserts:
+      - contains:
+          path: spec.egress
+          content:
+            ports:
+              - protocol: TCP
+                port: 443

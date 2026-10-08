@@ -59,6 +59,18 @@ spec:
     - ports:
         - protocol: TCP
           port: 443
+    {{- /* The in-cluster broker origin (library.broker.internalURL) is
+           plain http on a Service port, so TCP 443 does not cover it.
+           Pin the port; the Service IP is cluster-stable but not a chart
+           input. */}}
+    {{- with .Values.library.broker.internalURL }}
+    {{- $u := urlParse . }}
+    {{- $port := regexFind ":[0-9]+$" $u.host | trimPrefix ":" }}
+    {{- if not $port }}{{ $port = ternary "443" "80" (eq $u.scheme "https") }}{{ end }}
+    - ports:
+        - protocol: TCP
+          port: {{ $port }}
+    {{- end }}
     # QUIC to anywhere — direct world dials: the quic transport's home
     # world and broker-mode federation link-following. Federation
     # follows mark:// links to arbitrary hosts by design, so the
