@@ -11,6 +11,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/latebit-io/demarkus-library/internal/core/port"
 )
 
 // secret deliberately contains ':' and '%' — the characters that break naive
@@ -27,6 +29,7 @@ type brokerStub struct {
 	srv            *httptest.Server
 	discoveryHits  atomic.Int64
 	lastForm       url.Values
+	lastXFF        string
 	lastBasicID    string
 	lastBasicSec   string
 	tokenResponses []tokenResponse // consumed in order; last one repeats
@@ -59,6 +62,7 @@ func newBrokerStub(t *testing.T) *brokerStub {
 			t.Errorf("token endpoint: parse form: %v", err)
 		}
 		b.lastForm = r.PostForm
+		b.lastXFF = r.Header.Get("X-Forwarded-For")
 		// Mirror the broker's parseClientAuth: Basic halves are
 		// form-urlencoded before encoding.
 		if id, sec, ok := r.BasicAuth(); ok {
@@ -73,6 +77,7 @@ func newBrokerStub(t *testing.T) *brokerStub {
 	mux.HandleFunc("POST /token/revoke", func(w http.ResponseWriter, r *http.Request) {
 		_ = r.ParseForm()
 		b.lastForm = r.PostForm
+		b.lastXFF = r.Header.Get("X-Forwarded-For")
 		w.WriteHeader(http.StatusNoContent)
 	})
 	b.srv = httptest.NewServer(mux)
@@ -464,5 +469,33 @@ func TestDiscoveryIssuerQueryFragmentRejected(t *testing.T) {
 				t.Errorf("err = %v, want query/fragment rejection", err)
 			}
 		})
+	}
+}
+
+func TestForwardsReaderIP(t *testing.T) {
+	b := newBrokerStub(t)
+	b.tokenResponses = []tokenResponse{okToken("id", "r1", 3600)}
+	c := b.client()
+
+	ctx := port.WithReaderIP(context.Background(), "203.0.113.9")
+	if _, err := c.Exchange(ctx, "code", "verifier"); err != nil {
+		t.Fatalf("Exchange: %v", err)
+	}
+	if b.lastXFF != "203.0.113.9" {
+		t.Errorf("token call X-Forwarded-For = %q, want the reader IP", b.lastXFF)
+	}
+	if err := c.Revoke(ctx, "r1"); err != nil {
+		t.Fatalf("Revoke: %v", err)
+	}
+	if b.lastXFF != "203.0.113.9" {
+		t.Errorf("revoke call X-Forwarded-For = %q, want the reader IP", b.lastXFF)
+	}
+
+	// No reader on the context: the header must not be invented.
+	if _, err := c.Exchange(context.Background(), "code", "verifier"); err != nil {
+		t.Fatalf("Exchange: %v", err)
+	}
+	if b.lastXFF != "" {
+		t.Errorf("X-Forwarded-For = %q without a reader, want none", b.lastXFF)
 	}
 }

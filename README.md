@@ -163,6 +163,7 @@ required; startup fails loudly on a missing one.
 | `DEMARKUS_WORLD` | — | world name for `mark://<world>/<path>` reads |
 | `DEMARKUS_SCOPES` | `mark.read` | OAuth scopes (space-separated) |
 | `DEMARKUS_SESSION_TTL` | `720h` | absolute session lifetime |
+| `DEMARKUS_FORWARD_READER_IP` | `false` | send the reader's IP (`X-Real-IP`, verbatim) as `X-Forwarded-For` on token exchange, refresh and revoke; only behind a proxy that overwrites `X-Real-IP` |
 | `DEMARKUS_COOKIE_SECURE` | `true` | Secure flag on the session cookie (`false` only for localhost dev) |
 
 `DEMARKUS_BROKER_INTERNAL_URL` sends discovery, token, revocation and MCP

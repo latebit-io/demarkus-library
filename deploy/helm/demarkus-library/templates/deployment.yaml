@@ -107,6 +107,8 @@ spec:
               value: {{ .Values.library.broker.scopes | quote }}
             - name: DEMARKUS_SESSION_TTL
               value: {{ .Values.library.broker.sessionTTL | quote }}
+            - name: DEMARKUS_FORWARD_READER_IP
+              value: {{ .Values.library.broker.forwardReaderIP | quote }}
             - name: DEMARKUS_COOKIE_SECURE
               value: {{ .Values.library.broker.cookieSecure | quote }}
             {{- else }}

@@ -100,6 +100,7 @@ type AppConfig struct {
 	Scopes            []string      // OAuth scopes (default mark.read)
 	SessionTTL        time.Duration // absolute session lifetime (default 720h)
 	CookieSecure      bool          // Secure flag on the session cookie (false only for localhost dev)
+	ForwardReaderIP   bool          // forward the reader IP to the broker on token calls
 }
 
 // NewAppConfig reads configuration from the environment. Defaults keep the
@@ -184,6 +185,8 @@ func NewAppConfig() (*AppConfig, error) {
 		Scopes:            strings.Fields(getEnv("DEMARKUS_SCOPES", "mark.read")),
 		SessionTTL:        sessionTTL,
 		CookieSecure:      getEnvAsBool("DEMARKUS_COOKIE_SECURE", true),
+		// Off by default: X-Real-IP is trusted verbatim when on.
+		ForwardReaderIP: getEnvAsBool("DEMARKUS_FORWARD_READER_IP", false),
 	}
 
 	if (cfg.TLSCert == "") != (cfg.TLSKey == "") {

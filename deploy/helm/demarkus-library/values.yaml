@@ -157,6 +157,12 @@ library:
     # Ingress serves https so this stays true; false only for local /
     # port-forward dev over plain http.
     cookieSecure: true
+    # Forward the reader's IP (X-Real-IP, taken verbatim) as X-Forwarded-For
+    # on token exchange, refresh and revoke, so a broker with
+    # rateLimit.trustForwardedFor keys its per-IP buckets per reader rather
+    # than on this pod. Only behind a proxy that overwrites X-Real-IP
+    # (ingress-nginx does) (DEMARKUS_FORWARD_READER_IP).
+    forwardReaderIP: false
 
   # Direct-QUIC mode (library.transport=quic). Dev/demo only — no login
   # turnstile in front of the reading room.

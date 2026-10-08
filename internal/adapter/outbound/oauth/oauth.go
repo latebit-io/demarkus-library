@@ -21,6 +21,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/latebit-io/demarkus-library/internal/core/port"
 )
 
 // ErrInvalidGrant means the broker rejected the code or refresh token itself
@@ -222,6 +224,15 @@ func rejectDowngrade(base, target string) error {
 	return nil
 }
 
+// forwardReaderIP names the reader on credential-bearing calls so a broker
+// that trusts X-Forwarded-For keys its per-IP limits per reader instead of
+// on this server's address.
+func forwardReaderIP(req *http.Request) {
+	if ip := port.ReaderIP(req.Context()); ip != "" {
+		req.Header.Set("X-Forwarded-For", ip)
+	}
+}
+
 // getJSON fetches one discovery document into v; non-200 is an error.
 func (c *Client) getJSON(ctx context.Context, u string, v any) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, http.NoBody)
@@ -304,6 +315,7 @@ func (c *Client) Revoke(ctx context.Context, refreshToken string) error {
 		return fmt.Errorf("oauth: build revoke request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	forwardReaderIP(req)
 	c.setBasicAuth(req)
 	resp, err := c.http.Do(req)
 	if err != nil {
@@ -329,6 +341,7 @@ func (c *Client) token(ctx context.Context, form url.Values) (TokenSet, error) {
 		return TokenSet{}, fmt.Errorf("oauth: build token request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	forwardReaderIP(req)
 	c.setBasicAuth(req)
 
 	resp, err := c.http.Do(req)

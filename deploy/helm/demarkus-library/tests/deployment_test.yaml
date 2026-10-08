@@ -75,6 +75,11 @@ tests:
           content:
             name: DEMARKUS_FEDERATION
             value: "true"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DEMARKUS_FORWARD_READER_IP
+            value: "false"
 
   - it: renders DEMARKUS_HUB when library.hub is set
     template: deployment.yaml
