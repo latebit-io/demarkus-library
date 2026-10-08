@@ -173,7 +173,9 @@ path, query, fragment or userinfo. With `https://`, the certificate must be
 valid for the internal host name: TLS verifies the dialed host, not the
 preserved `Host` header. The internal origin must serve both the
 management API and `/mcp`; a broker with a separate MCP listener needs an
-in-cluster path router (the ingress's job) in front of it. With `http://`, the client secret and
+in-cluster path router (the ingress's job) in front of it. The chart's
+NetworkPolicy opens egress to the internal port; the broker's own policy
+must admit the library namespace on it. With `http://`, the client secret and
 tokens cross the cluster unencrypted. Rate limiting: these calls carry no
 client IP, so a broker with `trustForwardedFor: true` keys them on the library
 pod IP, and all readers share one bucket.
