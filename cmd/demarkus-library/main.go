@@ -169,8 +169,8 @@ func main() {
 			ClientSecret: config.ClientSecret,
 			RedirectURI:  config.RedirectURI,
 			Scopes:       config.Scopes,
-			OnIssuerHost: route.issuerHost,
-		}, route.oauthClient)}
+			OnIssuerHost: issuerHostHook(route),
+		}, routedClient(route, oauth.DefaultTimeout))}
 
 		store := session.NewMemoryStore(config.SessionTTL)
 		pending := session.NewPendingStore()
@@ -182,7 +182,7 @@ func main() {
 		}))
 		turnstile = append(turnstile, web.RequireSession(sessions))
 
-		bg := broker.NewGateway(config.BrokerURL, route.gatewayClient)
+		bg := broker.NewGateway(config.BrokerURL, routedClient(route, broker.DefaultTimeout))
 		fcfg := federated.Config{Names: bg, AllowExternal: config.Federation}
 		var fclient *fetch.Client
 		if config.Federation {

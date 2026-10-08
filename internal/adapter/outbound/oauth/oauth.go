@@ -104,11 +104,14 @@ type Client struct {
 	fetchedAt time.Time
 }
 
+// DefaultTimeout bounds every broker call — each is a small JSON exchange.
+const DefaultTimeout = 10 * time.Second
+
 // NewClient binds a Config to an HTTP client. A nil httpClient uses a
-// 10-second-timeout default — every broker call is a small JSON exchange.
+// DefaultTimeout client.
 func NewClient(cfg Config, httpClient *http.Client) *Client {
 	if httpClient == nil {
-		httpClient = &http.Client{Timeout: 10 * time.Second}
+		httpClient = &http.Client{Timeout: DefaultTimeout}
 	}
 	return &Client{cfg: cfg, http: httpClient, now: time.Now}
 }

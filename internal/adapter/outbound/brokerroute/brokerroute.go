@@ -16,7 +16,6 @@ import (
 // discovery document cannot pull credentials toward the internal address.
 type Transport struct {
 	internal *url.URL
-	next     http.RoundTripper
 
 	mu    sync.RWMutex
 	hosts map[string]struct{}
@@ -34,16 +33,13 @@ func ParseInternalURL(raw string) (*url.URL, error) {
 	return &url.URL{Scheme: u.Scheme, Host: u.Host}, nil
 }
 
-// New routes publicURL's host to internal. A nil next uses http.DefaultTransport.
-func New(internal *url.URL, publicURL string, next http.RoundTripper) (*Transport, error) {
+// New routes publicURL's host to internal over http.DefaultTransport.
+func New(internal *url.URL, publicURL string) (*Transport, error) {
 	public, err := url.Parse(publicURL)
 	if err != nil || public.Host == "" {
 		return nil, fmt.Errorf("invalid broker URL %q", publicURL)
 	}
-	if next == nil {
-		next = http.DefaultTransport
-	}
-	t := &Transport{internal: internal, next: next, hosts: map[string]struct{}{}}
+	t := &Transport{internal: internal, hosts: map[string]struct{}{}}
 	t.AddHost(public.Host)
 	return t, nil
 }
@@ -65,11 +61,12 @@ func (t *Transport) routed(host string) bool {
 // RoundTrip implements http.RoundTripper.
 func (t *Transport) RoundTrip(req *http.Request) (*http.Response, error) {
 	if !t.routed(req.URL.Host) {
-		return t.next.RoundTrip(req)
+		return http.DefaultTransport.RoundTrip(req)
 	}
-	out := req.Clone(req.Context())
-	out.Host = req.URL.Host
-	out.URL.Scheme = t.internal.Scheme
-	out.URL.Host = t.internal.Host
-	return t.next.RoundTrip(out)
+	// Shallow copy: only URL and Host change, headers are shared untouched.
+	out := *req
+	target := *req.URL
+	target.Scheme, target.Host = t.internal.Scheme, t.internal.Host
+	out.URL, out.Host = &target, req.URL.Host
+	return http.DefaultTransport.RoundTrip(&out)
 }

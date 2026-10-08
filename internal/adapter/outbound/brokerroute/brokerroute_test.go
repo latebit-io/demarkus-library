@@ -52,7 +52,7 @@ func newTransport(t *testing.T, internal string) *brokerroute.Transport {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tr, err := brokerroute.New(u, publicBroker, nil)
+	tr, err := brokerroute.New(u, publicBroker)
 	if err != nil {
 		t.Fatal(err)
 	}

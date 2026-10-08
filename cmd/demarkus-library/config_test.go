@@ -106,23 +106,3 @@ func TestNewAppConfigLibrarianAsksPerHour(t *testing.T) {
 		}
 	}
 }
-
-func TestNewAppConfigBrokerInternalURL(t *testing.T) {
-	t.Setenv("DEMARKUS_TRANSPORT", TransportBroker)
-	t.Setenv("DEMARKUS_BROKER_URL", "https://broker.example.org")
-	t.Setenv("DEMARKUS_CLIENT_ID", "id")
-	t.Setenv("DEMARKUS_CLIENT_SECRET", "secret")
-	t.Setenv("DEMARKUS_REDIRECT_URI", "https://lib.example.org/auth/callback")
-	t.Setenv("DEMARKUS_WORLD", "w")
-
-	t.Setenv("DEMARKUS_BROKER_INTERNAL_URL", "http://broker.ns.svc.cluster.local")
-	cfg, err := NewAppConfig()
-	if err != nil || cfg.BrokerInternalURL == "" {
-		t.Fatalf("valid internal URL: cfg=%v err=%v", cfg, err)
-	}
-
-	t.Setenv("DEMARKUS_BROKER_INTERNAL_URL", "http://broker.ns.svc/mcp")
-	if _, err := NewAppConfig(); err == nil || !strings.Contains(err.Error(), "DEMARKUS_BROKER_INTERNAL_URL") {
-		t.Fatalf("path in internal URL must fail naming the var, got %v", err)
-	}
-}

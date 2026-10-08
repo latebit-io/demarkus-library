@@ -9,34 +9,41 @@ import (
 	"github.com/latebit-io/demarkus-library/internal/adapter/outbound/brokerroute"
 )
 
-// brokerRoute holds the HTTP clients for server-side broker calls. With no
-// internal URL the clients are nil and the adapters use their defaults.
-type brokerRoute struct {
-	oauthClient   *http.Client
-	gatewayClient *http.Client
-	issuerHost    func(host string)
-}
-
-func newBrokerRoute(logger *slog.Logger, config *AppConfig) (brokerRoute, error) {
+// newBrokerRoute builds the transport for DEMARKUS_BROKER_INTERNAL_URL. Nil
+// when unset: the adapters then use their default clients.
+func newBrokerRoute(logger *slog.Logger, config *AppConfig) (*brokerroute.Transport, error) {
 	if config.BrokerInternalURL == "" {
-		return brokerRoute{}, nil
+		return nil, nil
 	}
 	internal, err := brokerroute.ParseInternalURL(config.BrokerInternalURL)
 	if err != nil {
-		return brokerRoute{}, err
+		return nil, fmt.Errorf("DEMARKUS_BROKER_INTERNAL_URL: %w", err)
 	}
-	transport, err := brokerroute.New(internal, config.BrokerURL, nil)
+	transport, err := brokerroute.New(internal, config.BrokerURL)
 	if err != nil {
-		return brokerRoute{}, fmt.Errorf("broker routing: %w", err)
+		return nil, fmt.Errorf("broker routing: %w", err)
 	}
 	if internal.Scheme == "http" {
 		logger.Warn("broker internal URL is plain http: client secret and tokens cross the cluster unencrypted")
 	}
 	logger.Info("broker calls routed internally", "public", config.BrokerURL, "internal", internal.String())
-	// Timeouts match the adapters' own defaults.
-	return brokerRoute{
-		oauthClient:   &http.Client{Transport: transport, Timeout: 10 * time.Second},
-		gatewayClient: &http.Client{Transport: transport, Timeout: 15 * time.Second},
-		issuerHost:    transport.AddHost,
-	}, nil
+	return transport, nil
+}
+
+// routedClient wraps the transport with an adapter's timeout; nil transport
+// yields nil so the adapter falls back to its default client.
+func routedClient(transport *brokerroute.Transport, timeout time.Duration) *http.Client {
+	if transport == nil {
+		return nil
+	}
+	return &http.Client{Transport: transport, Timeout: timeout}
+}
+
+// issuerHostHook returns the discovery hook that teaches the transport the
+// advertised issuer host, or nil when nothing is routed.
+func issuerHostHook(transport *brokerroute.Transport) func(string) {
+	if transport == nil {
+		return nil
+	}
+	return transport.AddHost
 }

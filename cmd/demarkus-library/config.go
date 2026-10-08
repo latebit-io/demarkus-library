@@ -6,8 +6,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/latebit-io/demarkus-library/internal/adapter/outbound/brokerroute"
 )
 
 // Transport selects the outbound world adapter at the composition root.
@@ -239,11 +237,6 @@ func NewAppConfig() (*AppConfig, error) {
 		}
 		if len(missing) > 0 {
 			return nil, fmt.Errorf("broker transport requires %s", strings.Join(missing, ", "))
-		}
-		if cfg.BrokerInternalURL != "" {
-			if _, err := brokerroute.ParseInternalURL(cfg.BrokerInternalURL); err != nil {
-				return nil, fmt.Errorf("DEMARKUS_BROKER_INTERNAL_URL: %w", err)
-			}
 		}
 	default:
 		return nil, fmt.Errorf("DEMARKUS_TRANSPORT must be %q or %q, got %q",
