@@ -59,14 +59,16 @@ type Gateway struct {
 // compile-time check that Gateway satisfies the outbound port.
 var _ port.WorldGateway = (*Gateway)(nil)
 
+// DefaultTimeout bounds every MCP call. Safe at the client level because no
+// long-lived SSE stream is held open; without it a wedged broker would pin
+// request handlers indefinitely.
+const DefaultTimeout = 15 * time.Second
+
 // NewGateway builds the production gateway: brokerURL is the broker origin
-// (https://broker.example.org). A nil httpClient gets a 15-second-timeout
-// default — safe to bound at the client level because no long-lived SSE
-// stream is held open; without it a wedged broker would pin request handlers
-// indefinitely.
+// (https://broker.example.org). A nil httpClient gets a DefaultTimeout client.
 func NewGateway(brokerURL string, httpClient *http.Client) *Gateway {
 	if httpClient == nil {
-		httpClient = &http.Client{Timeout: 15 * time.Second}
+		httpClient = &http.Client{Timeout: DefaultTimeout}
 	}
 	return &Gateway{
 		caller: &mcpCaller{

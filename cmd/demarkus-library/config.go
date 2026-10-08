@@ -91,14 +91,15 @@ type AppConfig struct {
 
 	// Broker mode (Phase 1b) — the library is a registered confidential
 	// web client at the broker.
-	BrokerURL    string        // broker origin, e.g. https://broker.example.org
-	ClientID     string        // webClients registry entry
-	ClientSecret string        // plaintext secret (broker stores the sha256)
-	RedirectURI  string        // must exactly match a registered redirect URI
-	World        string        // world name for mark://<world>/<path> reads
-	Scopes       []string      // OAuth scopes (default mark.read)
-	SessionTTL   time.Duration // absolute session lifetime (default 720h)
-	CookieSecure bool          // Secure flag on the session cookie (false only for localhost dev)
+	BrokerURL         string        // broker origin, e.g. https://broker.example.org
+	BrokerInternalURL string        // optional in-cluster origin for server-side broker calls
+	ClientID          string        // webClients registry entry
+	ClientSecret      string        // plaintext secret (broker stores the sha256)
+	RedirectURI       string        // must exactly match a registered redirect URI
+	World             string        // world name for mark://<world>/<path> reads
+	Scopes            []string      // OAuth scopes (default mark.read)
+	SessionTTL        time.Duration // absolute session lifetime (default 720h)
+	CookieSecure      bool          // Secure flag on the session cookie (false only for localhost dev)
 }
 
 // NewAppConfig reads configuration from the environment. Defaults keep the
@@ -173,14 +174,16 @@ func NewAppConfig() (*AppConfig, error) {
 		DefaultDoc: getEnv("DEMARKUS_DEFAULT_DOC", "/index.md"),
 		Hub:        strings.TrimSpace(getEnv("DEMARKUS_HUB", "")),
 
-		BrokerURL:    getEnv("DEMARKUS_BROKER_URL", ""),
-		ClientID:     getEnv("DEMARKUS_CLIENT_ID", ""),
-		ClientSecret: getEnv("DEMARKUS_CLIENT_SECRET", ""),
-		RedirectURI:  getEnv("DEMARKUS_REDIRECT_URI", ""),
-		World:        getEnv("DEMARKUS_WORLD", ""),
-		Scopes:       strings.Fields(getEnv("DEMARKUS_SCOPES", "mark.read")),
-		SessionTTL:   sessionTTL,
-		CookieSecure: getEnvAsBool("DEMARKUS_COOKIE_SECURE", true),
+		BrokerURL: getEnv("DEMARKUS_BROKER_URL", ""),
+		// Optional in-cluster origin for server-side broker calls.
+		BrokerInternalURL: strings.TrimSpace(getEnv("DEMARKUS_BROKER_INTERNAL_URL", "")),
+		ClientID:          getEnv("DEMARKUS_CLIENT_ID", ""),
+		ClientSecret:      getEnv("DEMARKUS_CLIENT_SECRET", ""),
+		RedirectURI:       getEnv("DEMARKUS_REDIRECT_URI", ""),
+		World:             getEnv("DEMARKUS_WORLD", ""),
+		Scopes:            strings.Fields(getEnv("DEMARKUS_SCOPES", "mark.read")),
+		SessionTTL:        sessionTTL,
+		CookieSecure:      getEnvAsBool("DEMARKUS_COOKIE_SECURE", true),
 	}
 
 	if (cfg.TLSCert == "") != (cfg.TLSKey == "") {

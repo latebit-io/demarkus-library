@@ -66,6 +66,9 @@ type Config struct {
 	RedirectURI string
 	// Scopes are space-joined into the authorize request. Default mark.read.
 	Scopes []string
+	// OnIssuerHost, when set, receives the host of the issuer the broker's
+	// protected-resource metadata advertises (internal routing hook).
+	OnIssuerHost func(host string)
 }
 
 // TokenSet is one successful token-endpoint response. RefreshToken is empty
@@ -101,11 +104,14 @@ type Client struct {
 	fetchedAt time.Time
 }
 
+// DefaultTimeout bounds every broker call — each is a small JSON exchange.
+const DefaultTimeout = 10 * time.Second
+
 // NewClient binds a Config to an HTTP client. A nil httpClient uses a
-// 10-second-timeout default — every broker call is a small JSON exchange.
+// DefaultTimeout client.
 func NewClient(cfg Config, httpClient *http.Client) *Client {
 	if httpClient == nil {
-		httpClient = &http.Client{Timeout: 10 * time.Second}
+		httpClient = &http.Client{Timeout: DefaultTimeout}
 	}
 	return &Client{cfg: cfg, http: httpClient, now: time.Now}
 }
@@ -136,6 +142,7 @@ func (c *Client) endpoints(ctx context.Context) (endpoints, error) {
 		}
 		issuer = strings.TrimRight(prm.AuthorizationServers[0], "/")
 		chained = true
+		c.noteIssuerHost(issuer)
 	case !errors.Is(err, errDiscoveryNotFound):
 		return endpoints{}, err
 	}
@@ -180,6 +187,17 @@ func (c *Client) endpoints(ctx context.Context) (endpoints, error) {
 	eps.revokeURL = revokeOrigin + revokePath
 	c.cached, c.fetchedAt = eps, c.now()
 	return eps, nil
+}
+
+// noteIssuerHost reports the advertised issuer's host so the transport can
+// route it like the broker's own. The PRM came from the broker itself.
+func (c *Client) noteIssuerHost(issuer string) {
+	if c.cfg.OnIssuerHost == nil {
+		return
+	}
+	if u, err := url.Parse(issuer); err == nil && u.Host != "" {
+		c.cfg.OnIssuerHost(u.Host)
+	}
 }
 
 // parseOrigin validates an absolute http(s) URL without query or fragment

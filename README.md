@@ -157,12 +157,26 @@ required; startup fails loudly on a missing one.
 | Var | Default | Meaning |
 |---|---|---|
 | `DEMARKUS_BROKER_URL` | — | broker origin, e.g. `https://broker.example.org` |
+| `DEMARKUS_BROKER_INTERNAL_URL` | _(empty)_ | in-cluster origin (`http://broker.ns.svc`) for server-side broker calls; see below |
 | `DEMARKUS_CLIENT_ID` / `DEMARKUS_CLIENT_SECRET` | — | webClients registry entry |
 | `DEMARKUS_REDIRECT_URI` | — | must exactly match a registered redirect URI |
 | `DEMARKUS_WORLD` | — | world name for `mark://<world>/<path>` reads |
 | `DEMARKUS_SCOPES` | `mark.read` | OAuth scopes (space-separated) |
 | `DEMARKUS_SESSION_TTL` | `720h` | absolute session lifetime |
 | `DEMARKUS_COOKIE_SECURE` | `true` | Secure flag on the session cookie (`false` only for localhost dev) |
+
+`DEMARKUS_BROKER_INTERNAL_URL` sends discovery, token, revocation and MCP
+calls for the broker's public hosts (the broker URL host and the advertised
+issuer host, exact match) to the internal address, keeping the public `Host`
+header. Browsers still use the public authorize endpoint. Origin only: no
+path, query, fragment or userinfo. With `https://`, the certificate must be
+valid for the internal host name: TLS verifies the dialed host, not the
+preserved `Host` header. The internal origin must serve both the
+management API and `/mcp`; a broker with a separate MCP listener needs an
+in-cluster path router (the ingress's job) in front of it. With `http://`, the client secret and
+tokens cross the cluster unencrypted. Rate limiting: these calls carry no
+client IP, so a broker with `trustForwardedFor: true` keys them on the library
+pod IP, and all readers share one bucket.
 
 ## Deploy
 
