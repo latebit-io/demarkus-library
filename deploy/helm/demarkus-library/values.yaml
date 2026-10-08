@@ -120,7 +120,8 @@ library:
     url: ""
     # Optional in-cluster origin for server-side broker calls, e.g.
     # http://broker.ns.svc.cluster.local (DEMARKUS_BROKER_INTERNAL_URL).
-    # Plain http sends the client secret and tokens unencrypted in-cluster.
+    # Plain http sends the client secret and tokens unencrypted in-cluster;
+    # https needs a certificate valid for this internal host name.
     internalURL: ""
     # webClients registry entry at the broker (DEMARKUS_CLIENT_ID).
     clientID: ""

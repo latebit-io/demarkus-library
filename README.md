@@ -169,7 +169,11 @@ required; startup fails loudly on a missing one.
 calls for the broker's public hosts (the broker URL host and the advertised
 issuer host, exact match) to the internal address, keeping the public `Host`
 header. Browsers still use the public authorize endpoint. Origin only: no
-path, query, fragment or userinfo. With `http://`, the client secret and
+path, query, fragment or userinfo. With `https://`, the certificate must be
+valid for the internal host name: TLS verifies the dialed host, not the
+preserved `Host` header. The internal origin must serve both the
+management API and `/mcp`; a broker with a separate MCP listener needs an
+in-cluster path router (the ingress's job) in front of it. With `http://`, the client secret and
 tokens cross the cluster unencrypted. Rate limiting: these calls carry no
 client IP, so a broker with `trustForwardedFor: true` keys them on the library
 pod IP, and all readers share one bucket.

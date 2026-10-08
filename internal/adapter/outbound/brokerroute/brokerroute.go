@@ -4,6 +4,7 @@
 package brokerroute
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -21,14 +22,15 @@ type Transport struct {
 	hosts map[string]struct{}
 }
 
-// ParseInternalURL validates an origin-only http(s) URL.
+// ParseInternalURL validates an origin-only http(s) URL. Errors never echo
+// the value: it may carry userinfo and the caller logs them at startup.
 func ParseInternalURL(raw string) (*url.URL, error) {
 	u, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-		return nil, fmt.Errorf("invalid internal broker URL %q: want http(s)://host[:port]", raw)
+		return nil, errors.New("internal broker URL must be http(s)://host[:port]")
 	}
 	if u.User != nil || u.RawQuery != "" || u.Fragment != "" || strings.Trim(u.Path, "/") != "" {
-		return nil, fmt.Errorf("internal broker URL %q must be an origin: no userinfo, path, query or fragment", raw)
+		return nil, errors.New("internal broker URL must be an origin: no userinfo, path, query or fragment")
 	}
 	return &url.URL{Scheme: u.Scheme, Host: u.Host}, nil
 }

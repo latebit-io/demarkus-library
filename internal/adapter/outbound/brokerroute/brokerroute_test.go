@@ -26,16 +26,21 @@ func internalBroker(t *testing.T) (srv *httptest.Server, hosts *[]string) {
 	var mu sync.Mutex
 	var seen []string
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /.well-known/oauth-protected-resource", func(w http.ResponseWriter, _ *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]any{"authorization_servers": []string{publicIssuer}})
-	})
-	mux.HandleFunc("GET /.well-known/oauth-authorization-server", func(w http.ResponseWriter, _ *http.Request) {
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"issuer":                 publicIssuer,
-			"authorization_endpoint": publicIssuer + "/oauth/authorize",
-			"token_endpoint":         publicIssuer + "/oauth/token",
-		})
-	})
+	serve := func(doc map[string]any) http.HandlerFunc {
+		return func(w http.ResponseWriter, _ *http.Request) {
+			if err := json.NewEncoder(w).Encode(doc); err != nil {
+				t.Errorf("fixture encode: %v", err)
+			}
+		}
+	}
+	mux.HandleFunc("GET /.well-known/oauth-protected-resource", serve(map[string]any{
+		"authorization_servers": []string{publicIssuer},
+	}))
+	mux.HandleFunc("GET /.well-known/oauth-authorization-server", serve(map[string]any{
+		"issuer":                 publicIssuer,
+		"authorization_endpoint": publicIssuer + "/oauth/authorize",
+		"token_endpoint":         publicIssuer + "/oauth/token",
+	}))
 	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
 		seen = append(seen, r.Host)
@@ -112,10 +117,26 @@ func TestUnknownIssuerHostStaysPublic(t *testing.T) {
 }
 
 func TestParseInternalURL(t *testing.T) {
-	for _, bad := range []string{"", "broker", "ftp://b", "http://u:p@b", "http://b/path", "http://b?q=1", "http://b#f"} {
-		if _, err := brokerroute.ParseInternalURL(bad); err == nil {
-			t.Errorf("ParseInternalURL(%q) accepted", bad)
-		}
+	rejected := []struct{ name, raw string }{
+		{"empty", ""},
+		{"no scheme", "nohost.svc"},
+		{"ftp scheme", "ftp://b"},
+		{"userinfo", "http://u:p@b"},
+		{"path", "http://b/path"},
+		{"query", "http://b?q=1"},
+		{"fragment", "http://b#f"},
+	}
+	for _, tc := range rejected {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := brokerroute.ParseInternalURL(tc.raw)
+			if err == nil {
+				t.Fatalf("ParseInternalURL(%q) accepted", tc.raw)
+			}
+			// The value may hold credentials and the caller logs the error.
+			if tc.raw != "" && strings.Contains(err.Error(), tc.raw) {
+				t.Errorf("error echoes the value: %v", err)
+			}
+		})
 	}
 	u, err := brokerroute.ParseInternalURL("http://broker.ns.svc.cluster.local:8080/")
 	if err != nil {
