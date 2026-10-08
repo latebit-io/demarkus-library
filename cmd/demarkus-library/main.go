@@ -105,6 +105,11 @@ func main() {
 	// documents other people wrote, so what a stylesheet may fetch is bounded
 	// here as well as at ingestion (csp.go).
 	app.Use(web.SecurityHeaders())
+	// Reader IP for the broker's per-IP limits (token exchange, refresh,
+	// revoke); X-Real-IP is trusted verbatim, so this is opt-in.
+	if config.ForwardReaderIP {
+		app.Use(web.ReaderIP())
+	}
 	// Bound handler latency: a wedged outbound read returns 503 instead of
 	// pinning the goroutine. Covers the turnstile's token refresh too. The
 	// librarian's SSE stream and no-JS ask are exempt — an agent run
