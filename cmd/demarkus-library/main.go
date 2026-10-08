@@ -158,13 +158,19 @@ func main() {
 		shutdown = client.Close
 
 	case TransportBroker:
+		route, err := newBrokerRoute(logger, config)
+		if err != nil {
+			logger.Error("broker routing invalid", "err", err)
+			os.Exit(1)
+		}
 		auth := brokerAuth{client: oauth.NewClient(oauth.Config{
 			BrokerURL:    config.BrokerURL,
 			ClientID:     config.ClientID,
 			ClientSecret: config.ClientSecret,
 			RedirectURI:  config.RedirectURI,
 			Scopes:       config.Scopes,
-		}, nil)}
+			OnIssuerHost: route.issuerHost,
+		}, route.oauthClient)}
 
 		store := session.NewMemoryStore(config.SessionTTL)
 		pending := session.NewPendingStore()
@@ -176,7 +182,7 @@ func main() {
 		}))
 		turnstile = append(turnstile, web.RequireSession(sessions))
 
-		bg := broker.NewGateway(config.BrokerURL, nil)
+		bg := broker.NewGateway(config.BrokerURL, route.gatewayClient)
 		fcfg := federated.Config{Names: bg, AllowExternal: config.Federation}
 		var fclient *fetch.Client
 		if config.Federation {

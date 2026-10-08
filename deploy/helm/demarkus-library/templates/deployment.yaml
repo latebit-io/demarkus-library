@@ -83,6 +83,10 @@ spec:
             {{- if eq .Values.library.transport "broker" }}
             - name: DEMARKUS_BROKER_URL
               value: {{ .Values.library.broker.url | quote }}
+            {{- with .Values.library.broker.internalURL }}
+            - name: DEMARKUS_BROKER_INTERNAL_URL
+              value: {{ . | quote }}
+            {{- end }}
             - name: DEMARKUS_CLIENT_ID
               value: {{ .Values.library.broker.clientID | quote }}
             - name: DEMARKUS_CLIENT_SECRET
