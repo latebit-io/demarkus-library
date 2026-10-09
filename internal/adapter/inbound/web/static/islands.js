@@ -689,6 +689,7 @@
   // sharing its viewBox and fades a paper scrim over the map on the compositor.
   var wmHoverHold = 350, wmHoverSwitch = 90; // ms: leave hold-off, node-switch settle
   var wmDragSlop = 4;                        // px before a press becomes a pan
+  var wmCrowd = 40;                          // hot axons past this stop pulsing
   var wmZoomMin = 0.5, wmZoomMax = 8, wmLabelZoomOn = 1.8, wmLabelZoomOff = 1.5;
   var wmWheelRate = 0.0028, wmPinchRate = 0.01, wmWheelClamp = 60, wmKeyStep = 0.7;
 
@@ -704,7 +705,7 @@
       hot: "", query: "", matches: [], matchNodes: [], sel: 0, live: null,
       lines: new Map(), nodes: new Map(), search: [],
       stage: null, dim: null, focus: null };
-    svg.querySelectorAll("line[data-from]").forEach(function (l) {
+    svg.querySelectorAll("path[data-from]").forEach(function (l) {
       [l.getAttribute("data-from"), l.getAttribute("data-to")].forEach(function (k) {
         if (!st.lines.has(k)) st.lines.set(k, []);
         st.lines.get(k).push(l);
@@ -766,6 +767,7 @@
     wmLive(svg, st, inc);
     st.focus.replaceChildren();
     st.stage.classList.toggle("wm-lit", !!lift);
+    st.focus.classList.toggle("wm-crowd", lines.length > wmCrowd);
     if (!lift) return;
     var frag = document.createDocumentFragment();
     lines.forEach(function (l) { var c = l.cloneNode(true); c.classList.add("edge-hot"); frag.appendChild(c); });
@@ -859,6 +861,7 @@
     wmLive(svg, st, inc);
     clearHot(svg);
     svg.querySelectorAll(".wm-sel").forEach(function (a) { a.classList.remove("wm-sel"); });
+    svg.classList.toggle("wm-crowd", !!inc && inc.lines.length > wmCrowd);
     if (inc) {
       inc.lines.forEach(function (l) { l.classList.add("edge-hot"); });
       inc.nodes.forEach(function (p) { var a = st.nodes.get(p); if (a) a.classList.add("node-hot"); });

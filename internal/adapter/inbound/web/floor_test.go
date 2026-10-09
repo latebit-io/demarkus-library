@@ -176,11 +176,11 @@ func TestFloorSVGNodesAndLinks(t *testing.T) {
 	svg := string(floorSVG(testFloor(), tr, 0, DefaultTerms()))
 
 	for _, want := range []string{
-		`class="floor-world"`,
+		`class="floor-world soma"`,
 		// World node click → the world's stacks (root listing → rich index).
 		`href="/t/u/~/team-a/d/"`, `data-node="w:team-a"`,
 		// Unreachable world renders dimmed, present.
-		`class="floor-world gone"`,
+		`class="floor-world gone soma"`,
 		`old-world`,
 		`worlds · 0 portals`,
 	} {
@@ -212,7 +212,7 @@ func TestFloorSVGEdgesAndPortals(t *testing.T) {
 		// World-level edges in the map's grammar: directed, hoverable, bundled by count.
 		`data-from="w:root" data-to="w:world-a"`, `edge-bundle`, `style="stroke-width:3.6"`,
 		`data-from="w:world-a" data-to="w:wiki.example.org"`,
-		`class="floor-portal-node"`, // external host as a portal node
+		`class="floor-portal-node soma"`, // external host as a portal node
 		// Portal click opens that host's root (federation resolves the host).
 		`href="/t/u/~/wiki.example.org/d/"`,
 		"wiki.example.org",
@@ -222,7 +222,7 @@ func TestFloorSVGEdgesAndPortals(t *testing.T) {
 			t.Errorf("floor svg missing %q", want)
 		}
 	}
-	if n := strings.Count(svg, "<line "); n != 2 {
+	if n := strings.Count(svg, `<path class="graph-edge`); n != 2 {
 		t.Errorf("edge count = %d, want 2", n)
 	}
 }

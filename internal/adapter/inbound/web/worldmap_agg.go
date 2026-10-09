@@ -226,11 +226,11 @@ type wmItem struct {
 	group    *wmGroup
 	count    int // documents represented (group: all beneath; more: unshown)
 	children []*wmItem
-	hub      bool    // member linked to most of its siblings: sits at the centre
-	ringed   bool    // member of a ring group: labeled at rest, labels fan outward
-	pack     []wmPt  // packed child offsets for a mixed group (unstretched)
-	foot     float64 // footprint radius, vertical units
-	x, y, r  int     // placed centre and visual radius
+	hub      bool       // member linked to most of its siblings: sits at the centre
+	ringed   bool       // member of a ring group: labeled at rest, labels fan outward
+	pack     []svgPoint // packed child offsets for a mixed group (unstretched)
+	foot     float64    // footprint radius, vertical units
+	x, y, r  int        // placed centre and visual radius
 }
 
 // end is the item as one end of a drawn edge.
@@ -238,33 +238,41 @@ func (it *wmItem) end() edgeEnd {
 	return edgeEnd{x: it.x, y: it.y, r: it.r, id: it.id}
 }
 
-// wmPt is an unstretched offset from a group's centre.
-type wmPt struct{ x, y float64 }
+// centreY is the group centre an anchor was placed around: the hub member's
+// row when one holds the centre and the anchor sits above it, else its own.
+func (it *wmItem) centreY() int {
+	for _, c := range it.children {
+		if c.hub {
+			return c.y
+		}
+	}
+	return it.y
+}
 
 // wmPack places children of mixed footprint by greedy spiral packing:
 // largest first, each walking an Archimedean spiral from the centre to the
 // first spot that overlaps nothing placed. reserve keeps the centre clear
 // for the anchor. Deterministic, compact, no empty middle.
-func wmPack(children []*wmItem, reserve float64) (pos []wmPt, foot float64) {
+func wmPack(children []*wmItem, reserve float64) (pos []svgPoint, foot float64) {
 	order := make([]int, len(children))
 	for i := range order {
 		order[i] = i
 	}
 	sort.SliceStable(order, func(a, b int) bool { return children[order[a]].foot > children[order[b]].foot })
 	type disc struct {
-		p wmPt
+		p svgPoint
 		r float64
 	}
 	var placed []disc
 	if reserve > 0 {
-		placed = append(placed, disc{wmPt{0, 0}, reserve})
+		placed = append(placed, disc{svgPoint{0, 0}, reserve})
 	}
-	pos = make([]wmPt, len(children))
+	pos = make([]svgPoint, len(children))
 	const turn = wmPitch / (4 * math.Pi) // radial growth per radian: half a pitch per turn
 	for _, i := range order {
 		f := children[i].foot
 		for t := 0.0; t < 4000; t += 0.2 {
-			p := wmPt{turn * t * math.Cos(t), turn * t * math.Sin(t)}
+			p := svgPoint{turn * t * math.Cos(t), turn * t * math.Sin(t)}
 			fits := true
 			for _, q := range placed {
 				if math.Hypot(p.x-q.p.x, p.y-q.p.y) < f+q.r+wmAggPad {
@@ -451,12 +459,20 @@ func wmMeasure(it *wmItem) float64 {
 	return it.foot
 }
 
-// wmPlace positions an item tree top down around (cx, cy).
+// wmPlace positions an item tree top down around (cx, cy). An anchor whose
+// group has a hub member yields the centre to it and sits just above.
 func wmPlace(it *wmItem, cx, cy int) {
 	it.x, it.y = cx, cy
 	if it.kind != wmItemAnchor && it.kind != wmItemRoot {
 		return
 	}
+	defer func() {
+		for _, c := range it.children {
+			if c.hub && it.kind == wmItemAnchor {
+				it.y = c.y - c.r - it.r - 6
+			}
+		}
+	}()
 	simple := true
 	for _, c := range it.children {
 		if c.kind == wmItemAnchor {
