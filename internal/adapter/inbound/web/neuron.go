@@ -158,31 +158,43 @@ type dendriteProcess struct {
 
 // dendrite appends one process: a trunk bowed by a seeded offset, forking
 // into two branches.
-func dendrite(b *strings.Builder, p dendriteProcess) {
-	centreX, centreY, radius := float64(p.soma.x), float64(p.soma.y), float64(p.soma.r)
-	trunk := radius * (dendriteTrunk + p.noise(p.index+10)*0.5)
-	if p.apical {
+func dendrite(builder *strings.Builder, process dendriteProcess) {
+	centreX, centreY, radius := float64(process.soma.x), float64(process.soma.y), float64(process.soma.r)
+	angle, noise := process.angle, process.noise
+	trunk := radius * (dendriteTrunk + noise(process.index+10)*0.5)
+	if process.apical {
 		trunk = radius * dendriteApical
 	}
-	bow := (p.noise(p.index+20) - 0.5) * radius * 0.6
-	start := polar(centreX, centreY, radius, p.angle)
-	mid := polar(centreX, centreY, radius+trunk/2, p.angle)
-	mid.x, mid.y = mid.x-bow*math.Sin(p.angle), mid.y+bow*math.Cos(p.angle)
-	tip := polar(centreX, centreY, radius+trunk, p.angle)
-	fmt.Fprintf(b, "M%.0f,%.0f Q%.0f,%.0f %.0f,%.0f", start.x, start.y, mid.x, mid.y, tip.x, tip.y)
+	bow := (noise(process.index+20) - 0.5) * radius * 0.6
+	start := polar(centreX, centreY, radius, angle)
+	mid := polar(centreX, centreY, radius+trunk/2, angle)
+	mid.x, mid.y = mid.x-bow*math.Sin(angle), mid.y+bow*math.Cos(angle)
+	tip := polar(centreX, centreY, radius+trunk, angle)
+	fmt.Fprintf(builder, "M%.0f,%.0f Q%.0f,%.0f %.0f,%.0f", start.x, start.y, mid.x, mid.y, tip.x, tip.y)
 	for _, side := range dendriteSides {
-		branchAngle := p.angle + side*(dendriteFork+p.noise(p.index+30)*0.3)
-		branchLen := radius * (dendriteBranch + p.noise(p.index+40)*0.4)
+		branchAngle := angle + side*(dendriteFork+noise(process.index+30)*0.3)
+		branchLen := radius * (dendriteBranch + noise(process.index+40)*0.4)
 		branch := polar(tip.x, tip.y, branchLen, branchAngle)
-		fmt.Fprintf(b, " M%.0f,%.0f L%.0f,%.0f", tip.x, tip.y, branch.x, branch.y)
-		if !p.apical {
+		fmt.Fprintf(builder, " M%.0f,%.0f L%.0f,%.0f", tip.x, tip.y, branch.x, branch.y)
+		if !process.apical {
 			continue
 		}
 		fork := polar(branch.x, branch.y, branchLen*0.7, branchAngle+side*0.5)
-		fmt.Fprintf(b, " M%.0f,%.0f L%.0f,%.0f", branch.x, branch.y, fork.x, fork.y)
-		half := polar(centreX, centreY, radius+trunk*0.55, p.angle)
-		twig := polar(half.x, half.y, branchLen, p.angle+side*1.1)
-		fmt.Fprintf(b, " M%.0f,%.0f L%.0f,%.0f", half.x, half.y, twig.x, twig.y)
+		fmt.Fprintf(builder, " M%.0f,%.0f L%.0f,%.0f", branch.x, branch.y, fork.x, fork.y)
+		// The side branch roots on the bowed trunk itself, not the radial line.
+		half := quadraticAt(start, mid, tip, 0.55)
+		twig := polar(half.x, half.y, branchLen, angle+side*1.1)
+		fmt.Fprintf(builder, " M%.0f,%.0f L%.0f,%.0f", half.x, half.y, twig.x, twig.y)
+	}
+}
+
+// quadraticAt is the point at parameter t on the quadratic Bézier from start
+// through control to end.
+func quadraticAt(start, control, end svgPoint, t float64) svgPoint {
+	u := 1 - t
+	return svgPoint{
+		u*u*start.x + 2*u*t*control.x + t*t*end.x,
+		u*u*start.y + 2*u*t*control.y + t*t*end.y,
 	}
 }
 
