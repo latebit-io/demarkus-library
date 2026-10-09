@@ -676,6 +676,9 @@ func TestFetchForcesFullBody(t *testing.T) {
 	if got := fc.gotArgs["force"]; got != true {
 		t.Errorf("force arg = %v, want true", got)
 	}
+	if got := fc.gotArgs["verbose"]; got != true {
+		t.Errorf("verbose arg = %v, want true: the margin needs every metadata key", got)
+	}
 }
 
 // TestFetchRejectsUnchangedStatus documents the failure mode force

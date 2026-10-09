@@ -426,6 +426,7 @@ func TestDocMarginRendersOKFGroupAndMetadata(t *testing.T) {
 		Modified: "2026-06-12T10:00:00Z",
 		Version:  "7",
 		Agent:    "claude-code",
+		User:     "ada@example.com",
 		Meta: []domain.Property{
 			{Key: "content-hash", Value: "sha256-deadbeef"},
 			{Key: "importance", Value: "0.8"},
@@ -444,6 +445,7 @@ func TestDocMarginRendersOKFGroupAndMetadata(t *testing.T) {
 		`<dt>content-hash</dt><dd>sha256-deadbeef</dd>`,
 		`<dt>importance</dt><dd>0.8</dd>`,
 		// demarkus provenance stays outside the OKF group.
+		`<dt>user</dt><dd>ada@example.com</dd>`,
 		`<dt>agent</dt><dd>claude-code</dd>`,
 	} {
 		if !strings.Contains(body, want) {
