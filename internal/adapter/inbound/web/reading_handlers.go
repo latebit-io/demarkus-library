@@ -86,6 +86,7 @@ type page struct {
 	Modified    string            // OKF `timestamp`: last meaningful change, verbatim
 	Version     string            // demarkus provenance
 	Agent       string            // demarkus provenance
+	User        string            // demarkus provenance
 	Meta        []domain.Property // every other out-of-band metadata key, sorted (importance, etag, …)
 	MarkURL     string            // canonical protocol address — the escape hatch (decision 12)
 	ReaderURL   string            // unused on the single-doc permalink (reader mode is a trail lens); kept so doc-meta renders for both VMs
@@ -282,6 +283,7 @@ func (h *ReadingHandler) present(c *echo.Context, doc domain.Document, err error
 		vm.Modified = doc.Modified
 		vm.Version = doc.Version
 		vm.Agent = doc.Agent
+		vm.User = doc.User
 		vm.Meta = doc.Meta
 		vm.MarkURL = "mark://" + opts.world + doc.Path
 		// The single-doc permalink view is not a trail, so its backlinks and

@@ -101,7 +101,9 @@ func (g *Gateway) Fetch(ctx context.Context, world, path string) (domain.RawDocu
 		Tool:  "mark_fetch",
 		World: world,
 		Path:  path,
-		Args:  map[string]any{"url": markURL(world, path), "force": true},
+		// verbose: servers before knowledge 0.56.0 hide every key but version
+		// and title without it; later ones ignore it. The margin shows them all.
+		Args: map[string]any{"url": markURL(world, path), "force": true, "verbose": true},
 	})
 }
 

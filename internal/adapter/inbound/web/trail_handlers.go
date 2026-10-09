@@ -81,6 +81,7 @@ type paneVM struct {
 	Modified    string
 	Version     string
 	Agent       string
+	User        string
 	Meta        []domain.Property // every other out-of-band metadata key, sorted
 	MarkURL     string
 	Librarian   *librarianPaneVM // the librarian pane's transcript + ask form (kind "a" only)
@@ -419,6 +420,7 @@ func (h *ReadingHandler) paneView(ctx context.Context, req *paneRequest) paneVM 
 		vm.Modified = doc.Modified
 		vm.Version = doc.Version
 		vm.Agent = doc.Agent
+		vm.User = doc.User
 		vm.Meta = doc.Meta
 		vm.MarkURL = "mark://" + addr.World + doc.Path
 		// Graph/map open non-prose panes, so they exit the overlay (plain

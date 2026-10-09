@@ -103,6 +103,7 @@ func TestReadRendersAndPopulatesDocument(t *testing.T) {
 				"modified": "2026-06-12T10:00:00Z",
 				"version":  "7",
 				"agent":    "claude-code",
+				"user":     "ada@example.com",
 			},
 		}},
 		fakeRenderer{html: "<h1>Hi</h1>", props: []domain.Property{{Key: "author", Value: "fritz"}}},
@@ -127,8 +128,8 @@ func TestReadRendersAndPopulatesDocument(t *testing.T) {
 	if len(doc.Tags) != 3 || doc.Tags[0] != "demarkus" || doc.Tags[2] != "hello" {
 		t.Errorf("tags = %v", doc.Tags)
 	}
-	if doc.Modified != "2026-06-12T10:00:00Z" || doc.Version != "7" || doc.Agent != "claude-code" {
-		t.Errorf("provenance = %q/%q/%q", doc.Modified, doc.Version, doc.Agent)
+	if doc.Modified != "2026-06-12T10:00:00Z" || doc.Version != "7" || doc.Agent != "claude-code" || doc.User != "ada@example.com" {
+		t.Errorf("provenance = %q/%q/%q/%q", doc.Modified, doc.Version, doc.Agent, doc.User)
 	}
 	if len(doc.Properties) != 1 || doc.Properties[0].Key != "author" {
 		t.Errorf("properties = %v", doc.Properties)

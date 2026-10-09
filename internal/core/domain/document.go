@@ -346,9 +346,10 @@ type Document struct {
 	Properties []Property // parsed body frontmatter
 	Modified   string
 	Version    string
-	Agent      string
+	Agent      string // the writing software
+	User       string // the verified person, when the surface stamped one
 	// Meta is every out-of-band catalog metadata entry not already surfaced in a
-	// dedicated slot (Type/Tags/Modified/Version/Agent/Status/Title), sorted by
+	// dedicated slot (Type/Tags/Modified/Version/Agent/User/Status/Title), sorted by
 	// key — importance, etag, content-hash, and any publisher-custom keys. The
 	// margin renders it whole so no cataloged metadata is hidden.
 	Meta []Property

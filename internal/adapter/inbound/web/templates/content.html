@@ -14,7 +14,7 @@
              affordances); the ledger — OKF fields, provenance, hashes,
              frontmatter properties — is one click away. Nothing cataloged
              is hidden, it just waits to be asked. */ -}}
-      {{- if or .Type .Modified .Version .Agent .Meta .Properties }}
+      {{- if or .Type .Modified .Version .Agent .User .Meta .Properties }}
       <details class="meta-fold"{{if .MetaOpen}} open{{end}}>
         <summary class="meta-head">metadata</summary>
         {{- if or .Type .Modified }}
@@ -26,9 +26,10 @@
           </dl>
         </section>
         {{- end }}
-        {{- if or .Version .Agent }}
+        {{- if or .Version .Agent .User }}
         <dl class="provenance">
           {{- if .Version }}<dt>version</dt><dd><a href="/w/{{ .WorldPath }}/versions{{ .Path }}">{{ .Version }}</a></dd>{{ end }}
+          {{- if .User }}<dt>user</dt><dd>{{ .User }}</dd>{{ end }}
           {{- if .Agent }}<dt>agent</dt><dd>{{ .Agent }}</dd>{{ end }}
         </dl>
         {{- end }}

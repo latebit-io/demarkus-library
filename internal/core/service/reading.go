@@ -77,6 +77,7 @@ func (s *ReadingService) Read(ctx context.Context, world, path string) (domain.D
 		Modified:   raw.Metadata["modified"],
 		Version:    raw.Metadata["version"],
 		Agent:      raw.Metadata["agent"],
+		User:       raw.Metadata["user"],
 		Meta:       otherMeta(raw.Metadata),
 	}
 	s.cachePut(docKey(world, path), doc)
@@ -275,12 +276,12 @@ func resolveStatus(tags []string, props []domain.Property) string {
 
 // metaSurfaced are the out-of-band keys already shown in a dedicated margin
 // slot — the OKF group (type, tags, modified→timestamp), provenance (version,
-// agent), and the H1 (title). otherMeta excludes them so the catch-all metadata
+// agent, user), and the H1 (title). otherMeta excludes them so the catch-all metadata
 // block surfaces everything else (importance, etag, content-hash, and any
 // publisher-custom keys) without double-printing what the curated slots hold.
 var metaSurfaced = map[string]bool{
 	"title": true, "tags": true, "type": true,
-	"modified": true, "version": true, "agent": true,
+	"modified": true, "version": true, "agent": true, "user": true,
 }
 
 // otherMeta returns every out-of-band metadata entry not already surfaced in a
