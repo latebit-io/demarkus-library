@@ -299,18 +299,35 @@ body.pane-scroll .pane .sidenote { display: none; }
 .meta-panel .doc-meta { position: static; } /* sticky is a margin behavior */
 
 /* ── The floor: SSR-SVG universe map (pane zero). Trust signals ride
-      the nodes — status as stroke color, importance as radius. ──── */
+      the nodes — status as stroke color, importance as radius. Drawn as
+      a neuron plate (neuron.go): somas, axons, lobes and ganglia. ──── */
 svg.floor { max-width: 100%; height: auto; }
 svg.floor text { fill: var(--muted); font-family: var(--font-ui); }
 .floor-world-label { font-size: 15px; font-weight: 600; }
 .floor-doc-label { font-size: 10.5px; }
-.floor-world { fill: var(--wash); stroke: var(--ink); stroke-width: 1.5; }
+.floor-world { fill: url(#ganglion); stroke: var(--ink); stroke-width: 1.5; }
 .floor-doc { fill: var(--paper); stroke: var(--muted); stroke-width: 1.5; }
 .floor-doc.status-accepted { stroke: var(--ok); }
 .floor-doc.status-wip      { stroke: var(--warn); }
 .floor-doc.status-archived { stroke-dasharray: 3 2; opacity: .6; }
 .floor-world.gone, .floor-portal-node.gone { stroke-dasharray: 4 3; opacity: .5; }
-svg.floor a:hover circle, svg.floor a:focus-visible circle { stroke: var(--ink); stroke-width: 3; }
+/* The dendritic arbor: fine processes off the rim, drawn under the soma.
+   Paint-time alpha (stroke-opacity), not element opacity: hundreds of
+   isolated groups is the repaint trap the hover scrim exists to avoid. */
+.dendrite { fill: none; stroke: var(--muted); stroke-width: 1; stroke-linecap: round;
+            stroke-opacity: .75; pointer-events: none; }
+.dendrite-hub { stroke-width: 1.7; stroke-opacity: .9; }
+.node-hot .dendrite { stroke: var(--ink); stroke-opacity: 1; }
+/* A hub soma is a pyramidal cell: heavier rim, larger nucleus. */
+.floor-doc.soma-hub { stroke-width: 2.4; }
+/* The nucleus is paint inside the soma: never a hit target, never a ring.
+   Interaction rules below target .soma, so paint-only parts never match. */
+.nucleus { fill: var(--paper); stroke: none; pointer-events: none; }
+.ganglion-cell { fill: var(--muted); fill-opacity: .55; }
+.floor-lobe { fill: color-mix(in srgb, var(--ink) 4.5%, transparent);
+              stroke: color-mix(in srgb, var(--ink) 13%, transparent); stroke-width: 1;
+              pointer-events: none; }
+svg.floor a:hover .soma, svg.floor a:focus-visible .soma { stroke: var(--ink); stroke-width: 3; }
 svg a:focus-visible { outline: none; }
 .floor-empty { color: var(--muted); font-style: italic; }
 /* World-level edges (hub graph ∪ observed map) + portal nodes for
@@ -333,9 +350,12 @@ svg a:focus-visible { outline: none; }
    matched by the filter. */
 /* Aggregates (worldmap_agg.go): collapsed directories, "more" chunks and the
    anchor of an expanded group. Bundled edges carry their count as width. */
-.floor-agg { fill: var(--wash); stroke: var(--ink); stroke-width: 1.2; }
+.floor-agg { fill: url(#ganglion); stroke: var(--ink); stroke-width: 1.2; }
 .floor-agg-more { stroke-dasharray: 3 2; }
 .floor-agg-anchor { fill: var(--paper); }
+/* The lobe's name: a plate label, small caps and spaced, on the anchor. */
+svg.world-map .floor-region-label { font-size: calc(13px / var(--wm-k, 1)); font-weight: 600;
+              letter-spacing: .09em; font-variant-caps: all-small-caps; fill: var(--muted); }
 .floor-agg-glyph { font-family: var(--font-ui); font-size: 12px; fill: var(--ink); pointer-events: none; }
 .floor .graph-edge.edge-bundle { stroke: var(--muted); }
 .floor .graph-edge.edge-tree { opacity: .3; }
@@ -367,7 +387,7 @@ svg.world-map .wm-above { transform: translateY(calc(-5px / var(--wm-k, 1))); }
 /* Filtering: the receded map is out of reach, not just out of sight. */
 .wm-filtering a[data-node]:not(.wm-live) { pointer-events: none; }
 /* The chosen match reads solid, as the palette's selection inverts. */
-.wm-focus .wm-sel circle { fill: var(--ink); stroke: var(--ink); stroke-width: 3; stroke-dasharray: none; opacity: 1; }
+.wm-focus .wm-sel .soma { fill: var(--ink); stroke: var(--ink); stroke-width: 3; stroke-dasharray: none; opacity: 1; }
 .wm-focus .wm-sel .floor-agg-glyph { fill: var(--paper); }
 .wm-focus .wm-sel text:not(.floor-agg-glyph) { font-weight: 700; }
 .wm-focus { position: absolute; inset: 0; z-index: 2; width: 100%; height: 100%;
@@ -439,21 +459,23 @@ svg.world-map .wm-above { transform: translateY(calc(-5px / var(--wm-k, 1))); }
       Backlinks left, outbound right, center in the middle. ──────── */
 svg.graph { max-width: 100%; height: auto; }
 svg.graph text { fill: var(--muted); font-family: var(--font-ui); }
-.graph-edge { stroke: var(--rule); stroke-width: 1.2; }
+/* An axon: an open curve, round-capped, ending in a bouton that takes the
+   edge's own stroke (context-stroke), so direction reads as the terminal.
+   A near-invisible edge drops its bouton: one marker paint fewer each. */
+.graph-edge { fill: none; stroke: var(--rule); stroke-width: 1.2; stroke-linecap: round;
+              marker-end: url(#synapse); }
+.graph-edge.edge-dim { marker-end: none; }
 /* A typed relation (rel-<predicate>) draws dashed; its predicate is the
    <title> tooltip on the line. Period 10 so the hot flow stays seamless. */
 .graph-edge.edge-rel { stroke-dasharray: 6 4; }
-.edge-arrow { fill: var(--muted); }
 /* Node hover (islands.js) lights up the incident edges and the nodes they
-   connect. Hot edges run as moving ink toward the arrow, so direction
-   reads without a legend. */
-.edge-arrow-hot { fill: var(--ink); }
+   connect. A hot axon fires: ink pulses run along it toward the bouton, so
+   direction reads without a legend. */
 .graph-edge.edge-hot { stroke: var(--ink); stroke-width: 2;
-        stroke-dasharray: 7 3; animation: ink-flow .9s linear infinite;
-        marker-end: url(#arrow-hot); }
+        stroke-dasharray: 7 3; animation: ink-flow .9s linear infinite; }
 .graph-edge.edge-hot.edge-rel { stroke-dasharray: 3 2; }
 @keyframes ink-flow { from { stroke-dashoffset: 20; } to { stroke-dashoffset: 0; } }
-.node-hot circle, circle.node-hot { stroke: var(--ink); stroke-width: 3; }
+.node-hot .soma, .soma.node-hot { stroke: var(--ink); stroke-width: 3; }
 svg .node-hot text { fill: var(--ink); font-weight: 600; }
 /* The graph is small enough to recede in place: everything off the hot
    neighbourhood steps back (the map uses its scrim instead). */
@@ -469,7 +491,7 @@ svg.graph .graph-center-label { font-size: 15px; font-weight: 620; fill: var(--i
 .graph-node.graph-walked { fill: var(--ink); stroke: var(--ink); stroke-width: 2; }
 .graph-node-label { font-size: 12px; }
 .graph-more { font-size: 12px; font-style: italic; }
-svg.graph a:hover circle, svg.graph a:focus-visible circle { stroke-width: 3; }
+svg.graph a:hover .soma, svg.graph a:focus-visible .soma { stroke-width: 3; }
 @keyframes ink-settle { from { opacity: 0; } }
 .graph-empty { color: var(--muted); font-style: italic; }
 
@@ -686,14 +708,22 @@ body.edit-page { max-width: none; padding: 1.5rem 1.5rem 2rem; }
 .graph-canvas svg { width: 100%; height: 100%; max-width: 100%; min-height: 0;
         flex: 1 1 auto; }
 .graph-canvas .world-map-new { flex: 0 0 auto; margin-top: .4rem; }
-/* Quiet dots and fine links keep the drawing legible while the camera moves. */
+/* Quiet somas and fine axons keep the drawing legible while the camera moves.
+   Dendrites hold their width through --wm-k (islands.js) rather than
+   non-scaling-stroke: one property update per zoom, not a re-stroke per path. */
 .graph-canvas .graph-edge, .graph-canvas .floor-edge { vector-effect: non-scaling-stroke; }
-.graph-canvas .graph-edge { marker-end: none; }
-.graph-canvas .graph-edge.edge-hot { animation: none; stroke-dasharray: none;
-        stroke-width: 1.5; marker-end: url(#arrow-hot); }
-.graph-canvas .graph-edge.edge-hot.edge-rel { stroke-dasharray: 6 4; }
+.graph-canvas .dendrite { stroke-width: calc(1px / var(--wm-k, 1)); }
+.graph-canvas .dendrite-hub { stroke-width: calc(1.5px / var(--wm-k, 1)); }
+/* Firing in the overlay: sparse pulses, slower than the pane's dash flow. A
+   hub with a crowd of hot axons (islands.js sets wm-crowd) holds still. */
+.graph-canvas .graph-edge.edge-hot { stroke-width: 1.6; stroke-dasharray: 3 9;
+        animation: ink-flow 1.1s linear infinite; }
+.wm-crowd .graph-edge.edge-hot { animation: none; }
+.graph-canvas .graph-edge.edge-hot.edge-rel { stroke-dasharray: 3 5; }
 .graph-canvas .graph-node { fill: var(--muted); stroke: var(--paper); stroke-width: 1.2; }
 .graph-canvas .floor-doc { fill: var(--muted); stroke-width: 1; }
+.graph-canvas .floor-doc.soma-hub { fill: var(--ink); stroke: var(--paper); stroke-width: 2; }
+.graph-canvas .floor-lobe { fill: var(--wash); }
 .graph-canvas .floor-doc.status-accepted { fill: var(--ok); }
 .graph-canvas .floor-doc.status-wip { fill: var(--warn); }
 .graph-canvas .floor-doc.world-map-orphan { fill: var(--paper); }

@@ -43,7 +43,12 @@
      the page. Loaded after the room theme, so it overrides. */}}
 {{define "world-theme"}}{{ with worldCSS .World }}<link rel="stylesheet" href="{{ . }}">{{ end }}{{end}}
 
-{{define "nav"}}{{template "world-theme" .}}<nav>
+{{/* The paint servers every graph, map and floor SVG references (neuron.go),
+     kept in one rendered block: a hidden overlay's own copy would win the id
+     and paint nothing. */}}
+{{define "svg-defs"}}<svg class="sr-only" width="0" height="0" aria-hidden="true" focusable="false"><defs><marker id="synapse" markerWidth="7" markerHeight="7" refX="3.5" refY="3.5" markerUnits="userSpaceOnUse"><circle cx="3.5" cy="3.5" r="2.6" fill="context-stroke"/></marker><pattern id="ganglion" patternUnits="userSpaceOnUse" width="7" height="7"><circle class="ganglion-cell" cx="3.5" cy="3.5" r="1.3"/></pattern></defs></svg>{{end}}
+
+{{define "nav"}}{{template "world-theme" .}}{{template "svg-defs"}}<nav>
     <a class="brand" href="/">{{ with logoURL .World }}<img src="{{ . }}" alt="">{{ end }}{{ brand .World }}</a>
     <span class="world">{{ .World }}</span>
     <!-- Search affordance: a real link to the catalog page (works with JS off);

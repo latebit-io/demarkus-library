@@ -35,6 +35,8 @@ const (
 	wmSideMargin = 80   // horizontal margin beyond the layout (room for labels)
 	wmMinWidth   = 1100 // a small map still fills the overlay at a sane scale
 	wmLabelTrim  = 18   // node label length cap (full title in <title>)
+	wmLobePoints = 9    // vertices of a lobe outline
+	wmLobePad    = 8    // lobe clearance beyond the group footprint
 )
 
 // worldNewURL is the world-map's "new document" affordance target — create at
@@ -80,6 +82,7 @@ type wmAgg struct {
 type wmNodeStyle struct {
 	lod    bool // label only on zoom/hover
 	orphan bool // no reference edge: dashed
+	hub    bool // spine tier: a pyramidal soma with a nucleus
 }
 
 // worldMapSVG renders the rest-state map with no open set (trail panes, tests).
@@ -156,8 +159,8 @@ func worldMapRender(wm domain.WorldMap, docURL func(string) string, newURL strin
 		caption += fmt.Sprintf(" · %d of %d shown", shown, len(docs))
 	}
 	fmt.Fprintf(&b, `<text class="world-map-caption" x="%d" y="22" text-anchor="middle">%s</text>`, width/2, caption)
-	b.WriteString(arrowMarker)
 
+	wmDrawLobes(&b, items)
 	wmDrawEdges(&b, rolled, vrank, spine)
 	// Labels at rest: the top-ranked documents, plus every root-level document
 	// of a structured world (its landmarks, whatever their degree). A flat
@@ -165,7 +168,8 @@ func worldMapRender(wm domain.WorldMap, docURL func(string) string, newURL strin
 	landmarks := len(tree.subs) > 0
 	wmDrawItems(&b, items, wmDraw{docURL: docURL, open: open, opts: opts}, func(it *wmItem) wmNodeStyle {
 		rootDoc := landmarks && !strings.Contains(strings.TrimPrefix(it.doc.Path, "/"), "/")
-		return wmNodeStyle{lod: vrank[it] >= wmLabelTop && !rootDoc && !it.ringed, orphan: ranking.degree[it.doc.Path] == 0}
+		orphan := ranking.degree[it.doc.Path] == 0
+		return wmNodeStyle{lod: vrank[it] >= wmLabelTop && !rootDoc && !it.ringed, orphan: orphan, hub: vrank[it] < wmHubNodes && !orphan}
 	})
 	if opts.openURL != nil {
 		wmDrawMembers(&b, docs, owner)
@@ -294,12 +298,6 @@ func wmDrawItems(b *strings.Builder, items []*wmItem, draw wmDraw, style func(*w
 				action: wmOpenMore,
 			}, draw)
 		case wmItemAnchor:
-			for _, c := range it.children {
-				if c.hub { // the hub holds the centre; the anchor sits just above it
-					it.y = c.y - c.r - it.r - 6
-					break
-				}
-			}
 			wmAggNode(b, it, wmAgg{glyph: "−", label: it.group.key, action: wmOpenCollapse}, draw)
 		case wmItemRoot:
 		}
@@ -357,8 +355,18 @@ func wmDocNode(b *strings.Builder, it *wmItem, docURL func(string) string, style
 	if style.lod {
 		label += " label-lod"
 	}
-	fmt.Fprintf(b, `<a href="%s" data-node="%s"><circle class="%s" cx="%d" cy="%d" r="%d"/>`,
-		html.EscapeString(docURL(doc.Path)), html.EscapeString(doc.Path), html.EscapeString(cls), it.x, it.y, it.r)
+	cls += " soma"
+	if style.hub {
+		cls += " soma-hub"
+	}
+	fmt.Fprintf(b, `<a href="%s" data-node="%s">`, html.EscapeString(docURL(doc.Path)), html.EscapeString(doc.Path))
+	if !style.orphan {
+		dendrites(b, somaSpec{x: it.x, y: it.y, r: it.r, seed: doc.Path, label: math.Pi / 2, hub: style.hub})
+	}
+	fmt.Fprintf(b, `<circle class="%s" cx="%d" cy="%d" r="%d"/>`, html.EscapeString(cls), it.x, it.y, it.r)
+	if style.hub {
+		nucleus(b, it.x, it.y, it.r)
+	}
 	fmt.Fprintf(b, `<text class="%s" x="%d" y="%d" text-anchor="middle">%s</text>`,
 		label, it.x, it.y+it.r, html.EscapeString(trimRunes(doc.Title, wmLabelTrim)))
 	fmt.Fprintf(b, `<title>%s — %s</title></a>`, html.EscapeString(doc.Title), html.EscapeString(doc.Path))
@@ -369,7 +377,7 @@ func wmDocNode(b *strings.Builder, it *wmItem, docURL func(string) string, style
 // an htmx swap of the map fragment with the group expanded, paged or
 // collapsed.
 func wmAggNode(b *strings.Builder, it *wmItem, agg wmAgg, draw wmDraw) {
-	cls := "floor-agg"
+	cls := "floor-agg soma"
 	switch it.kind {
 	case wmItemMore:
 		cls += " floor-agg-more"
@@ -388,11 +396,43 @@ func wmAggNode(b *strings.Builder, it *wmItem, agg wmAgg, draw wmDraw) {
 	// the first spiral member) and its label.
 	ly, side := it.y+it.r, "wm-below"
 	if it.kind == wmItemAnchor {
-		ly, side = it.y-it.r, "wm-above"
+		ly, side = it.y-it.r, "wm-above floor-region-label" // names the lobe
 	}
 	fmt.Fprintf(b, `<text class="floor-doc-label %s" x="%d" y="%d" text-anchor="middle">%s</text>`,
 		side, it.x, ly, html.EscapeString(trimRunes(agg.label, wmLabelTrim+6)))
 	fmt.Fprintf(b, `<title>%s — %d documents</title></a>`, html.EscapeString(it.group.list), it.count)
+}
+
+// wmDrawLobes draws, under everything else, the region each expanded group
+// occupies: its footprint ellipse with the rim nudged in and out per vertex
+// (seeded by the group id, so the shape is stable) and smoothed into a
+// closed curve around the group's centre.
+func wmDrawLobes(b *strings.Builder, items []*wmItem) {
+	for _, it := range items {
+		if it.kind == wmItemAnchor {
+			wmLobe(b, it)
+		}
+	}
+}
+
+func wmLobe(b *strings.Builder, it *wmItem) {
+	cx, cy := float64(it.x), float64(it.centreY())
+	rx, ry := it.foot*wmTierRatio+wmLobePad, it.foot+wmLobePad
+	noise := seededNoise(it.id)
+	var pts [wmLobePoints]svgPoint
+	for i := range pts {
+		wobble := 0.84 + 0.24*noise(i)
+		a := 2 * math.Pi * float64(i) / wmLobePoints
+		pts[i] = svgPoint{cx + rx*wobble*math.Cos(a), cy + ry*wobble*math.Sin(a)}
+	}
+	fmt.Fprintf(b, `<path class="floor-lobe" d="M%.0f,%.0f`, pts[0].x, pts[0].y)
+	for i := range pts {
+		// Catmull-Rom through the vertices, as cubic segments.
+		p0, p1, p2, p3 := pts[(i+wmLobePoints-1)%wmLobePoints], pts[i], pts[(i+1)%wmLobePoints], pts[(i+2)%wmLobePoints]
+		fmt.Fprintf(b, " C%.0f,%.0f %.0f,%.0f %.0f,%.0f",
+			p1.x+(p2.x-p0.x)/6, p1.y+(p2.y-p0.y)/6, p2.x-(p3.x-p1.x)/6, p2.y-(p3.y-p1.y)/6, p2.x, p2.y)
+	}
+	b.WriteString(`Z"/>`)
 }
 
 // wmSpanningTree picks the rest-state spokes: a BFS forest over the rolled-up

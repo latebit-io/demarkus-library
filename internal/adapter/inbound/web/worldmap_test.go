@@ -75,8 +75,10 @@ func TestWorldMapSVGReferenceLayout(t *testing.T) {
 		`class="floor world-map"`,
 		`class="world-map-caption"`,
 		`2 connected · 1 unlinked`,
-		// Linked doc node → the document pane, status-coded.
-		`class="floor-doc status-wip"`,
+		// Linked doc node → the document pane, status-coded; spine tier, so a
+		// hub soma with its nucleus.
+		`class="floor-doc status-wip soma soma-hub"`,
+		`class="nucleus"`,
 		`href="/t/u/~/team-a/u//~/team-a/d/plans/a.md"`,
 		// Reference edge drawn between two linked nodes; both sit on the one
 		// ring, so it is spine-tier at rest.
@@ -95,7 +97,7 @@ func TestWorldMapSVGReferenceLayout(t *testing.T) {
 		}
 	}
 	// Small world: every doc is its own node, no aggregates at all.
-	if strings.Contains(svg, "floor-agg") || strings.Contains(svg, `class="floor-world"`) {
+	if strings.Contains(svg, "floor-agg") || strings.Contains(svg, `class="floor-world`) {
 		t.Errorf("a world within budget must not render aggregates:\n%s", svg)
 	}
 }

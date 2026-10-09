@@ -95,7 +95,6 @@ func floorSVG(floor domain.Floor, t trail, idx int, terms Terms) template.HTML {
 		width, height, width, height, template.HTMLEscapeString(terms.UniverseLower()))
 	fmt.Fprintf(&b, `<text class="world-map-caption" x="%d" y="22" text-anchor="middle">%s · %s</text>`,
 		width/2, plural(systems, "world"), plural(portals, "portal"))
-	b.WriteString(arrowMarker)
 	wmDrawEdges(&b, rolled, vrank, spine)
 	for i := range floor.Worlds {
 		fw := &floor.Worlds[i]
@@ -185,6 +184,7 @@ func floorWorldNode(b *strings.Builder, fw *domain.FloorWorld, it *wmItem, href 
 	if fw.Err {
 		cls += " gone"
 	}
+	cls += " soma"
 	fmt.Fprintf(b, `<a href="%s" data-node="%s"><circle class="%s" cx="%d" cy="%d" r="%d"/>`,
 		html.EscapeString(href), html.EscapeString(it.id), cls, it.x, it.y, it.r)
 	fmt.Fprintf(b, `<text class="%s" x="%d" y="%d" text-anchor="middle">%s</text>`,

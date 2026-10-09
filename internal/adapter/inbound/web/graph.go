@@ -17,11 +17,13 @@ import (
 // a trail). Edges come from the render-time observed-links map, so the view
 // works in both transports and is simply sparse until the documents are read.
 // The pane and the standalone page that call this live in spatial_panes.go and
-// spatial_handlers.go.
+// spatial_handlers.go; the shared drawing primitives in neuron.go.
 const (
 	graphLabel    = 22 // neighbor label length cap
-	graphCenterR  = 9
+	graphCenterR  = 11
 	graphNodeR    = 6
+	graphTrunk    = 0.3 // trunk length before the arbor branches, as a share of rx
+	graphSpread   = 0.1 // how far a branch has already fanned out at the trunk
 	graphRatio    = 1.5 // x:y stretch — a wide neighborhood fills a wide overlay
 	graphNodeVGap = 46  // vertical spacing budget per neighbor on an arc
 	graphMinRy    = 120 // min vertical arc radius (small neighborhoods stay legible)
@@ -30,62 +32,6 @@ const (
 	graphVPad     = 60  // top/bottom room for labels
 	graphMaxSide  = 18  // nodes per arc; past this graphMaxRy's per-node budget collapses into label overlap
 )
-
-// arrowMarker is the <defs> block defining the directional edge arrowhead,
-// emitted once at the top of each graph / world-map SVG so a reference edge
-// reads From→To. markerUnits="userSpaceOnUse" keeps the head a fixed size
-// regardless of the (thin) edge stroke width.
-// arrowMarker defines two heads: the resting #arrow and the green #arrow-hot the
-// hover state swaps in (islands.js adds .edge-hot to a hovered node's edges).
-const arrowMarker = `<defs><marker id="arrow" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto" markerUnits="userSpaceOnUse"><path class="edge-arrow" d="M0,0 L9,4.5 L0,9 z"/></marker><marker id="arrow-hot" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto" markerUnits="userSpaceOnUse"><path class="edge-arrow-hot" d="M0,0 L9,4.5 L0,9 z"/></marker></defs>`
-
-// edgeEnd is one end of a drawn edge. id is what a hover handler matches its
-// incident edges on.
-type edgeEnd struct {
-	x, y int
-	r    int
-	id   string
-}
-
-// edgeStyle is a drawn edge's non-geometric treatment. Empty fields are the
-// plain reference edge; the world map sets tier to quiet its hairball.
-type edgeStyle struct {
-	rel   string  // typed relation's predicate: draws dashed, tooltipped
-	tier  string  // rest-state class: edge-spine, edge-tree, edge-dim
-	width float64 // > 0 overrides stroke width (a rolled-up bundle)
-}
-
-// directedEdge draws a reference edge as an arrow at the target, trimmed back
-// by each endpoint's radius so the head lands outside the target node rather
-// than under it.
-func directedEdge(b *strings.Builder, from, to edgeEnd, style edgeStyle) {
-	dx, dy := float64(to.x-from.x), float64(to.y-from.y)
-	d := math.Hypot(dx, dy)
-	if d == 0 {
-		return
-	}
-	ux, uy := dx/d, dy/d
-	const gap = 3.0 // breathing room between arrow tip and target rim
-	sx, sy := from.x+int(ux*float64(from.r)), from.y+int(uy*float64(from.r))
-	ex, ey := to.x-int(ux*(float64(to.r)+gap)), to.y-int(uy*(float64(to.r)+gap))
-	cls := "graph-edge"
-	if style.tier != "" {
-		cls += " " + style.tier
-	}
-	if style.rel != "" {
-		cls += " edge-rel"
-	}
-	stroke := ""
-	if style.width > 0 {
-		stroke = fmt.Sprintf(` style="stroke-width:%.1f"`, style.width)
-	}
-	fmt.Fprintf(b, `<line class="%s" x1="%d" y1="%d" x2="%d" y2="%d" data-from="%s" data-to="%s" marker-end="url(#arrow)"%s>`,
-		cls, sx, sy, ex, ey, html.EscapeString(from.id), html.EscapeString(to.id), stroke)
-	if style.rel != "" {
-		fmt.Fprintf(b, `<title>%s</title>`, html.EscapeString(style.rel))
-	}
-	b.WriteString(`</line>`)
-}
 
 // graphSVG lays out the neighborhood deterministically (server-side, no client
 // physics): the center document in the middle, its neighbors on a ring —
@@ -115,7 +61,6 @@ func graphSVG(n domain.Neighborhood, urlFor, recenterFor func(domain.Ref) string
 	var b strings.Builder
 	fmt.Fprintf(&b, `<svg class="graph" viewBox="0 0 %d %d" width="%d" height="%d" role="img" aria-label="document neighborhood">`,
 		width, height, width, height)
-	b.WriteString(arrowMarker)
 
 	// Place backlinks across the left half (π/2 … 3π/2) and outbound links
 	// across the right half (-π/2 … π/2); a lone node sits at the pole.
@@ -124,20 +69,25 @@ func graphSVG(n domain.Neighborhood, urlFor, recenterFor func(domain.Ref) string
 
 	// Edges first, so nodes draw on top. Direction follows the reference: an
 	// outbound link points center→neighbor, a backlink points neighbor→center.
+	// Each side leaves the soma as a trunk and fans out: backlinks arrive as
+	// the dendritic tree on the left, links depart as the axon arbor on the
+	// right.
+	centre := edgeEnd{x: cx, y: cy, r: graphCenterR, id: n.Center.Path}
+	trunk := float64(rx) * graphTrunk
 	for _, pn := range placed {
+		from, to := centre, edgeEnd{x: pn.x, y: pn.y, r: graphNodeR, id: pn.ref.Path}
+		via := svgPoint{x: float64(cx) + trunk, y: float64(cy) + float64(pn.y-cy)*graphSpread}
 		if pn.inbound {
-			directedEdge(&b,
-				edgeEnd{x: pn.x, y: pn.y, r: graphNodeR, id: pn.ref.Path},
-				edgeEnd{x: cx, y: cy, r: graphCenterR, id: n.Center.Path}, edgeStyle{})
-		} else {
-			directedEdge(&b,
-				edgeEnd{x: cx, y: cy, r: graphCenterR, id: n.Center.Path},
-				edgeEnd{x: pn.x, y: pn.y, r: graphNodeR, id: pn.ref.Path}, edgeStyle{})
+			from, to = to, from
+			via.x = float64(cx) - trunk
 		}
+		directedEdge(&b, from, to, edgeStyle{via: &via})
 	}
 	// Center node (data-node so hovering it lights up all its edges).
-	fmt.Fprintf(&b, `<circle class="graph-center" data-node="%s" cx="%d" cy="%d" r="%d"/>`,
+	dendrites(&b, somaSpec{x: cx, y: cy, r: graphCenterR, seed: n.Center.Path, label: -math.Pi / 2, hub: true})
+	fmt.Fprintf(&b, `<circle class="graph-center soma" data-node="%s" cx="%d" cy="%d" r="%d"/>`,
 		html.EscapeString(n.Center.Path), cx, cy, graphCenterR)
+	nucleus(&b, cx, cy, graphCenterR)
 	fmt.Fprintf(&b, `<text class="graph-center-label" x="%d" y="%d" text-anchor="middle">%s</text>`,
 		cx, cy-graphCenterR-8, html.EscapeString(refTitle(n.Center)))
 	// Neighbor nodes.
@@ -146,7 +96,7 @@ func graphSVG(n domain.Neighborhood, urlFor, recenterFor func(domain.Ref) string
 		if !pn.inbound {
 			dir = "out"
 		}
-		cls := "graph-node graph-" + dir
+		cls := "graph-node graph-" + dir + " soma"
 		if onTrail[pn.ref] {
 			cls += " graph-walked" // a neighbor already on your trail
 		}
@@ -154,8 +104,9 @@ func graphSVG(n domain.Neighborhood, urlFor, recenterFor func(domain.Ref) string
 		if recenterFor != nil {
 			recenter = ` data-recenter="` + html.EscapeString(recenterFor(pn.ref)) + `"`
 		}
-		fmt.Fprintf(&b, `<a href="%s" data-node="%s"%s><circle class="%s" cx="%d" cy="%d" r="%d"/>`,
-			html.EscapeString(urlFor(pn.ref)), html.EscapeString(pn.ref.Path), recenter, html.EscapeString(cls), pn.x, pn.y, graphNodeR)
+		fmt.Fprintf(&b, `<a href="%s" data-node="%s"%s>`, html.EscapeString(urlFor(pn.ref)), html.EscapeString(pn.ref.Path), recenter)
+		dendrites(&b, somaSpec{x: pn.x, y: pn.y, r: graphNodeR, seed: pn.ref.Path, label: -math.Pi / 2})
+		fmt.Fprintf(&b, `<circle class="%s" cx="%d" cy="%d" r="%d"/>`, html.EscapeString(cls), pn.x, pn.y, graphNodeR)
 		anchor := "middle"
 		if pn.x < cx {
 			anchor = "end"
