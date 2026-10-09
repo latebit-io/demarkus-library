@@ -7,12 +7,9 @@ import (
 	"strings"
 )
 
-// The drawing primitives every graph, map and floor SVG shares. The drawing
-// is a neuron plate in the room's ink: a document is a soma with a dendritic
-// arbor (a hub a pyramidal cell with a nucleus and an apical dendrite), a
-// reference an axon that curves to a synaptic bouton on its target. The
-// paint servers they reference (#synapse, #ganglion) live once in the page
-// shell (templates/page.html, svg-defs).
+// The drawing primitives every graph, map and floor SVG shares: a document is
+// a soma with a dendritic arbor, a reference an axon ending in a bouton. Their
+// paint servers (#synapse, #ganglion) live once in the page shell (svg-defs).
 
 // svgPoint is a position in SVG user units.
 type svgPoint struct{ x, y float64 }
@@ -67,10 +64,9 @@ func edgeVia(from, to edgeEnd, style edgeStyle) svgPoint {
 	return svgPoint{x: float64(from.x+to.x)/2 - dy/d*bend, y: float64(from.y+to.y)/2 + dx/d*bend}
 }
 
-// directedEdge draws a reference edge as an axon: a quadratic curve from the
-// source, trimmed back by each endpoint's radius along the curve's end
-// tangents, ending in a synaptic bouton (the stylesheet's marker) just
-// outside the target node.
+// directedEdge draws a reference edge as an axon: a quadratic curve trimmed
+// back by each endpoint's radius along its end tangents, so the stylesheet's
+// bouton lands just outside the target node.
 func directedEdge(b *strings.Builder, from, to edgeEnd, style edgeStyle) {
 	if from.x == to.x && from.y == to.y {
 		return
@@ -144,38 +140,48 @@ func dendrites(b *strings.Builder, s somaSpec) {
 		if off := math.Remainder(a-s.label, 2*math.Pi); math.Abs(off) < dendriteClear {
 			a += math.Copysign(dendriteClear-math.Abs(off)+0.1, off)
 		}
-		dendrite(b, s, noise, a, i, s.hub && i == 0)
+		dendrite(b, dendriteProcess{soma: s, noise: noise, angle: a, index: i, apical: s.hub && i == 0})
 	}
 	b.WriteString(`"/>`)
 }
 
-// dendrite appends one process at angle a: a trunk bowed by a seeded offset
-// forking into two branches. The apical process is longer and forks twice,
-// with a side branch halfway up.
-func dendrite(b *strings.Builder, s somaSpec, noise func(int) float64, a float64, i int, apical bool) {
-	cx, cy, r := float64(s.x), float64(s.y), float64(s.r)
-	trunk := r * (dendriteTrunk + noise(i+10)*0.5)
-	if apical {
-		trunk = r * dendriteApical
+// dendriteProcess is one process of an arbor: where it leaves the soma and
+// which noise indices shape it. The apical one is the pyramidal cell's long
+// dendrite: it forks twice and grows a side branch halfway up.
+type dendriteProcess struct {
+	soma   somaSpec
+	noise  func(int) float64
+	angle  float64
+	index  int
+	apical bool
+}
+
+// dendrite appends one process: a trunk bowed by a seeded offset, forking
+// into two branches.
+func dendrite(b *strings.Builder, p dendriteProcess) {
+	centreX, centreY, radius := float64(p.soma.x), float64(p.soma.y), float64(p.soma.r)
+	trunk := radius * (dendriteTrunk + p.noise(p.index+10)*0.5)
+	if p.apical {
+		trunk = radius * dendriteApical
 	}
-	bow := (noise(i+20) - 0.5) * r * 0.6
-	start := polar(cx, cy, r, a)
-	mid := polar(cx, cy, r+trunk/2, a)
-	mid.x, mid.y = mid.x-bow*math.Sin(a), mid.y+bow*math.Cos(a)
-	tip := polar(cx, cy, r+trunk, a)
+	bow := (p.noise(p.index+20) - 0.5) * radius * 0.6
+	start := polar(centreX, centreY, radius, p.angle)
+	mid := polar(centreX, centreY, radius+trunk/2, p.angle)
+	mid.x, mid.y = mid.x-bow*math.Sin(p.angle), mid.y+bow*math.Cos(p.angle)
+	tip := polar(centreX, centreY, radius+trunk, p.angle)
 	fmt.Fprintf(b, "M%.0f,%.0f Q%.0f,%.0f %.0f,%.0f", start.x, start.y, mid.x, mid.y, tip.x, tip.y)
 	for _, side := range dendriteSides {
-		ba := a + side*(dendriteFork+noise(i+30)*0.3)
-		bl := r * (dendriteBranch + noise(i+40)*0.4)
-		branch := polar(tip.x, tip.y, bl, ba)
+		branchAngle := p.angle + side*(dendriteFork+p.noise(p.index+30)*0.3)
+		branchLen := radius * (dendriteBranch + p.noise(p.index+40)*0.4)
+		branch := polar(tip.x, tip.y, branchLen, branchAngle)
 		fmt.Fprintf(b, " M%.0f,%.0f L%.0f,%.0f", tip.x, tip.y, branch.x, branch.y)
-		if !apical {
+		if !p.apical {
 			continue
 		}
-		fork := polar(branch.x, branch.y, bl*0.7, ba+side*0.5)
+		fork := polar(branch.x, branch.y, branchLen*0.7, branchAngle+side*0.5)
 		fmt.Fprintf(b, " M%.0f,%.0f L%.0f,%.0f", branch.x, branch.y, fork.x, fork.y)
-		half := polar(cx, cy, r+trunk*0.55, a)
-		twig := polar(half.x, half.y, bl, a+side*1.1)
+		half := polar(centreX, centreY, radius+trunk*0.55, p.angle)
+		twig := polar(half.x, half.y, branchLen, p.angle+side*1.1)
 		fmt.Fprintf(b, " M%.0f,%.0f L%.0f,%.0f", half.x, half.y, twig.x, twig.y)
 	}
 }

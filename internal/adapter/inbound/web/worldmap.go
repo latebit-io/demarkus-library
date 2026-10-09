@@ -404,9 +404,8 @@ func wmAggNode(b *strings.Builder, it *wmItem, agg wmAgg, draw wmDraw) {
 }
 
 // wmDrawLobes draws, under everything else, the region each expanded group
-// occupies: its footprint ellipse with the rim nudged in and out per vertex
-// (seeded by the group id, so the shape is stable) and smoothed into a
-// closed curve around the group's centre.
+// occupies: its footprint ellipse, rim pushed outward per vertex by noise
+// seeded on the group id (stable across renders), smoothed into a curve.
 func wmDrawLobes(b *strings.Builder, items []*wmItem) {
 	for _, it := range items {
 		if it.kind == wmItemAnchor {
@@ -421,7 +420,7 @@ func wmLobe(b *strings.Builder, it *wmItem) {
 	noise := seededNoise(it.id)
 	var pts [wmLobePoints]svgPoint
 	for i := range pts {
-		wobble := 0.84 + 0.24*noise(i)
+		wobble := 1 + 0.22*noise(i) // only ever outward: every member stays inside
 		a := 2 * math.Pi * float64(i) / wmLobePoints
 		pts[i] = svgPoint{cx + rx*wobble*math.Cos(a), cy + ry*wobble*math.Sin(a)}
 	}
