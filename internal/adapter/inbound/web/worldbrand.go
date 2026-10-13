@@ -290,12 +290,13 @@ func (w *WorldBrands) load(ctx context.Context, world string) (worldBrand, error
 }
 
 // anchor reads branding.md and picks the source for the rest of the load: the
-// hub's public route when it answers, else the reader's bearer. Deciding once
-// here keeps a public 404 on an optional document a plain absence.
+// hub's public route when it answers, else the reader's bearer (an older
+// broker's 404, or a gate refusing the route). Deciding once here keeps a
+// public 404 on an optional document a plain absence.
 func (w *WorldBrands) anchor(ctx context.Context, world string) (rawReader, domain.RawDocument, error) {
 	if world == w.hub && w.hubSource != nil {
 		raw, err := w.hubSource.Raw(ctx, world, WorldBrandDoc)
-		if !errors.Is(err, domain.ErrNotFound) {
+		if !errors.Is(err, domain.ErrNotFound) && !errors.Is(err, domain.ErrUnauthorized) {
 			return w.hubSource, raw, err
 		}
 	}

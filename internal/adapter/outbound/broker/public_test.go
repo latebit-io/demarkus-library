@@ -19,6 +19,8 @@ func TestPublicReaderReadsHubBrandingWithoutABearer(t *testing.T) {
 			_, _ = w.Write([]byte("# Sheet\n"))
 		case "/worlds/root/.well-known/library/logo.md":
 			http.NotFound(w, r)
+		case "/worlds/root/.well-known/library/branding.md":
+			w.WriteHeader(http.StatusForbidden)
 		default:
 			w.WriteHeader(http.StatusBadGateway)
 		}
@@ -32,7 +34,10 @@ func TestPublicReaderReadsHubBrandingWithoutABearer(t *testing.T) {
 	if _, err := reader.Raw(context.Background(), "root", "/.well-known/library/logo.md"); !errors.Is(err, domain.ErrNotFound) {
 		t.Errorf("404 should be ErrNotFound, got %v", err)
 	}
-	if _, err := reader.Raw(context.Background(), "root", "/.well-known/library/favicon.md"); err == nil || errors.Is(err, domain.ErrNotFound) {
+	if _, err := reader.Raw(context.Background(), "root", "/.well-known/library/branding.md"); !errors.Is(err, domain.ErrUnauthorized) {
+		t.Errorf("403 should be ErrUnauthorized, got %v", err)
+	}
+	if _, err := reader.Raw(context.Background(), "root", "/.well-known/library/favicon.md"); err == nil || errors.Is(err, domain.ErrNotFound) || errors.Is(err, domain.ErrUnauthorized) {
 		t.Errorf("502 should be a plain error, got %v", err)
 	}
 }

@@ -45,6 +45,10 @@ func (r *PublicReader) Raw(ctx context.Context, world, path string) (domain.RawD
 	case http.StatusOK:
 	case http.StatusNotFound:
 		return domain.RawDocument{}, domain.ErrNotFound
+	case http.StatusUnauthorized, http.StatusForbidden:
+		// A gate in front of the route (policy, ingress): the reader's bearer
+		// may still get through, so the resolver falls back to it.
+		return domain.RawDocument{}, fmt.Errorf("public read %s: %w", url, domain.ErrUnauthorized)
 	default:
 		return domain.RawDocument{}, fmt.Errorf("public read %s: status %d", url, resp.StatusCode)
 	}

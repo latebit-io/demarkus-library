@@ -271,11 +271,13 @@ func TestHubLibrarianNamesTheNavAndPane(t *testing.T) {
 
 // A cold pod asked anonymously (sign-in page, bare asset URL) cannot read a
 // private hub, with or without a public source that answers 404 (an older
-// broker); the refusal is not cached, so the first reader with a bearer
-// resolves it at once, and anonymous requests then share the brand (#90).
+// broker) or refuses (a gate in front of the route); the refusal is not
+// cached, so the first reader with a bearer resolves it at once, and
+// anonymous requests then share the brand (#90).
 func TestWorldBrandsRefusalIsNotCached(t *testing.T) {
 	older := &fakeReading{raws: map[string]domain.RawDocument{}}
-	for name, hubSource := range map[string]rawReader{"no public source": nil, "older broker": older} {
+	gated := &gatedReading{fakeReading: hubSvc()}
+	for name, hubSource := range map[string]rawReader{"no public source": nil, "older broker": older, "gated route": gated} {
 		t.Run(name, func(t *testing.T) {
 			brands := NewWorldBrands(&gatedReading{fakeReading: hubSvc()}).WithHub(hubWorld)
 			if hubSource != nil {
