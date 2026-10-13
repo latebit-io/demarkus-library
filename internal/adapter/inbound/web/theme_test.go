@@ -35,6 +35,7 @@ func brandedApp(t *testing.T, svc *fakeReading) *echo.Echo {
 		t.Fatalf("ThemeRoutes: %v", err)
 	}
 	app.Renderer = view.WithBranding(branding)
+	WorldThemeRoutes(app, branding, nil)
 	RoomRoutes(app, NewRoom(svc, "soul.demarkus.io", "/index.md"))
 	return app
 }
