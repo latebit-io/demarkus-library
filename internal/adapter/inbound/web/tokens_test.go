@@ -93,7 +93,7 @@ func TestFaviconDefaultAndOverride(t *testing.T) {
 		t.Errorf("favicon asset: %d %q", rec.Code, rec.Header().Get("Content-Type"))
 	}
 	// A bare /favicon.ico request is answered rather than 404ing.
-	if rec = get(app, "/favicon.ico"); rec.Code != http.StatusMovedPermanently || rec.Header().Get("Location") != ThemeFaviconPath {
+	if rec = get(app, "/favicon.ico"); rec.Code != http.StatusFound || rec.Header().Get("Location") != ThemeFaviconPath {
 		t.Errorf("/favicon.ico: %d -> %q", rec.Code, rec.Header().Get("Location"))
 	}
 }

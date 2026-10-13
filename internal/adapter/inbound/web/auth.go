@@ -98,15 +98,9 @@ func RequireSession(mgr *session.Manager) echo.MiddlewareFunc {
 			if err != nil || cookie.Value == "" {
 				return redirectToLogin(c)
 			}
-			token, err := mgr.Token(c.Request().Context(), cookie.Value)
+			err = attachSession(c, mgr, cookie.Value)
 			switch {
 			case err == nil:
-				c.Set(authedKey, true)
-				if email := emailFromIDToken(token); email != "" {
-					c.Set(userEmailKey, email)
-				}
-				r := c.Request()
-				c.SetRequest(r.WithContext(bearer.WithToken(r.Context(), token)))
 				return next(c)
 			case errors.Is(err, session.ErrLoginRequired):
 				clearSessionCookie(c)
@@ -120,6 +114,46 @@ func RequireSession(mgr *session.Manager) echo.MiddlewareFunc {
 			}
 		}
 	}
+}
+
+// SessionBearer is the lenient turnstile for public routes that read better
+// with a reader's identity (theme assets of a private hub): a live session
+// lends its bearer, anything else passes anonymous.
+func SessionBearer(mgr *session.Manager) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c *echo.Context) error {
+			if cookie, err := c.Cookie(sessionCookie); err == nil && cookie.Value != "" {
+				// Best effort: a stale session is the turnstile's problem
+				// on the next page, not this asset's. No reader marks: the
+				// asset renders no page, so the id token stays unparsed.
+				if token, err := mgr.Token(c.Request().Context(), cookie.Value); err == nil {
+					withBearer(c, token)
+				}
+			}
+			return next(c)
+		}
+	}
+}
+
+// attachSession resolves the session's bearer and marks the request as the
+// reader's; the error is the manager's, untouched, so callers can tell a
+// dead session from a transient refresh failure.
+func attachSession(c *echo.Context, mgr *session.Manager, sessionID string) error {
+	token, err := mgr.Token(c.Request().Context(), sessionID)
+	if err != nil {
+		return err
+	}
+	c.Set(authedKey, true)
+	if email := emailFromIDToken(token); email != "" {
+		c.Set(userEmailKey, email)
+	}
+	withBearer(c, token)
+	return nil
+}
+
+func withBearer(c *echo.Context, token string) {
+	r := c.Request()
+	c.SetRequest(r.WithContext(bearer.WithToken(r.Context(), token)))
 }
 
 // redirectToLogin sends the reader to /login, preserving where they were

@@ -130,9 +130,13 @@ would hand the ConfigMap to.
 
 The hub's sheet links from the head as the room theme, so while the hub
 itself is in focus it is not linked again from the body. When the hub is
-private, the sign-in page reads it without a session; the library keeps the
-last identity it resolved rather than blanking the page, so the turnstile
-brands once any signed-in reader has loaded a page.
+private, the sign-in page and a freshly started pod have no reader's bearer,
+so the broker publishes the hub's four branding documents on a public route,
+`GET /worlds/<hub>/.well-known/library/<doc>`, and the library reads them
+there first. A broker without the route answers 404 and the library falls
+back to the reader's bearer: the first signed-in page resolves the hub on
+whichever pod answers, and the library keeps that identity across failed
+anonymous reads rather than blanking the page.
 
 A world's own branding documents look like this:
 

@@ -90,8 +90,11 @@ type brandDesk struct {
 type WorldBrands struct {
 	source rawReader
 	hub    string // the world whose documents brand the room; "" ⇒ none
-	ttl    time.Duration
-	now    func() time.Time
+	// hubSource reads the hub without a bearer (the broker's public branding
+	// route); nil, or a 404 on the anchor, means an older broker: use source.
+	hubSource rawReader
+	ttl       time.Duration
+	now       func() time.Time
 
 	mu      sync.Mutex
 	byWorld map[string]worldBrand
@@ -106,6 +109,13 @@ func NewWorldBrands(source rawReader) *WorldBrands {
 // every page's name, logo, favicon, and stylesheet, the login page included.
 func (w *WorldBrands) WithHub(hub string) *WorldBrands {
 	w.hub = strings.TrimSpace(hub)
+	return w
+}
+
+// WithHubSource reads the hub's documents through a bearer-less source first,
+// so a cold pod and the sign-in page resolve the room before anyone signs in.
+func (w *WorldBrands) WithHubSource(source rawReader) *WorldBrands {
+	w.hubSource = source
 	return w
 }
 
@@ -205,9 +215,13 @@ func (w *WorldBrands) get(ctx context.Context, world string) worldBrand {
 		return cached
 	}
 	brand, err := w.load(ctx, world)
-	// A read that failed for a reason other than absence keeps whatever was
-	// resolved before: the login page reads without a session, and a private
-	// hub must not lose its identity for a TTL every time that happens.
+	// A refused read is no result: a bearer-less sign-in page or asset request
+	// must not pin the stock room for a TTL (#90). The next bearer tries again.
+	if errors.Is(err, domain.ErrUnauthorized) {
+		return cached
+	}
+	// Any other failure keeps whatever was resolved before, so a flapping hub
+	// does not lose its identity for a TTL.
 	if err != nil && ok && (!cached.empty() || cached.librarian != brandLibrarian{}) {
 		brand = cached
 	}
@@ -219,11 +233,10 @@ func (w *WorldBrands) get(ctx context.Context, world string) worldBrand {
 }
 
 // load reads the branding documents. A missing anchor is a real absence; any
-// other failure (denied, transport) is returned so the caller can decide,
-// but is cached either way so a flapping world cannot make every render retry.
+// other failure (denied, transport) is returned so the caller can decide.
 func (w *WorldBrands) load(ctx context.Context, world string) (worldBrand, error) {
 	var brand worldBrand
-	raw, err := w.source.Raw(ctx, world, WorldBrandDoc)
+	src, raw, err := w.anchor(ctx, world)
 	if err != nil {
 		if errors.Is(err, domain.ErrNotFound) {
 			return brand, nil
@@ -245,10 +258,12 @@ func (w *WorldBrands) load(ctx context.Context, world string) (worldBrand, error
 	}
 	// A stylesheet that could reach another origin is dropped whole, like an
 	// unsafe token block: the world keeps its name and logo.
-	if raw, err := w.source.Raw(ctx, world, WorldBrandCSS); err == nil {
-		if f, ok := firstFence(raw.Body); ok && f.Lang == "css" && checkCSS(f.Content) == nil {
-			brand.rawCSS = f.Content
-		}
+	body, err := optional(ctx, src, world, WorldBrandCSS)
+	if err != nil {
+		return brand, err
+	}
+	if f, ok := firstFence(body); ok && f.Lang == "css" && checkCSS(f.Content) == nil {
+		brand.rawCSS = f.Content
 	}
 	// Tokens first so the world's own CSS can still override them. Unsafe or
 	// unknown tokens drop the block, like any other unreadable branding.
@@ -259,13 +274,46 @@ func (w *WorldBrands) load(ctx context.Context, world string) (worldBrand, error
 	if sheet+brand.rawCSS != "" {
 		brand.sheet = &worldAsset{ctype: themeCSSType, blob: []byte(sheet + brand.rawCSS)}
 	}
-	if raw, err := w.source.Raw(ctx, world, WorldBrandLogo); err == nil {
-		brand.logo = decodeLogo(raw.Body)
+	if body, err = optional(ctx, src, world, WorldBrandLogo); err != nil {
+		return brand, err
+	} else if body != "" {
+		brand.logo = decodeLogo(body)
 	}
 	if world == w.hub {
-		if raw, err := w.source.Raw(ctx, world, WorldBrandFavicon); err == nil {
-			brand.favicon = decodeLogo(raw.Body)
+		if body, err = optional(ctx, src, world, WorldBrandFavicon); err != nil {
+			return brand, err
+		} else if body != "" {
+			brand.favicon = decodeLogo(body)
 		}
 	}
 	return brand, nil
+}
+
+// anchor reads branding.md and picks the source for the rest of the load: the
+// hub's public route when it answers, else the reader's bearer. Deciding once
+// here keeps a public 404 on an optional document a plain absence.
+func (w *WorldBrands) anchor(ctx context.Context, world string) (rawReader, domain.RawDocument, error) {
+	if world == w.hub && w.hubSource != nil {
+		raw, err := w.hubSource.Raw(ctx, world, WorldBrandDoc)
+		if !errors.Is(err, domain.ErrNotFound) {
+			return w.hubSource, raw, err
+		}
+	}
+	raw, err := w.source.Raw(ctx, world, WorldBrandDoc)
+	return w.source, raw, err
+}
+
+// optional reads an asset document the anchor made possible: absence is an
+// empty body, so a world with a name and no logo stays cheap, while any other
+// failure surfaces so a transient error cannot cache a half brand.
+func optional(ctx context.Context, src rawReader, world, path string) (string, error) {
+	raw, err := src.Raw(ctx, world, path)
+	switch {
+	case err == nil:
+		return raw.Body, nil
+	case errors.Is(err, domain.ErrNotFound):
+		return "", nil
+	default:
+		return "", err
+	}
 }

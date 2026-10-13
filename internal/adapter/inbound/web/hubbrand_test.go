@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -11,10 +12,29 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v5"
+	"github.com/latebit-io/demarkus-library/internal/adapter/bearer"
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
 )
 
 const hubWorld = "root"
+
+// gatedReading is a private hub: raw reads need a bearer, and one path can
+// be made to fail transiently.
+type gatedReading struct {
+	*fakeReading
+	failPath string
+	failErr  error
+}
+
+func (g *gatedReading) Raw(ctx context.Context, world, path string) (domain.RawDocument, error) {
+	if bearer.FromContext(ctx) == "" {
+		return domain.RawDocument{}, domain.ErrUnauthorized
+	}
+	if g.failErr != nil && path == g.failPath {
+		return domain.RawDocument{}, g.failErr
+	}
+	return g.fakeReading.Raw(ctx, world, path)
+}
 
 // hubSvc is a reading fake whose hub world publishes room branding, favicon
 // included; every other world declares nothing.
@@ -246,5 +266,105 @@ func TestHubLibrarianNamesTheNavAndPane(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Errorf("page missing %q", want)
 		}
+	}
+}
+
+// A cold pod asked anonymously (sign-in page, bare asset URL) cannot read a
+// private hub, with or without a public source that answers 404 (an older
+// broker); the refusal is not cached, so the first reader with a bearer
+// resolves it at once, and anonymous requests then share the brand (#90).
+func TestWorldBrandsRefusalIsNotCached(t *testing.T) {
+	older := &fakeReading{raws: map[string]domain.RawDocument{}}
+	for name, hubSource := range map[string]rawReader{"no public source": nil, "older broker": older} {
+		t.Run(name, func(t *testing.T) {
+			brands := NewWorldBrands(&gatedReading{fakeReading: hubSvc()}).WithHub(hubWorld)
+			if hubSource != nil {
+				brands = brands.WithHubSource(hubSource)
+			}
+			if _, ok := brands.Room(context.Background()); ok {
+				t.Fatal("anonymous read resolved a private hub")
+			}
+			authed := bearer.WithToken(context.Background(), "id-tok")
+			if hub, ok := brands.Room(authed); !ok || hub.CSSURL == "" {
+				t.Fatalf("bearer read did not retry within the TTL: %+v", hub)
+			}
+			if _, ok := brands.Room(context.Background()); !ok {
+				t.Error("anonymous read lost the cached brand")
+			}
+		})
+	}
+}
+
+// A transient failure on one asset document keeps the last good brand whole
+// rather than caching a name without its stylesheet for a TTL (#90).
+func TestWorldBrandsKeepSheetAcrossTransientAssetError(t *testing.T) {
+	src := &gatedReading{fakeReading: hubSvc()}
+	brands := NewWorldBrands(src).WithHub(hubWorld)
+	now := time.Unix(0, 0)
+	brands.now = func() time.Time { return now }
+	authed := bearer.WithToken(context.Background(), "id-tok")
+	if hub, ok := brands.Room(authed); !ok || hub.CSSURL == "" {
+		t.Fatalf("first resolve: %+v", hub)
+	}
+	src.failPath, src.failErr = WorldBrandCSS, errors.New("transport")
+	now = now.Add(worldBrandTTL + time.Second)
+	if hub, ok := brands.Room(authed); !ok || hub.CSSURL == "" {
+		t.Errorf("transient stylesheet error dropped the cached sheet: %+v", hub)
+	}
+}
+
+// Theme asset routes stay public but carry a signed-in reader's bearer, so a
+// pod that has not cached the hub serves its sheet to that reader (#90).
+func TestThemeAssetsCarryTheReadersBearer(t *testing.T) {
+	rig := newTestRig(t)
+	brands := NewWorldBrands(&gatedReading{fakeReading: hubSvc()}).WithHub(hubWorld)
+	WorldThemeRoutes(rig.app, DefaultBranding(), brands, SessionBearer(rig.sessions))
+	anon := func() *http.Request {
+		return httptest.NewRequest(http.MethodGet, "/theme/worlds/root/site.css", http.NoBody)
+	}
+	if rec := rig.do(anon()); rec.Code != http.StatusNotFound {
+		t.Fatalf("cold pod, anonymous: %d, want 404", rec.Code)
+	}
+	cookie := rig.login(t)
+	req := anon()
+	req.AddCookie(cookie)
+	if rec := rig.do(req); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "--paper") {
+		t.Fatalf("signed-in asset request: %d %q", rec.Code, rec.Body.String())
+	}
+	if rec := rig.do(anon()); rec.Code != http.StatusOK {
+		t.Errorf("anonymous request after a reader warmed the pod: %d", rec.Code)
+	}
+}
+
+// Bare /favicon.ico follows the room's current favicon, hub first, with a
+// redirect browsers do not cache past a rebrand.
+func TestFaviconIcoFollowsTheHub(t *testing.T) {
+	app, _ := hubApp(t, hubSvc())
+	rec := get(app, "/favicon.ico")
+	if rec.Code != http.StatusFound || rec.Header().Get("Location") != "/theme/worlds/root/favicon" {
+		t.Errorf("/favicon.ico: %d -> %q", rec.Code, rec.Header().Get("Location"))
+	}
+}
+
+// With the broker's public branding route as the hub source, a cold pod
+// resolves the room on its first request with no bearer at all (#90).
+func TestHubSourceBrandsTheRoomWithoutABearer(t *testing.T) {
+	brands := NewWorldBrands(&gatedReading{fakeReading: hubSvc()}).WithHub(hubWorld).WithHubSource(hubSvc())
+	hub, ok := brands.Room(context.Background())
+	if !ok || hub.CSSURL == "" || hub.FaviconURL == "" || hub.Name != "Soul Room" {
+		t.Fatalf("anonymous read via the public source: %+v", hub)
+	}
+}
+
+// The public source decides at the anchor: a hub that publishes no logo
+// still brands a cold pod, rather than retrying the absent document with a
+// bearer the sign-in page does not have.
+func TestHubSourceAbsentLogoIsPlainAbsence(t *testing.T) {
+	public := hubSvc()
+	delete(public.raws, WorldBrandLogo)
+	brands := NewWorldBrands(&gatedReading{fakeReading: hubSvc()}).WithHub(hubWorld).WithHubSource(public)
+	hub, ok := brands.Room(context.Background())
+	if !ok || hub.CSSURL == "" || hub.LogoURL != "" {
+		t.Fatalf("anonymous read, hub without a logo: %+v", hub)
 	}
 }

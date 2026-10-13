@@ -149,6 +149,12 @@ func main() {
 	var gateway port.WorldGateway
 	var defaultWorld string
 	var turnstile []echo.MiddlewareFunc
+	// Theme assets stay public for the sign-in page, but a signed-in reader's
+	// bearer rides along so a cold pod can read a private hub (#90).
+	var themeBearer []echo.MiddlewareFunc
+	// The broker publishes the hub's branding without a bearer, so a cold
+	// pod and the sign-in page carry the room's identity (#90).
+	var hubBranding *broker.PublicReader
 	var shutdown func()
 
 	switch config.Transport {
@@ -186,8 +192,11 @@ func main() {
 			TTL:    config.SessionTTL,
 		}))
 		turnstile = append(turnstile, web.RequireSession(sessions))
+		themeBearer = append(themeBearer, web.SessionBearer(sessions))
 
-		bg := broker.NewGateway(config.BrokerURL, routedClient(route, broker.DefaultTimeout))
+		brokerHTTP := routedClient(route, broker.DefaultTimeout)
+		bg := broker.NewGateway(config.BrokerURL, brokerHTTP)
+		hubBranding = broker.NewPublicReader(config.BrokerURL, brokerHTTP)
 		fcfg := federated.Config{Names: bg, AllowExternal: config.Federation}
 		var fclient *fetch.Client
 		if config.Federation {
@@ -224,8 +233,11 @@ func main() {
 	// under /.well-known/library/, resolved ahead of the manifest's entries.
 	// The hub world's documents brand the room as a whole, ahead of the files.
 	brands := web.NewWorldBrands(reading).WithHub(config.Hub)
+	if hubBranding != nil {
+		brands = brands.WithHubSource(hubBranding)
+	}
 	view.WithWorldBrands(brands)
-	web.WorldThemeRoutes(app, branding, brands)
+	web.WorldThemeRoutes(app, branding, brands, themeBearer...)
 	room := web.NewRoom(reading, defaultWorld, config.DefaultDoc).WithBranding(branding).WithWorldBrands(brands)
 	if lib != nil {
 		room = room.WithLibrarian(lib)

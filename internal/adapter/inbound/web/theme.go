@@ -124,10 +124,6 @@ func ThemeRoutes(e *echo.Echo, m ThemeManifest) (Branding, error) {
 	if b.FaviconURL == "" {
 		b.FaviconURL = DefaultFaviconURL
 	}
-	// Bare /favicon.ico is requested without a link, so answer it too.
-	e.GET("/favicon.ico", func(c *echo.Context) error {
-		return c.Redirect(http.StatusMovedPermanently, b.FaviconURL)
-	})
 	tokens, err := tokensCSS(m.Theme)
 	if err != nil {
 		return b, fmt.Errorf("theme: %w", err)
@@ -183,9 +179,9 @@ func ThemeRoutes(e *echo.Echo, m ThemeManifest) (Branding, error) {
 }
 
 // WorldThemeRoutes serves per-world assets from one param route, so a world
-// name with dots or escapes still matches. In-world documents win over the
-// manifest's files, as they do in the view; brands may be nil.
-func WorldThemeRoutes(e *echo.Echo, b Branding, brands *WorldBrands) {
+// name with dots still matches; in-world documents win over the manifest's
+// files. Public (the sign-in page links them), mw lends a reader's bearer.
+func WorldThemeRoutes(e *echo.Echo, b Branding, brands *WorldBrands, mw ...echo.MiddlewareFunc) {
 	e.GET(themeWorldsPrefix+":world/:file", func(c *echo.Context) error {
 		world, file := c.Param("world"), c.Param("file")
 		if a, ok := brands.Asset(c.Request().Context(), world, file); ok {
@@ -195,7 +191,16 @@ func WorldThemeRoutes(e *echo.Echo, b Branding, brands *WorldBrands) {
 			return h(c)
 		}
 		return echo.NewHTTPError(http.StatusNotFound, "no such theme asset")
-	})
+	}, mw...)
+	// Bare /favicon.ico is requested without a link. A 302, not a 301: the
+	// target is the room's current favicon, hub first, and browsers would
+	// cache a permanent redirect past a rebrand.
+	e.GET("/favicon.ico", func(c *echo.Context) error {
+		if hub, ok := brands.Room(c.Request().Context()); ok && hub.FaviconURL != "" {
+			return c.Redirect(http.StatusFound, hub.FaviconURL)
+		}
+		return c.Redirect(http.StatusFound, b.FaviconURL)
+	}, mw...)
 }
 
 // serveAsset registers a startup-loaded asset at route and returns the route,
