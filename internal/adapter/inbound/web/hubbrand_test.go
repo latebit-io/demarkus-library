@@ -315,6 +315,21 @@ func TestWorldBrandsKeepSheetAcrossTransientAssetError(t *testing.T) {
 	}
 }
 
+// On a cold pod a transient asset error yields nothing cacheable: the next
+// request loads again rather than serving a name without its sheet for a TTL.
+func TestWorldBrandsColdTransientErrorIsNotCached(t *testing.T) {
+	src := &gatedReading{fakeReading: hubSvc(), failPath: WorldBrandCSS, failErr: errors.New("transport")}
+	brands := NewWorldBrands(src).WithHub(hubWorld)
+	authed := bearer.WithToken(context.Background(), "id-tok")
+	if hub, ok := brands.Room(authed); ok {
+		t.Fatalf("half-read brand served: %+v", hub)
+	}
+	src.failErr = nil
+	if hub, ok := brands.Room(authed); !ok || hub.CSSURL == "" {
+		t.Fatalf("retry after the transient error: %+v", hub)
+	}
+}
+
 // Theme asset routes stay public but carry a signed-in reader's bearer, so a
 // pod that has not cached the hub serves its sheet to that reader (#90).
 func TestThemeAssetsCarryTheReadersBearer(t *testing.T) {

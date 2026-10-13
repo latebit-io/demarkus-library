@@ -215,14 +215,14 @@ func (w *WorldBrands) get(ctx context.Context, world string) worldBrand {
 		return cached
 	}
 	brand, err := w.load(ctx, world)
-	// A refused read is no result: a bearer-less sign-in page or asset request
-	// must not pin the stock room for a TTL (#90). The next bearer tries again.
-	if errors.Is(err, domain.ErrUnauthorized) {
-		return cached
-	}
-	// Any other failure keeps whatever was resolved before, so a flapping hub
-	// does not lose its identity for a TTL.
-	if err != nil && ok && (!cached.empty() || cached.librarian != brandLibrarian{}) {
+	if err != nil {
+		// A failed load keeps the last good brand for another TTL, so a
+		// flapping hub does not lose its identity. With nothing good cached it
+		// is no result at all: a refused or half-read brand must not pin the
+		// stock room, or a name without its sheet, for a TTL (#90).
+		if !ok || (cached.empty() && cached.librarian == brandLibrarian{}) {
+			return worldBrand{}
+		}
 		brand = cached
 	}
 	brand.fetched = w.now()
