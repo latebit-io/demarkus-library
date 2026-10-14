@@ -79,15 +79,15 @@ func TestWorldMapSVGReferenceLayout(t *testing.T) {
 		// hub soma with its nucleus.
 		`class="floor-doc status-wip soma soma-hub"`,
 		`class="nucleus"`,
-		`href="/t/u/~/team-a/u//~/team-a/d/plans/a.md"`,
+		`href="/t/u/~/team-a/u/~~/team-a/d/plans/a.md"`,
 		// Reference edge drawn between two linked nodes; both sit on the one
 		// ring, so it is spine-tier at rest.
 		`class="graph-edge edge-spine"`,
 		// Edgeless doc drawn dashed, still a trail link.
 		`world-map-orphan`,
-		`href="/t/u/~/team-a/u//~/team-a/d/lonely.md"`,
+		`href="/t/u/~/team-a/u/~~/team-a/d/lonely.md"`,
 		// A one-doc directory folds into its parent: no group, no anchor.
-		`href="/t/u/~/team-a/u//~/team-a/d/plans/a.md"`,
+		`href="/t/u/~/team-a/u/~~/team-a/d/plans/a.md"`,
 		// The authenticated "new document" affordance.
 		`class="world-map-new"`,
 		`href="/w/team-a/new?dir=%2F"`,
@@ -157,7 +157,7 @@ func TestTrailWorldMapPaneFocusedLive(t *testing.T) {
 
 	// Unfocused world map → cached.
 	svc2 := &fakeReading{worldMap: testWorldMap(), doc: domain.Document{Title: "D", Path: "/x.md", HTML: "<p>x</p>"}}
-	get(readingApp(t, svc2), "/t/team-a/u//~/team-a/d/x.md")
+	get(readingApp(t, svc2), "/t/team-a/u/~~/team-a/d/x.md")
 	if got := strings.Join(svc2.calls, ","); got != "WorldMapCached,Read /x.md" {
 		t.Errorf("calls = %q, want WorldMapCached,Read /x.md", got)
 	}

@@ -22,13 +22,18 @@ import (
 // <world>/d/<path> for a document (trailing slash = the stacks) or
 // <world>/tags/<tag> for a catalog tag page. `~` is a reserved separator
 // segment; paths keep raw slashes (no %2F for ingress to mangle); focus is
-// 0-based and defaults to the last pane.
+// 0-based and defaults to the last pane. A chunk ending in a slash (a
+// listing, a world map) is followed by `~~` instead, so no URL holds `//`:
+// slash-merging proxies would turn it into a 400.
 const (
 	// maxPanes caps trail depth (decision 1). An append past the cap drops
 	// the oldest pane; a hand-minted URL past it is rejected.
 	maxPanes = 10
 	// trailSep is the reserved separator segment between pane chunks.
 	trailSep = "~"
+	// trailListingSep follows a chunk that ends in a slash; the slash is
+	// the separator's own, restored on parse.
+	trailListingSep = "~~"
 )
 
 // Pane address kinds — the path segment that names them in both /w/ routes
@@ -84,7 +89,7 @@ var errBadTrail = errors.New("malformed trail")
 // then archiving panes off it shouldn't 400 the link.
 func parseTrail(rest, focusParam, readerParam string) (trail, error) {
 	var t trail
-	for chunk := range strings.SplitSeq(rest, "/"+trailSep+"/") {
+	for _, chunk := range trailChunks(rest) {
 		addr, err := parsePaneChunk(chunk)
 		if err != nil {
 			return trail{}, err
@@ -137,6 +142,26 @@ func (t trail) withMeta(param string) trail {
 	return t
 }
 
+// trailChunks splits a trail remainder at its separator segments. `~~` is
+// read as an empty segment then `~`, the legacy "d//~/" form, so both
+// restore the chunk's trailing slash.
+func trailChunks(rest string) []string {
+	var chunks, segs []string
+	for seg := range strings.SplitSeq(rest, "/") {
+		switch seg {
+		case trailListingSep:
+			segs = append(segs, "")
+			fallthrough
+		case trailSep:
+			chunks = append(chunks, strings.Join(segs, "/"))
+			segs = segs[:0]
+		default:
+			segs = append(segs, seg)
+		}
+	}
+	return append(chunks, strings.Join(segs, "/"))
+}
+
 // parsePaneChunk decodes one <world>/<kind>/<value> chunk, or the bare
 // "u" floor chunk.
 func parsePaneChunk(chunk string) (paneAddr, error) {
@@ -147,7 +172,7 @@ func parsePaneChunk(chunk string) (paneAddr, error) {
 		return paneAddr{Kind: paneLibrarian}, nil
 	}
 	world, rest, ok := strings.Cut(chunk, "/")
-	if !ok || world == "" || world == trailSep {
+	if !ok || world == "" {
 		return paneAddr{}, errBadTrail
 	}
 	if dec, err := url.PathUnescape(world); err == nil {
@@ -215,8 +240,15 @@ func trailBasePath(t trail) string {
 	chunks := make([]string, len(t.Panes))
 	for i, p := range t.Panes {
 		chunks[i] = paneChunk(p)
+		switch {
+		case i == len(t.Panes)-1:
+		case strings.HasSuffix(chunks[i], "/"):
+			chunks[i] += trailListingSep
+		default:
+			chunks[i] += "/" + trailSep
+		}
 	}
-	return "/t/" + strings.Join(chunks, "/"+trailSep+"/")
+	return "/t/" + strings.Join(chunks, "/")
 }
 
 // trailURL encodes the trail back to its URL. focus is omitted when it is
