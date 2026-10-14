@@ -1,6 +1,7 @@
 package web
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
@@ -43,6 +44,18 @@ func TestTrailRoundTrip(t *testing.T) {
 		{"floor then world map", trail{Panes: []paneAddr{
 			{Kind: paneFloor}, {Kind: paneFloor, World: "root"}}, Focus: 1},
 			"/t/u/~/root/u/"},
+		{"listings mid-trail (no //)", trail{Panes: []paneAddr{
+			{Kind: paneFloor}, doc("w", "/"), doc("w", "/an/"), doc("w", "/an/x.md")}, Focus: 3},
+			"/t/u/~/w/d/~~/w/d/an/~~/w/d/an/x.md"},
+		{"world map mid-trail", trail{Panes: []paneAddr{
+			{Kind: paneFloor, World: "w"}, doc("w", "/x.md")}, Focus: 1},
+			"/t/w/u/~~/w/d/x.md"},
+		{"separator-named path segments escaped", trail{Panes: []paneAddr{
+			doc("w", "/a/~~/b.md"), graph("w", "/a/~/b.md")}, Focus: 1},
+			"/t/w/d/a/%7E%7E/b.md/~/w/g/a/%7E/b.md"},
+		{"extensionless doc mid-trail stays a doc", trail{Panes: []paneAddr{
+			doc("w", "/x.md/v12"), doc("w", "/an/")}, Focus: 1},
+			"/t/w/d/x.md/v12/~/w/d/an/"},
 	}
 	for _, tc := range cases {
 		if got := trailURL(tc.trail); got != tc.url {
@@ -80,6 +93,22 @@ func TestParseTrailFloorToWorldRootListing(t *testing.T) {
 	}
 	if tr.Panes[1] != (paneAddr{Kind: paneDoc, World: "world-a", Value: "/"}) {
 		t.Errorf("pane 1 = %+v, want world-a root listing", tr.Panes[1])
+	}
+}
+
+func TestParseTrailLegacyDoubleSlash(t *testing.T) {
+	// URLs minted before `~~` put the separator after an empty segment;
+	// shared links of that form must keep opening the same panes.
+	tr, err := parseTrail("u/~/w/d//~/w/d/an//~/w/d/an/x.md", "", "")
+	if err != nil {
+		t.Fatalf("parseTrail(legacy //): %v", err)
+	}
+	want := []paneAddr{{Kind: paneFloor}, doc("w", "/"), doc("w", "/an/"), doc("w", "/an/x.md")}
+	if !slices.Equal(tr.Panes, want) {
+		t.Fatalf("panes = %+v, want %+v", tr.Panes, want)
+	}
+	if got := trailURL(tr); got != "/t/u/~/w/d/~~/w/d/an/~~/w/d/an/x.md" {
+		t.Errorf("re-minted = %q, want the ~~ form", got)
 	}
 }
 
@@ -135,6 +164,8 @@ func TestParseTrailRejectsMalformed(t *testing.T) {
 		"soul/d/x.md/~/",     // trailing separator → empty chunk
 		"soul/d/x.md/~/soul", // second chunk malformed
 		"soul/u/junk",        // world map takes no value (spec: <world>/u/)
+		"~~/d/x.md",          // listing separator as world
+		"soul/d/~~/",         // trailing listing separator → empty chunk
 	} {
 		if _, err := parseTrail(rest, "", ""); err == nil {
 			t.Errorf("parseTrail(%q) accepted", rest)

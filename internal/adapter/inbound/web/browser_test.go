@@ -37,6 +37,8 @@ func TestBrowserClicksSwapInPlace(t *testing.T) {
 				Out: []domain.Ref{{World: "w.io", Path: "/b.md"}}},
 		},
 	}
+	svc.docs["/c.md"] = domain.Document{Title: "C", Path: "/c.md", HTML: `<p>A <a href="gone.md">dead link</a>.</p>`}
+	svc.errs = map[string]error{"/gone.md": domain.ErrNotFound}
 	srv := browserServer(t, svc)
 	b := launchBrowser(t)
 
@@ -50,6 +52,12 @@ func TestBrowserClicksSwapInPlace(t *testing.T) {
 		{name: "graph node", start: "/t/w.io/d/a.md", open: "g",
 			target: `#graph-overlay svg.graph a[data-node] circle`, want: "/b.md"},
 	}
+	t.Run("failed navigation shows the error page", func(t *testing.T) {
+		b.navigate(t, srv.URL+"/t/w.io/d/c.md")
+		x, y := b.centre(t, `.pane.focused .doc-body a[href^="/t/"]`)
+		b.click(t, x, y)
+		b.waitFor(t, `document.body.classList.contains("error-page") && location.pathname.endsWith("/gone.md")`)
+	})
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			b.navigate(t, srv.URL+c.start)

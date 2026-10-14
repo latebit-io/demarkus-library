@@ -33,6 +33,12 @@ source.
     floor opens its map, a directory's aggregate opens that listing.
 - **`~`** — the reserved separator: a path segment that is exactly `~`
   between consecutive pane chunks.
+- **`~~`** — the separator after a chunk that ends in a slash (a listing, a
+  world map). The chunk's trailing slash doubles as the separator's, so no
+  trail holds `//`, which slash-merging proxies rewrite into a broken URL:
+  `/t/u/~/root/d/~~/root/d/plans/~~/root/d/plans/a.md`.
+- A document path segment that is exactly `~` or `~~` is written `%7E` or
+  `%7E%7E`, and read back the same way, so it is never taken for a separator.
 - **`focus`** — 0-based index of the focused pane (full render + margin +
   live fetch). Omitted ⇒ the last pane. Out of range ⇒ clamped.
 - **Worlds** are knowledge-system names (`root`) or demarkus hosts
@@ -63,7 +69,8 @@ Example — the floor, a tag page, and a document, attention on the tag page:
 
 ## Minting (agent → human)
 
-Concatenate route tails with `/~/`, set `focus` if not last. Rules:
+Concatenate route tails with `/~/`, or with `~~/` after a tail that ends in
+a slash; set `focus` if not last. Rules:
 
 - ≤ 10 panes; each pane's world+path must read (an unreadable unfocused
   pane renders as a tombstone, the trail survives; an unreadable focused
@@ -76,7 +83,10 @@ Concatenate route tails with `/~/`, set `focus` if not last. Rules:
 
 ## Parsing (human → agent)
 
-Split the path after `/t/` on `/~/`; each chunk is `<world>/<kind>/<value>`
+Split the path after `/t/` into `/` segments; a `~` segment ends a chunk, a
+`~~` segment ends a chunk and restores its trailing slash (older trails put
+`~` after an empty segment, `//~/`, which reads the same). Each chunk is
+`<world>/<kind>/<value>`
 (kind `d` ⇒ document path `/<value>`, kind `g` ⇒ that document's graph
 neighborhood, kind `u` with a world ⇒ that world's map, kind `tags` ⇒ tag page)
 or the bare `u` floor chunk (a single token, no world/kind/value — the universe

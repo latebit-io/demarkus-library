@@ -161,6 +161,16 @@
     if (t === document.body) ctx.transition = true;
   });
 
+  // A failed page navigation would leave the old page standing (hx-status
+  // swap:none, page.html): load it in full so the server's error page shows.
+  // Redirects (HX-Redirect) and non-GET submits are htmx's to handle.
+  document.addEventListener("htmx:response:error", function (e) {
+    var ctx = e.detail && e.detail.ctx;
+    if (!ctx || ctx.target !== document.body || ctx.request.method !== "GET") return;
+    if (ctx.response.raw.headers.has("HX-Redirect")) return;
+    window.location.assign(ctx.request.action);
+  });
+
   // htmx boosts only tagName "A", never an SVG <a>, so graph and map nodes
   // reloaded the page: hand the click to a hidden HTML anchor. Aggregates
   // (own hx-get) and modified clicks (new tab) are left alone.

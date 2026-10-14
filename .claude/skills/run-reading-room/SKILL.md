@@ -48,7 +48,8 @@ quietly otherwise. Either is fine for rendering work.
 ## Find a URL worth opening
 
 `/` redirects to `/t/u`, the universe floor. Trails are `/t/<world>/d/<path>`,
-and panes chain with `/~/`:
+and panes chain with `/~/` (`~~/` after a listing or world map, which ends in
+a slash):
 
 ```sh
 curl -sS http://localhost:8099/t/u | grep -o 'href="/t/[^"]*"' | sort -u

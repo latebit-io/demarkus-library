@@ -253,6 +253,7 @@ func readingApp(t *testing.T, svc *fakeReading) *echo.Echo {
 		t.Fatalf("NewView: %v", err)
 	}
 	app.Renderer = view
+	app.HTTPErrorHandler = HTMLErrorHandler
 	RoomRoutes(app, NewRoom(svc, "soul.demarkus.io", "/index.md"))
 	return app
 }
