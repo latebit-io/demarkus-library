@@ -84,8 +84,8 @@
      in-app navigation swaps without a full reload; the server still renders
      every page, so links work with JS off too. htmx 4 inherits nothing
      implicitly, hence :inherited. hx-status: htmx 4 swaps 4xx/5xx bodies by
-     default; keep the htmx 2 rule (no swap, no URL push) until error pages
-     render as HTML fragments — Echo's default error body is JSON. */}}
+     default; fragments keep the htmx 2 rule (no swap, no URL push), and a
+     failed page navigation reloads in full to show the error page (islands.js). */}}
 {{define "hx-body"}}hx-boost:inherited="true" hx-status:4xx:inherited="swap:none push:false" hx-status:5xx:inherited="swap:none push:false"{{end}}
 
 {{define "page"}}<!doctype html>

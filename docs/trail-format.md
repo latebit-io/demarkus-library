@@ -37,6 +37,8 @@ source.
   world map). The chunk's trailing slash doubles as the separator's, so no
   trail holds `//`, which slash-merging proxies rewrite into a broken URL:
   `/t/u/~/root/d/~~/root/d/plans/~~/root/d/plans/a.md`.
+- A document path segment that is exactly `~` or `~~` is written `%7E` or
+  `%7E%7E`, and read back the same way, so it is never taken for a separator.
 - **`focus`** — 0-based index of the focused pane (full render + margin +
   live fetch). Omitted ⇒ the last pane. Out of range ⇒ clamped.
 - **Worlds** are knowledge-system names (`root`) or demarkus hosts

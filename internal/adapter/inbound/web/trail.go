@@ -188,7 +188,28 @@ func parsePaneChunk(chunk string) (paneAddr, error) {
 	if !ok {
 		return paneAddr{}, errBadTrail
 	}
+	if addr.Kind == paneDoc || addr.Kind == paneGraph {
+		addr.Value = mapTrailSegments(addr.Value, trailSegUnescape)
+	}
 	return addr, nil
+}
+
+// A document path segment spelled exactly like a separator rides the trail
+// as %7E escapes, so "/a/~~/b.md" round-trips; Echo hands them over raw.
+var (
+	trailSegEscape   = map[string]string{trailSep: "%7E", trailListingSep: "%7E%7E"}
+	trailSegUnescape = map[string]string{"%7E": trailSep, "%7E%7E": trailListingSep}
+)
+
+// mapTrailSegments replaces each path segment that is a key of m whole.
+func mapTrailSegments(docPath string, m map[string]string) string {
+	segs := strings.Split(docPath, "/")
+	for i, seg := range segs {
+		if out, ok := m[seg]; ok {
+			segs[i] = out
+		}
+	}
+	return strings.Join(segs, "/")
 }
 
 // paneAddrFromParts builds a pane address from an already-unescaped world, a
@@ -318,9 +339,9 @@ func paneChunk(p paneAddr) string {
 	case paneTag:
 		return url.PathEscape(p.World) + "/" + paneTag + "/" + url.PathEscape(p.Value)
 	case paneGraph:
-		return url.PathEscape(p.World) + "/" + paneGraph + p.Value
+		return url.PathEscape(p.World) + "/" + paneGraph + mapTrailSegments(p.Value, trailSegEscape)
 	default:
-		return url.PathEscape(p.World) + "/" + paneDoc + p.Value
+		return url.PathEscape(p.World) + "/" + paneDoc + mapTrailSegments(p.Value, trailSegEscape)
 	}
 }
 

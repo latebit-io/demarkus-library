@@ -50,6 +50,9 @@ func TestTrailRoundTrip(t *testing.T) {
 		{"world map mid-trail", trail{Panes: []paneAddr{
 			{Kind: paneFloor, World: "w"}, doc("w", "/x.md")}, Focus: 1},
 			"/t/w/u/~~/w/d/x.md"},
+		{"separator-named path segments escaped", trail{Panes: []paneAddr{
+			doc("w", "/a/~~/b.md"), graph("w", "/a/~/b.md")}, Focus: 1},
+			"/t/w/d/a/%7E%7E/b.md/~/w/g/a/%7E/b.md"},
 		{"extensionless doc mid-trail stays a doc", trail{Panes: []paneAddr{
 			doc("w", "/x.md/v12"), doc("w", "/an/")}, Focus: 1},
 			"/t/w/d/x.md/v12/~/w/d/an/"},

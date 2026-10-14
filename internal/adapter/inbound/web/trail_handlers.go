@@ -113,7 +113,7 @@ type paneVM struct {
 func (h *ReadingHandler) Trail(c *echo.Context) error {
 	t, err := parseTrail(c.Param("*"), c.QueryParam("focus"), c.QueryParam("reader"))
 	if err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, "malformed trail")
+		return echo.NewHTTPError(http.StatusBadRequest, "This trail link is malformed; something on the way here may have rewritten it.")
 	}
 	t = t.withMeta(c.QueryParam("meta"))
 	ctx := c.Request().Context()

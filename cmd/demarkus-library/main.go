@@ -94,6 +94,7 @@ func main() {
 
 	// Inbound adapter (driving): Echo.
 	app := echo.New()
+	app.HTTPErrorHandler = web.HTMLErrorHandler
 	app.Use(middleware.Recover())
 	// Cap request bodies before any handler reads them (write POSTs).
 	app.Use(middleware.BodyLimit(maxBodyBytes))

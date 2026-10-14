@@ -3,6 +3,7 @@ package web
 import (
 	"errors"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 
@@ -294,6 +295,18 @@ func TestTrailPaneKindsRouteToVerbs(t *testing.T) {
 	want := []string{"BrowseCached /plans/", "NameIndexCached", "Tag adr", "ReadCached /x.md"}
 	if strings.Join(svc.calls, ",") != strings.Join(want, ",") {
 		t.Errorf("calls = %v, want %v", svc.calls, want)
+	}
+}
+
+func TestTrailReadsEscapedSeparatorSegment(t *testing.T) {
+	// The escaped segment reaches the handler raw and reads as the real path.
+	svc := &fakeReading{doc: domain.Document{Title: "x", HTML: "<p>x</p>"}}
+	rec := get(readingApp(t, svc), "/t/w.io/d/a/%7E%7E/b.md")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", rec.Code)
+	}
+	if !slices.ContainsFunc(svc.calls, func(c string) bool { return strings.HasSuffix(c, " /a/~~/b.md") }) {
+		t.Errorf("calls = %v, want a read of /a/~~/b.md", svc.calls)
 	}
 }
 
