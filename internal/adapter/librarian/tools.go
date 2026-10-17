@@ -18,7 +18,7 @@ import (
 
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
 	"github.com/latebit-io/demarkus-library/internal/core/port"
-	"github.com/latebit-io/demarkus/client/mdoutline"
+	"github.com/latebit-io/demarkus/protocol/mdoutline"
 	nibagent "github.com/latebit-io/nib/agent"
 	"github.com/latebit-io/nib/ai/llm"
 )

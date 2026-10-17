@@ -20,32 +20,14 @@ import (
 	"github.com/latebit-io/demarkus/protocol"
 )
 
-// fetchClient is the slice of the demarkus client this adapter needs. An
-// interface keeps the adapter unit-testable without a live world.
+// fetchClient is the slice of the demarkus client this adapter needs;
+// *fetch.Client satisfies it. An interface keeps the adapter unit-testable
+// without a live world.
 type fetchClient interface {
-	Fetch(host, path, token string) (fetch.Result, error)
-	List(host, path, token string) (fetch.Result, error)
-	Versions(host, path, token string) (fetch.Result, error)
-	Lookup(call lookupCall) (fetch.Result, error)
-}
-
-// lookupCall is one catalog query against the client: the host dialed, the
-// credential it carries, and the query itself.
-type lookupCall struct {
-	Host    string
-	Scope   string
-	Query   string
-	Token   string
-	Options fetch.LookupOptions
-}
-
-// directClient adapts the demarkus fetch client to fetchClient. It exists to
-// bundle Lookup's arguments — the client's own five-argument form stays at
-// this one call site — and promotes the rest unchanged.
-type directClient struct{ *fetch.Client }
-
-func (d directClient) Lookup(call lookupCall) (fetch.Result, error) {
-	return d.Client.Lookup(call.Host, call.Scope, call.Query, call.Token, call.Options)
+	Fetch(ctx context.Context, r fetch.FetchRequest) (fetch.Result, error)
+	List(ctx context.Context, r fetch.ListRequest) (fetch.Result, error)
+	Versions(ctx context.Context, r fetch.VersionsRequest) (fetch.Result, error)
+	Lookup(ctx context.Context, r fetch.LookupRequest) (fetch.Result, error)
 }
 
 // Gateway adapts demarkus worlds (addressed by host) to the WorldGateway port.
@@ -65,46 +47,40 @@ func NewGateway(client fetchClient, home, token string) *Gateway {
 	return &Gateway{client: client, home: NormalizeHost(home), token: token}
 }
 
-// NewDirectGateway is the composition root's constructor: the demarkus QUIC
-// fetch client, wrapped so its Lookup arrives as one call value.
-func NewDirectGateway(client *fetch.Client, home, token string) *Gateway {
-	return NewGateway(directClient{client}, home, token)
-}
-
 // Fetch reads a document and maps demarkus status to domain errors.
-func (g *Gateway) Fetch(_ context.Context, world, path string) (domain.RawDocument, error) {
+func (g *Gateway) Fetch(ctx context.Context, world, path string) (domain.RawDocument, error) {
 	host := NormalizeHost(world)
-	res, err := g.client.Fetch(host, path, g.tokenFor(host))
+	res, err := g.client.Fetch(ctx, fetch.FetchRequest{Host: host, Path: path, Token: g.tokenFor(host)})
 	return g.toRawDocument(res, host, path, err)
 }
 
 // List reads a directory listing (the stacks) at path.
-func (g *Gateway) List(_ context.Context, world, path string) (domain.RawDocument, error) {
+func (g *Gateway) List(ctx context.Context, world, path string) (domain.RawDocument, error) {
 	host := NormalizeHost(world)
-	res, err := g.client.List(host, path, g.tokenFor(host))
+	res, err := g.client.List(ctx, fetch.ListRequest{Host: host, Path: path, Token: g.tokenFor(host)})
 	return g.toRawDocument(res, host, path, err)
 }
 
 // Versions reads the edition history of the document at path.
-func (g *Gateway) Versions(_ context.Context, world, path string) (domain.RawDocument, error) {
+func (g *Gateway) Versions(ctx context.Context, world, path string) (domain.RawDocument, error) {
 	host := NormalizeHost(world)
-	res, err := g.client.Versions(host, path, g.tokenFor(host))
+	res, err := g.client.Versions(ctx, fetch.VersionsRequest{Host: host, Path: path, Token: g.tokenFor(host)})
 	return g.toRawDocument(res, host, path, err)
 }
 
 // Lookup queries the world's catalog for req.Query under req.Scope, optionally
 // narrowed by a comma-separated key=value filter (tag pages use tag=<tag>).
-// q.Match is not sent: this fetch client predates body match, so the answer is
-// the catalog match and its metadata carries no match echo, which callers read
-// as catalog fallback.
-func (g *Gateway) Lookup(_ context.Context, world string, q domain.LookupQuery) (domain.RawDocument, error) {
+// q.Match is not sent yet, so the answer is the catalog match with no match
+// echo, which callers read as catalog fallback.
+func (g *Gateway) Lookup(ctx context.Context, world string, q domain.LookupQuery) (domain.RawDocument, error) {
 	host := NormalizeHost(world)
-	res, err := g.client.Lookup(lookupCall{
-		Host:    host,
-		Scope:   q.Scope,
-		Query:   q.Query,
-		Token:   g.tokenFor(host),
-		Options: fetch.LookupOptions{Filter: q.Filter, Limit: q.Limit},
+	res, err := g.client.Lookup(ctx, fetch.LookupRequest{
+		Host:   host,
+		Scope:  q.Scope,
+		Query:  q.Query,
+		Token:  g.tokenFor(host),
+		Filter: q.Filter,
+		Limit:  q.Limit,
 	})
 	return g.toRawDocument(res, host, q.Scope, err)
 }

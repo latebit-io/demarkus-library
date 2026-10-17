@@ -286,15 +286,15 @@ func TestTransportAuthRejection(t *testing.T) {
 
 // mcpTestServer is a real mcp-go StreamableHTTPServer — the same server type
 // the broker wraps — behind a bearer-checking gate mirroring gatewayAuth. It
-// counts initialize requests and can be "restarted" (fresh server-side
+// counts session handshakes and can be "restarted" (fresh server-side
 // session state) to exercise the pool's rebuild path.
 type mcpTestServer struct {
 	ts *httptest.Server
 
-	mu          sync.Mutex
-	streamable  *mcpserver.StreamableHTTPServer
-	initializes int
-	failNext    bool // 404 the next tools/call once (simulated session loss)
+	mu         sync.Mutex
+	streamable *mcpserver.StreamableHTTPServer
+	handshakes int  // server/discover, or initialize on the pre-2026 protocol
+	failNext   bool // 404 the next tools/call once (simulated session loss)
 }
 
 func newMCPTestServer(t *testing.T) *mcpTestServer {
@@ -311,8 +311,8 @@ func newMCPTestServer(t *testing.T) *mcpTestServer {
 		body, _ := io.ReadAll(r.Body)
 		r.Body = io.NopCloser(bytes.NewReader(body))
 		m.mu.Lock()
-		if bytes.Contains(body, []byte(`"method":"initialize"`)) {
-			m.initializes++
+		if bytes.Contains(body, []byte(`"method":"server/discover"`)) || bytes.Contains(body, []byte(`"method":"initialize"`)) {
+			m.handshakes++
 		}
 		if m.failNext && bytes.Contains(body, []byte(`"method":"tools/call"`)) {
 			m.failNext = false
@@ -348,10 +348,10 @@ func (m *mcpTestServer) restart() {
 	m.mu.Unlock()
 }
 
-func (m *mcpTestServer) initializeCount() int {
+func (m *mcpTestServer) handshakeCount() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return m.initializes
+	return m.handshakes
 }
 
 // gateway builds the production Gateway against the test server. NewGateway
@@ -364,7 +364,7 @@ func (m *mcpTestServer) gateway() *Gateway {
 }
 
 // TestEndToEndSessionReuse drives the production mcpCaller end to end and
-// pins the pool's reason for existing: N reads, one initialize.
+// pins the pool's reason for existing: N reads, one handshake.
 func TestEndToEndSessionReuse(t *testing.T) {
 	srv := newMCPTestServer(t)
 	g := srv.gateway()
@@ -380,8 +380,8 @@ func TestEndToEndSessionReuse(t *testing.T) {
 			t.Fatalf("raw = %+v", raw)
 		}
 	}
-	if n := srv.initializeCount(); n != 1 {
-		t.Errorf("initialize count = %d after 5 reads, want 1 (session reused)", n)
+	if n := srv.handshakeCount(); n != 1 {
+		t.Errorf("handshake count = %d after 5 reads, want 1 (session reused)", n)
 	}
 
 	// A rejected bearer maps to ErrUnauthorized through the real transport.
@@ -418,14 +418,14 @@ func TestEndToEndSessionLost(t *testing.T) {
 	if raw.Body != "# Soul hub" {
 		t.Errorf("raw = %+v", raw)
 	}
-	if n := srv.initializeCount(); n != 2 {
-		t.Errorf("initialize count = %d, want 2 (rebuild after loss)", n)
+	if n := srv.handshakeCount(); n != 2 {
+		t.Errorf("handshake count = %d, want 2 (rebuild after loss)", n)
 	}
 }
 
-// TestEndToEndConcurrentSingleInitialize hammers a cold pool from many
+// TestEndToEndConcurrentSingleHandshake hammers a cold pool from many
 // goroutines; the entry lock must single-flight the handshake.
-func TestEndToEndConcurrentSingleInitialize(t *testing.T) {
+func TestEndToEndConcurrentSingleHandshake(t *testing.T) {
 	srv := newMCPTestServer(t)
 	g := srv.gateway()
 	defer g.Close()
@@ -445,8 +445,8 @@ func TestEndToEndConcurrentSingleInitialize(t *testing.T) {
 			t.Fatalf("reader %d: %v", i, err)
 		}
 	}
-	if n := srv.initializeCount(); n != 1 {
-		t.Errorf("initialize count = %d under %d concurrent readers, want 1", n, readers)
+	if n := srv.handshakeCount(); n != 1 {
+		t.Errorf("handshake count = %d under %d concurrent readers, want 1", n, readers)
 	}
 }
 
