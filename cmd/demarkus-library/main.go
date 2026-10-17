@@ -163,7 +163,7 @@ func main() {
 		client := fetch.NewClient(fetch.Options{Insecure: config.Insecure})
 		defaultWorld = world.NormalizeHost(config.Host)
 		gateway = federated.New(federated.Config{
-			Hosts:         world.NewDirectGateway(client, config.Host, config.ReadToken),
+			Hosts:         world.NewGateway(client, config.Host, config.ReadToken),
 			HomeHost:      config.Host,
 			AllowExternal: config.Federation,
 		})
@@ -204,7 +204,7 @@ func main() {
 			// Federation reads are tokenless and anonymous: external
 			// hosts get no home credential and no bearer.
 			fclient = fetch.NewClient(fetch.Options{Insecure: config.Insecure})
-			fcfg.Hosts = world.NewDirectGateway(fclient, "", "")
+			fcfg.Hosts = world.NewGateway(fclient, "", "")
 		}
 		defaultWorld = config.World
 		gateway = federated.New(fcfg)

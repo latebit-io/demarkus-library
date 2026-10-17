@@ -7,9 +7,9 @@ import (
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
 )
 
-// A trimmed legacy (two-column edge) export with an external row and an
-// https edge endpoint that must both drop out.
-const legacyExport = `# Document Graph
+// An export with an external node row and an https edge endpoint that must
+// both drop out.
+const externalExport = `# Document Graph
 
 ## Nodes
 
@@ -21,11 +21,11 @@ const legacyExport = `# Document Graph
 
 ## Edges
 
-| From | To |
-|------|----|
-| mark://root.svc:6309/index.md | mark://world-a.svc:6309/guide.md |
-| mark://world-a.svc:6309/guide.md | mark://wiki.example.org/notes.md |
-| https://github.com/x | mark://root.svc:6309/index.md |
+| From | To | Rel | Label | Anchor | Count |
+|------|----|-----|-------|--------|-------|
+| mark://root.svc:6309/index.md | mark://world-a.svc:6309/guide.md |  |  |  | 1 |
+| mark://world-a.svc:6309/guide.md | mark://wiki.example.org/notes.md |  |  |  | 1 |
+| https://github.com/x | mark://root.svc:6309/index.md |  |  |  | 1 |
 `
 
 // An enriched (six-column edge) export, the shape agent 0.21.1+ publishes;
@@ -67,8 +67,8 @@ var wantEnrichedEdges = []domain.Edge{
 	{From: domain.Ref{World: "world-a.svc:6309", Path: "/guide.md"}, To: domain.Ref{World: "wiki.example.org", Path: "/notes.md"}, Type: domain.EdgeReference},
 }
 
-func TestParseGraphExportLegacy(t *testing.T) {
-	nodes, edges := Parser{}.ParseGraphExport(legacyExport)
+func TestParseGraphExportDropsNonMark(t *testing.T) {
+	nodes, edges := Parser{}.ParseGraphExport(externalExport)
 	if !reflect.DeepEqual(nodes, wantNodes) {
 		t.Errorf("nodes = %+v, want %+v (external skipped)", nodes, wantNodes)
 	}

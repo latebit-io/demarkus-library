@@ -137,7 +137,7 @@ func (g *Gateway) Worlds(ctx context.Context) ([]domain.WorldInfo, error) {
 	}
 	text, isToolError, err := g.caller.callTool(ctx, token, "mark_worlds", nil)
 	if err != nil {
-		if errors.Is(err, transport.ErrUnauthorized) {
+		if isUnauthorized(err) {
 			return nil, domain.ErrUnauthorized
 		}
 		return nil, fmt.Errorf("broker: mark_worlds: %w", err)
@@ -264,7 +264,7 @@ func (g *Gateway) Publish(ctx context.Context, req domain.PublishRequest) (domai
 
 	text, isToolError, err := g.caller.callTool(ctx, token, "mark_publish", args)
 	if err != nil {
-		if errors.Is(err, transport.ErrUnauthorized) {
+		if isUnauthorized(err) {
 			return domain.PublishResult{}, domain.ErrUnauthorized
 		}
 		return domain.PublishResult{}, fmt.Errorf("broker: mark_publish: %w", err)
@@ -334,7 +334,7 @@ func (g *Gateway) Append(ctx context.Context, world, path, body string) (int, er
 	args := map[string]any{"url": markURL(world, path), "body": body}
 	text, isToolError, err := g.caller.callTool(ctx, token, "mark_append", args)
 	if err != nil {
-		if errors.Is(err, transport.ErrUnauthorized) {
+		if isUnauthorized(err) {
 			return 0, domain.ErrUnauthorized
 		}
 		return 0, fmt.Errorf("broker: mark_append: %w", err)
@@ -398,11 +398,10 @@ func (g *Gateway) read(ctx context.Context, call toolRead) (domain.RawDocument, 
 
 	text, isToolError, err := g.caller.callTool(ctx, token, call.Tool, call.Args)
 	if err != nil {
-		if errors.Is(err, transport.ErrUnauthorized) {
+		if isUnauthorized(err) {
 			// The broker's gatewayAuth refused the bearer (expired or
-			// revoked between refresh and use). mcp-go surfaces HTTP
-			// 401 as this typed sentinel; map it to the domain's auth
-			// error so the web layer re-runs login.
+			// revoked between refresh and use); the domain's auth error
+			// makes the web layer re-run login.
 			return domain.RawDocument{}, domain.ErrUnauthorized
 		}
 		return domain.RawDocument{}, fmt.Errorf("broker: %s: %w", call.Tool, err)
@@ -411,6 +410,12 @@ func (g *Gateway) read(ctx context.Context, call toolRead) (domain.RawDocument, 
 		return domain.RawDocument{}, mapToolError(text)
 	}
 	return parseToolResult(call.World, call.Path, text, call.AdditionalStatuses...)
+}
+
+// isUnauthorized reports a 401 from the broker: mcp-go v1 returns
+// ErrAuthorizationRequired for it, older transport paths ErrUnauthorized.
+func isUnauthorized(err error) bool {
+	return errors.Is(err, transport.ErrAuthorizationRequired) || errors.Is(err, transport.ErrUnauthorized)
 }
 
 // markURL builds the mark://<world><path> tool argument. path always starts
@@ -539,7 +544,7 @@ func (m *mcpCaller) callTool(ctx context.Context, token, tool string, args map[s
 		}
 		m.invalidate(entry, c)
 		lastErr = fmt.Errorf("call %s: %w", tool, err)
-		if ctx.Err() != nil || errors.Is(err, transport.ErrUnauthorized) {
+		if ctx.Err() != nil || isUnauthorized(err) {
 			// Cancelled, or the bearer itself was rejected — a rebuild
 			// would re-fail at initialize with the same answer.
 			break

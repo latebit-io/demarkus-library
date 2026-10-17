@@ -7,12 +7,12 @@ import (
 	"strings"
 
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
-	"github.com/latebit-io/demarkus/client/graphstore"
+	"github.com/latebit-io/demarkus/client/memory/graphstore"
 )
 
 // Parser implements port.GraphExportParser via graphstore.ParseExport, the
-// contract-tested parser for both the legacy two-column and the enriched
-// six-column edge tables.
+// contract-tested parser for the six-column edge table. The legacy two-column
+// table no longer parses: demarkus dropped it with its pre-1.0 format shims.
 type Parser struct{}
 
 // ParseGraphExport decodes body into domain nodes and reference edges:
