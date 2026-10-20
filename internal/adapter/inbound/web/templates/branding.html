@@ -9,7 +9,7 @@
   <main id="main">
     <div class="edit-pane">
       <header class="doc">
-        <div class="meta"><code>mark://{{ .World }}{{ "/.well-known/library/" }}</code> · branding</div>
+        <div class="meta"><code>mark://{{ .World }}{{ "/.well-known/library/" }}</code>{{template "copy-mark" (printf "mark://%s/.well-known/library/" .World)}} · branding</div>
         <h1>Branding for {{ .World }}</h1>
       </header>
 

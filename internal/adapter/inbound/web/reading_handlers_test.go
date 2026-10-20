@@ -395,7 +395,10 @@ func TestDocRendersMargin(t *testing.T) {
 		`<dt>author</dt><dd>fritz</dd>`,
 		"2026-06-12T10:00:00Z",
 		"claude-code",
-		"mark://soul.demarkus.io/adr/0007.md",
+		`<code class="mark-url">mark://soul.demarkus.io/adr/0007.md</code>`,
+		// The copy icon (#94) sits in the pane head and ships hidden; islands.js
+		// wakes it, so JS off leaves the address plain text.
+		`<code>soul.demarkus.io/adr/0007.md</code></a><button type="button" class="copy-mark" data-copy="mark://soul.demarkus.io/adr/0007.md" title="Copy mark:// address (c)" aria-label="Copy mark:// address" hidden>`,
 		`href="/w/soul.demarkus.io/raw/adr/0007.md"`,
 		`href="/w/soul.demarkus.io/versions/adr/0007.md"`,
 		// hx-boost off so islands.js intercepts to the overlay instead of htmx

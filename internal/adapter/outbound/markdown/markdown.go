@@ -15,6 +15,7 @@ import (
 	"github.com/gohugoio/hugo-goldmark-extensions/passthrough"
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
 	"github.com/latebit-io/demarkus-library/internal/core/port"
+	"github.com/latebit-io/demarkus/protocol/mdoutline"
 	"github.com/microcosm-cc/bluemonday"
 	"github.com/yuin/goldmark"
 	emoji "github.com/yuin/goldmark-emoji"
@@ -80,6 +81,9 @@ var (
 	footnoteClasses = regexp.MustCompile(`^footnote-(?:ref|backref)$|^footnotes$`)
 	footnoteIDs     = regexp.MustCompile(`^fn(?:ref)?:\d+(?::\d+)?$`)
 	footnoteHrefs   = regexp.MustCompile(`^#fn(?:ref)?:\d+(?::\d+)?$`)
+	// Heading ids are protocol anchors (mdoutline.Slug): letters, digits,
+	// underscore, hyphen. Author-shaped, so no other element may carry one.
+	headingIDs = regexp.MustCompile(`^[\p{L}\p{N}_-]+$`)
 )
 
 // calloutClasses matches what gm-alert-callouts emits: the wrapper div
@@ -142,6 +146,7 @@ func NewRenderer() *Renderer {
 	// between text and foot.
 	policy.AllowAttrs("class").Matching(footnoteClasses).OnElements("a", "div")
 	policy.AllowAttrs("id").Matching(footnoteIDs).OnElements("sup", "li")
+	policy.AllowAttrs("id").Matching(headingIDs).OnElements("h1", "h2", "h3", "h4", "h5", "h6")
 	policy.AllowAttrs("href").Matching(footnoteHrefs).OnElements("a")
 	return &Renderer{
 		md: goldmark.New(goldmark.WithExtensions(
@@ -193,6 +198,7 @@ func (r *Renderer) Render(markdown string) (domain.Rendered, error) {
 	// before rendering: the reading-room pane renders the document title itself,
 	// so a body that opens with "# Title" would otherwise show two headers.
 	doc := r.md.Parser().Parse(text.NewReader(src))
+	assignHeadingIDs(doc, body)
 	title := stripLeadingH1(doc, src)
 
 	var buf bytes.Buffer
@@ -204,6 +210,25 @@ func (r *Renderer) Render(markdown string) (domain.Rendered, error) {
 		Properties: parseFrontmatter(fence),
 		Title:      title,
 	}, nil
+}
+
+// assignHeadingIDs gives each heading the anchor the protocol derives for it
+// (GitHub slug, -N dedupe), so a page #fragment and mark://…#anchor name the
+// same section. Runs before the H1 lift: the dedupe counts the title too.
+func assignHeadingIDs(doc ast.Node, body string) {
+	anchors := mdoutline.Headings(body)
+	next := 0
+	_ = ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+		h, ok := n.(*ast.Heading)
+		if !entering || !ok || h.Lines().Len() == 0 {
+			return ast.WalkContinue, nil
+		}
+		if next < len(anchors) {
+			h.SetAttributeString("id", []byte(anchors[next].Anchor))
+		}
+		next++
+		return ast.WalkContinue, nil
+	})
 }
 
 // stripLeadingH1 removes the document's leading level-1 heading when it is the

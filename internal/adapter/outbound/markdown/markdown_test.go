@@ -229,6 +229,17 @@ func TestRenderStripsNonChromaClasses(t *testing.T) {
 	}
 }
 
+func TestRenderHeadingAnchors(t *testing.T) {
+	// Ids are the protocol's anchors, deduped over the whole body including
+	// the lifted H1, so mark://…#key-facts-1 and the page fragment agree.
+	html := render(t, "# Title\n\n## Key Facts\n\n## Key Facts\n\n### The `kit` API")
+	for _, want := range []string{`<h2 id="key-facts">`, `<h2 id="key-facts-1">`, `<h3 id="the-kit-api">`} {
+		if !strings.Contains(html, want) {
+			t.Errorf("missing %q in %q", want, html)
+		}
+	}
+}
+
 func TestRenderStripsAuthoredSidenoteIDs(t *testing.T) {
 	// The sidenote/footnote allowances must not open DOM clobbering: only
 	// fn-shaped ids pass, and only on the elements goldmark emits them on.

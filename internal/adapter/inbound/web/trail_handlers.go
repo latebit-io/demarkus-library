@@ -409,6 +409,9 @@ func (h *ReadingHandler) paneView(ctx context.Context, req *paneRequest) paneVM 
 	// then trailizeLinks rewrites those hrefs to post-click trail URLs — in the
 	// overlay (reader=true) those become reader-persisting URLs.
 	vm.Content = template.HTML(trailizeLinks(previewize(content), trailState, paneIndex, reader)) //nolint:gosec // sanitized in the markdown adapter; these passes only rewrite/wrap links, adding no unescaped content
+	if addr.Kind == paneDoc {
+		vm.MarkURL = "mark://" + addr.World + doc.Path // the pane head's copy affordance (#94)
+	}
 
 	// An overlay shows the addressed pane's full margin even when it is not
 	// the focused pane — a lens is not a dead-end.
@@ -422,7 +425,6 @@ func (h *ReadingHandler) paneView(ctx context.Context, req *paneRequest) paneVM 
 		vm.Agent = doc.Agent
 		vm.Writer = doc.User
 		vm.Meta = doc.Meta
-		vm.MarkURL = "mark://" + addr.World + doc.Path
 		// Graph/map open non-prose panes, so they exit the overlay (plain
 		// trail URLs) even in reader mode; backlinks point at docs, so they
 		// persist the overlay like any other prose link.

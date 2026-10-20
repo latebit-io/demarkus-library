@@ -132,7 +132,94 @@
     renderMermaid(root);
     renderMath(root);
     hydrateMaps(root);
+    wakeCopy(root);
   }
+
+  // --- copy mark:// address (c) — #94 ----------------------------------
+  // Pane heads and edit meta lines carry the icon button, born hidden and
+  // woken here so JS off leaves plain text. Each body heading gets a clone
+  // that copies mark://…#anchor; the ids come from the markdown adapter.
+  function wakeCopy(root) {
+    if (!root.querySelectorAll) return;
+    root.querySelectorAll("button.copy-mark[hidden]").forEach(function (b) { b.hidden = false; });
+    root.querySelectorAll(".doc-body :is(h2, h3, h4, h5, h6)[id]").forEach(function (h) {
+      if (h.querySelector(".copy-anchor")) return;
+      var scope = h.closest(".pane, .reader-panel") || document;
+      var own = scope.querySelector("button.copy-mark:not(.copy-anchor)");
+      var code = scope.querySelector(".escape code.mark-url");
+      var addr = own ? own.getAttribute("data-copy") : code && code.textContent.trim();
+      var proto = own || document.querySelector("button.copy-mark:not(.copy-anchor)");
+      if (!addr || !proto) return;
+      var b = proto.cloneNode(true);
+      b.classList.add("copy-anchor");
+      b.hidden = false;
+      b.setAttribute("data-copy", addr + "#" + h.id);
+      b.title = "Copy section address";
+      b.setAttribute("aria-label", "Copy section address");
+      h.appendChild(b);
+    });
+  }
+  function copyAddress(button) {
+    var text = button.getAttribute("data-copy") || "";
+    // The pane's own button carries a #fragment along when it lands in
+    // the same pane, so a pasted address opens on the section being read.
+    if (!button.classList.contains("copy-anchor")) {
+      var id = location.hash.slice(1), scope = button.closest(".pane") || document;
+      if (id && scope.querySelector("#" + CSS.escape(id))) text += location.hash;
+    }
+    function done(state) {
+      var label = button.querySelector(".copy-label");
+      if (label) label.textContent = state;
+      button.classList.toggle("copied", state === "copied");
+      clearTimeout(button._copied);
+      button._copied = setTimeout(function () {
+        button.classList.remove("copied");
+        if (label) label.textContent = "copy";
+      }, 1500);
+    }
+    // No secure context (plain http:// dev host): the legacy command copies
+    // a selection, so stage the text in a throwaway textarea; failing that,
+    // leave the on-screen address selected for a manual copy.
+    function legacyCopy() {
+      var stage = document.createElement("textarea"), ok = false;
+      stage.value = text;
+      stage.setAttribute("readonly", "");
+      stage.style.position = "fixed";
+      stage.style.opacity = "0";
+      document.body.appendChild(stage);
+      stage.select();
+      try { ok = document.execCommand("copy"); } catch (_) { ok = false; }
+      stage.remove();
+      if (ok) { done("copied"); return; }
+      var code = button.parentNode.querySelector("code");
+      if (!code) { done("failed"); return; }
+      var range = document.createRange();
+      range.selectNodeContents(code);
+      var sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+      done("selected");
+    }
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).then(function () { done("copied"); }, legacyCopy);
+      return;
+    }
+    legacyCopy();
+  }
+  document.addEventListener("click", function (e) {
+    var b = e.target.closest && e.target.closest("button.copy-mark");
+    if (b) copyAddress(b);
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key !== "c" || e.ctrlKey || e.metaKey || e.altKey || typingIn(e)) return;
+    var p = palette();
+    if ((p && !p.hidden) || openOverlay()) return;
+    var b = document.querySelector(".pane.focused button.copy-mark:not(.copy-anchor)") ||
+      document.querySelector("button.copy-mark:not(.copy-anchor)");
+    if (!b) return;
+    e.preventDefault();
+    copyAddress(b);
+  });
 
   // --- trail canvas ------------------------------------------------------
   // The one piece of JS the trail engine needs (ADR 0005): new panes open
