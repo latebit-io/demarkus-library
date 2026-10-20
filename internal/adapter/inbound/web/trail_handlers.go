@@ -67,11 +67,12 @@ type paneVM struct {
 	FocusURL string // spine/header click: same path, focus moves here
 	Gone     bool   // unfocused pane whose document no longer reads
 
-	Title     string
-	World     string
-	WorldPath string
-	Path      string
-	Content   template.HTML
+	Title       string
+	TitleAnchor string // the lifted H1's anchor: the pane's <h1> is the #fragment target
+	World       string
+	WorldPath   string
+	Path        string
+	Content     template.HTML
 
 	HasMargin   bool // focused document pane: render the trust signals
 	Status      string
@@ -84,6 +85,7 @@ type paneVM struct {
 	Writer      string            // the document's user key; User is the session identity
 	Meta        []domain.Property // every other out-of-band metadata key, sorted
 	MarkURL     string
+	EscapeCopy  bool             // no pane head here (overlay, permalink): the escape row carries the copy button
 	Librarian   *librarianPaneVM // the librarian pane's transcript + ask form (kind "a" only)
 	Floor       *floorVM         // the universe pane's cards or map (the floor only)
 	ReaderURL   string           // header/margin affordance: open this pane in the reader overlay (R4)
@@ -377,14 +379,15 @@ func (h *ReadingHandler) paneView(ctx context.Context, req *paneRequest) paneVM 
 	}
 
 	vm := paneVM{
-		Mode:      mode,
-		Kind:      addr.Kind,
-		FocusURL:  trailURL(trailFocused(trailState, paneIndex)),
-		Title:     doc.Title,
-		World:     addr.World,
-		WorldPath: url.PathEscape(addr.World),
-		Path:      doc.Path,
-		Status:    doc.Status,
+		Mode:        mode,
+		Kind:        addr.Kind,
+		FocusURL:    trailURL(trailFocused(trailState, paneIndex)),
+		Title:       doc.Title,
+		TitleAnchor: doc.TitleAnchor,
+		World:       addr.World,
+		WorldPath:   url.PathEscape(addr.World),
+		Path:        doc.Path,
+		Status:      doc.Status,
 	}
 	if overlay == "" {
 		h.headAffordances(&vm, req)
@@ -409,6 +412,10 @@ func (h *ReadingHandler) paneView(ctx context.Context, req *paneRequest) paneVM 
 	// then trailizeLinks rewrites those hrefs to post-click trail URLs — in the
 	// overlay (reader=true) those become reader-persisting URLs.
 	vm.Content = template.HTML(trailizeLinks(previewize(content), trailState, paneIndex, reader)) //nolint:gosec // sanitized in the markdown adapter; these passes only rewrite/wrap links, adding no unescaped content
+	if addr.Kind == paneDoc {
+		vm.MarkURL = markURL(addr.World, doc.Path) // the copy affordance (#94)
+		vm.EscapeCopy = overlay != ""
+	}
 
 	// An overlay shows the addressed pane's full margin even when it is not
 	// the focused pane — a lens is not a dead-end.
@@ -422,7 +429,6 @@ func (h *ReadingHandler) paneView(ctx context.Context, req *paneRequest) paneVM 
 		vm.Agent = doc.Agent
 		vm.Writer = doc.User
 		vm.Meta = doc.Meta
-		vm.MarkURL = "mark://" + addr.World + doc.Path
 		// Graph/map open non-prose panes, so they exit the overlay (plain
 		// trail URLs) even in reader mode; backlinks point at docs, so they
 		// persist the overlay like any other prose link.

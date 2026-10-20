@@ -53,6 +53,7 @@ func TestEditFormPrefills(t *testing.T) {
 	body := rec.Body.String()
 	for _, want := range []string{
 		`action="/w/soul.demarkus.io/edit/adr/0007.md"`,
+		`data-copy="mark://soul.demarkus.io/adr/0007.md"`, // copy affordance (#94)
 		`name="version" value="7"`,
 		`name="title" value="ADR 7"`,
 		`value="adr, decision"`,     // tags input

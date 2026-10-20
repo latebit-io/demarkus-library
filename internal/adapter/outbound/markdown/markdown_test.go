@@ -229,6 +229,47 @@ func TestRenderStripsNonChromaClasses(t *testing.T) {
 	}
 }
 
+func TestRenderHeadingAnchors(t *testing.T) {
+	// Ids are the protocol's anchors (mdoutline), so mark://…#anchor and the
+	// page fragment agree; the dedupe counts the lifted H1 like the protocol.
+	tests := []struct{ name, src, want string }{
+		{name: "slug", src: "## Key Facts", want: `<h2 id="key-facts">`},
+		{name: "duplicate suffixed", src: "## Notes\n\n## Notes", want: `<h2 id="notes-1">`},
+		{name: "inline code slugged", src: "### The `kit` API", want: `<h3 id="the-kit-api">`},
+		{name: "lifted title counts", src: "# Notes\n\n## Notes", want: `<h2 id="notes-1">`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if html := render(t, tt.src); !strings.Contains(html, tt.want) {
+				t.Errorf("missing %q in %q", tt.want, html)
+			}
+		})
+	}
+}
+
+func TestRenderLiftedTitleKeepsAnchor(t *testing.T) {
+	// The lifted H1 leaves the body, but its anchor rides along so the pane's
+	// own <h1> can be the target of mark://…#notes.
+	out, err := NewRenderer().Render("# Notes\n\n## Notes")
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if out.TitleAnchor != "notes" {
+		t.Errorf("TitleAnchor = %q, want notes", out.TitleAnchor)
+	}
+	if !strings.Contains(out.HTML, `<h2 id="notes-1">`) {
+		t.Errorf("body heading should keep the deduped anchor: %q", out.HTML)
+	}
+}
+
+func TestRenderPunctuationHeadingHasNoAnchor(t *testing.T) {
+	// The protocol slugs "!!!" to nothing, so the page mints no id either: an
+	// id the protocol cannot resolve would copy a dead mark:// address.
+	if html := render(t, "## !!!"); strings.Contains(html, "id=") {
+		t.Errorf("punctuation-only heading got an id: %q", html)
+	}
+}
+
 func TestRenderStripsAuthoredSidenoteIDs(t *testing.T) {
 	// The sidenote/footnote allowances must not open DOM clobbering: only
 	// fn-shaped ids pass, and only on the elements goldmark emits them on.

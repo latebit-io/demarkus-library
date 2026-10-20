@@ -66,19 +66,20 @@ func (s *ReadingService) Read(ctx context.Context, world, path string) (domain.D
 	}
 	tags := splitTags(raw.Metadata["tags"])
 	doc := domain.Document{
-		Title:      titleFor(raw.Path, raw.Metadata, rendered.Title),
-		Source:     raw.Source,
-		Path:       raw.Path,
-		HTML:       rendered.HTML,
-		Status:     resolveStatus(tags, rendered.Properties),
-		Type:       raw.Metadata["type"],
-		Tags:       tags,
-		Properties: rendered.Properties,
-		Modified:   raw.Metadata["modified"],
-		Version:    raw.Metadata["version"],
-		Agent:      raw.Metadata["agent"],
-		User:       raw.Metadata["user"],
-		Meta:       otherMeta(raw.Metadata),
+		Title:       titleFor(raw.Path, raw.Metadata, rendered.Title),
+		TitleAnchor: rendered.TitleAnchor,
+		Source:      raw.Source,
+		Path:        raw.Path,
+		HTML:        rendered.HTML,
+		Status:      resolveStatus(tags, rendered.Properties),
+		Type:        raw.Metadata["type"],
+		Tags:        tags,
+		Properties:  rendered.Properties,
+		Modified:    raw.Metadata["modified"],
+		Version:     raw.Metadata["version"],
+		Agent:       raw.Metadata["agent"],
+		User:        raw.Metadata["user"],
+		Meta:        otherMeta(raw.Metadata),
 	}
 	s.cachePut(docKey(world, path), doc)
 	return doc, nil

@@ -15,6 +15,7 @@ import (
 	"github.com/gohugoio/hugo-goldmark-extensions/passthrough"
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
 	"github.com/latebit-io/demarkus-library/internal/core/port"
+	"github.com/latebit-io/demarkus/protocol/mdoutline"
 	"github.com/microcosm-cc/bluemonday"
 	"github.com/yuin/goldmark"
 	emoji "github.com/yuin/goldmark-emoji"
@@ -80,6 +81,9 @@ var (
 	footnoteClasses = regexp.MustCompile(`^footnote-(?:ref|backref)$|^footnotes$`)
 	footnoteIDs     = regexp.MustCompile(`^fn(?:ref)?:\d+(?::\d+)?$`)
 	footnoteHrefs   = regexp.MustCompile(`^#fn(?:ref)?:\d+(?::\d+)?$`)
+	// Heading ids are protocol anchors (mdoutline.Slug): letters, digits,
+	// underscore, hyphen. Author-shaped, so no other element may carry one.
+	headingIDs = regexp.MustCompile(`^[\p{L}\p{N}_-]+$`)
 )
 
 // calloutClasses matches what gm-alert-callouts emits: the wrapper div
@@ -142,6 +146,7 @@ func NewRenderer() *Renderer {
 	// between text and foot.
 	policy.AllowAttrs("class").Matching(footnoteClasses).OnElements("a", "div")
 	policy.AllowAttrs("id").Matching(footnoteIDs).OnElements("sup", "li")
+	policy.AllowAttrs("id").Matching(headingIDs).OnElements("h1", "h2", "h3", "h4", "h5", "h6")
 	policy.AllowAttrs("href").Matching(footnoteHrefs).OnElements("a")
 	return &Renderer{
 		md: goldmark.New(goldmark.WithExtensions(
@@ -193,38 +198,78 @@ func (r *Renderer) Render(markdown string) (domain.Rendered, error) {
 	// before rendering: the reading-room pane renders the document title itself,
 	// so a body that opens with "# Title" would otherwise show two headers.
 	doc := r.md.Parser().Parse(text.NewReader(src))
-	title := stripLeadingH1(doc, src)
+	assignHeadingIDs(doc, body)
+	lifted := stripLeadingH1(doc, src)
 
 	var buf bytes.Buffer
 	if err := r.md.Renderer().Render(&buf, src, doc); err != nil {
 		return domain.Rendered{}, err
 	}
 	return domain.Rendered{
-		HTML:       r.policy.Sanitize(buf.String()),
-		Properties: parseFrontmatter(fence),
-		Title:      title,
+		HTML:        r.policy.Sanitize(buf.String()),
+		Properties:  parseFrontmatter(fence),
+		Title:       lifted.Text,
+		TitleAnchor: lifted.Anchor,
 	}, nil
 }
 
+// assignHeadingIDs gives each heading the anchor the protocol derives for it
+// (GitHub slug, -N dedupe), so a page #fragment and mark://…#anchor name the
+// same section. Runs before the H1 lift: the dedupe counts the title too.
+func assignHeadingIDs(doc ast.Node, body string) {
+	var headings []*ast.Heading
+	_ = ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+		if h, ok := n.(*ast.Heading); entering && ok && h.Lines().Len() > 0 {
+			headings = append(headings, h)
+		}
+		return ast.WalkContinue, nil
+	})
+	anchors := mdoutline.Anchors(body)
+	if len(anchors) != len(headings) {
+		return // the two parses disagree: no ids beats shifted ones
+	}
+	for i, h := range headings {
+		// A punctuation-only heading slugs to "" in the protocol too, so it has
+		// no address to copy; minting one here would not resolve in mark_fetch.
+		if anchors[i] != "" {
+			h.SetAttributeString("id", []byte(anchors[i]))
+		}
+	}
+}
+
+// liftedTitle is the leading H1 taken out of the body: its text, rendered
+// once by the pane, and its anchor, which that pane's <h1> keeps.
+type liftedTitle struct {
+	Text   string
+	Anchor string
+}
+
 // stripLeadingH1 removes the document's leading level-1 heading when it is the
-// very first block and returns its plain text — the document's title, rendered
-// once by the pane rather than duplicated in the body. Anything else (a leading
-// paragraph, an H2, no heading) leaves the tree untouched and returns "".
-func stripLeadingH1(doc ast.Node, src []byte) string {
+// very first block and returns it — the document's title, rendered once by the
+// pane rather than duplicated in the body. Anything else (a leading paragraph,
+// an H2, no heading) leaves the tree untouched and returns the zero value.
+func stripLeadingH1(doc ast.Node, src []byte) liftedTitle {
 	first := doc.FirstChild()
 	if first == nil {
-		return ""
+		return liftedTitle{}
 	}
 	h, ok := first.(*ast.Heading)
 	if !ok || h.Level != 1 {
-		return ""
+		return liftedTitle{}
 	}
 	title := headingText(h, src)
 	if title == "" {
-		return "" // an empty "# " is not a title; leave the (empty) heading be
+		return liftedTitle{} // an empty "# " is not a title; leave the (empty) heading be
 	}
+	anchor, _ := h.AttributeString("id")
 	doc.RemoveChild(doc, first)
-	return title
+	return liftedTitle{Text: title, Anchor: string(anchorBytes(anchor))}
+}
+
+// anchorBytes reads the id goldmark stored as []byte; nil when none was set.
+func anchorBytes(v any) []byte {
+	b, _ := v.([]byte)
+	return b
 }
 
 // headingText collects the plain text of a heading, including text inside

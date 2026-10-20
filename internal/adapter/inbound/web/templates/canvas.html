@@ -5,9 +5,9 @@
   <span class="spine-title">{{ .Title }}</span>
   {{- if .Gone }}<span class="status">gone</span>{{ end }}
 </a>{{else}}<section class="pane {{ .Mode }}">
-  <header class="pane-head"><a href="{{ .FocusURL }}"><code>{{ .World }}{{ .Path }}</code></a>{{if .HeadStatus}} <span class="status status-{{ .HeadStatus }}">{{ .HeadStatus }}</span>{{end}}{{if .ReaderURL}} <a class="reader-link" href="{{ .ReaderURL }}">reader</a>{{end}}{{if .MetaURL}} <a class="reader-link" href="{{ .MetaURL }}">meta</a>{{end}}{{if .AskURL}} <a class="reader-link ask-link" href="{{ .AskURL }}" title="Ask {{ librarian }} about this document">ask</a>{{end}}{{if .Librarian}}{{if .Librarian.Ask}}{{template "librarian-reset" .Librarian.Ask}}{{end}}{{end}}</header>
+  <header class="pane-head"><a href="{{ .FocusURL }}"><code>{{ .World }}{{ .Path }}</code></a>{{if .MarkURL}}{{template "copy-mark" .MarkURL}}{{end}}{{if .HeadStatus}} <span class="status status-{{ .HeadStatus }}">{{ .HeadStatus }}</span>{{end}}{{if .ReaderURL}} <a class="reader-link" href="{{ .ReaderURL }}">reader</a>{{end}}{{if .MetaURL}} <a class="reader-link" href="{{ .MetaURL }}">meta</a>{{end}}{{if .AskURL}} <a class="reader-link ask-link" href="{{ .AskURL }}" title="Ask {{ librarian }} about this document">ask</a>{{end}}{{if .Librarian}}{{if .Librarian.Ask}}{{template "librarian-reset" .Librarian.Ask}}{{end}}{{end}}</header>
   <div class="pane-cols">
-    <article class="doc-body">
+    <article class="doc-body"{{if .MarkURL}} data-mark="{{ .MarkURL }}"{{end}}>
       {{- if .Librarian }}
       {{template "librarian-body" .Librarian}}
       {{- else if .Floor }}
@@ -15,7 +15,7 @@
       <h1 class="sr-only">{{ .Title }}</h1>
       {{template "floor-body" .Floor}}
       {{- else }}
-      <h1>{{ .Title }}</h1>
+      <h1{{if .TitleAnchor}} id="{{ .TitleAnchor }}"{{end}}>{{ .Title }}</h1>
       {{ .Content }}
       {{- end }}
     </article>
@@ -182,8 +182,8 @@
   <div class="reader-panel" role="dialog" aria-modal="true" aria-label="Reader">
     <a class="reader-close" href="{{ .CloseURL }}" title="Close (Esc)" aria-label="Close reader">✕</a>
     <div class="pane-cols">
-      <article class="doc-body">
-        <h1>{{ .Reader.Title }}</h1>
+      <article class="doc-body"{{if .Reader.MarkURL}} data-mark="{{ .Reader.MarkURL }}"{{end}}>
+        <h1{{if .Reader.TitleAnchor}} id="{{ .Reader.TitleAnchor }}"{{end}}>{{ .Reader.Title }}</h1>
         {{ .Reader.Content }}
       </article>
       {{- if .Reader.HasMargin }}

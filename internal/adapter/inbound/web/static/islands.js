@@ -132,7 +132,83 @@
     renderMermaid(root);
     renderMath(root);
     hydrateMaps(root);
+    wakeCopy(root);
   }
+
+  // --- copy mark:// address (c) — #94 ----------------------------------
+  // Pane heads and edit meta lines carry the icon button, born hidden and
+  // woken here so JS off leaves plain text. Each heading of an article that
+  // names its address (data-mark) gets a clone copying mark://…#anchor.
+  function wakeCopy(root) {
+    if (!root.querySelectorAll) return;
+    root.querySelectorAll("button.copy-mark[hidden]").forEach(function (b) { b.hidden = false; });
+    var proto = document.getElementById("copy-mark-proto");
+    if (!proto) return;
+    root.querySelectorAll(".doc-body[data-mark] :is(h1, h2, h3, h4, h5, h6)[id]").forEach(function (h) {
+      if (h.querySelector(".copy-anchor")) return;
+      var b = proto.content.firstElementChild.cloneNode(true);
+      b.classList.add("copy-anchor");
+      b.hidden = false;
+      b.setAttribute("data-copy", h.closest("[data-mark]").getAttribute("data-mark") + "#" + h.id);
+      b.title = "Copy section address";
+      b.setAttribute("aria-label", "Copy section address");
+      h.appendChild(b);
+    });
+  }
+  function copyAddress(button) {
+    var text = button.getAttribute("data-copy") || "";
+    // The pane's own button carries a #fragment along when it lands in
+    // the same pane, so a pasted address opens on the section being read.
+    if (!button.classList.contains("copy-anchor")) {
+      var id = location.hash.slice(1), scope = button.closest(".pane, .reader-panel") || document;
+      try { id = decodeURIComponent(id); } catch (_) { /* malformed escape: match raw */ }
+      if (id && scope.querySelector("#" + CSS.escape(id))) text += location.hash;
+    }
+    function done(state) {
+      var label = button.querySelector(".copy-label");
+      if (label) label.textContent = state;
+      button.classList.toggle("copied", state === "copied");
+      clearTimeout(button._copied);
+      button._copied = setTimeout(function () {
+        button.classList.remove("copied");
+        if (label) label.textContent = "copy";
+      }, 1500);
+    }
+    // No secure context (plain http:// dev host): the legacy command copies
+    // a selection, so stage the text in a throwaway textarea.
+    function legacyCopy() {
+      var stage = document.createElement("textarea"), ok = false;
+      stage.value = text;
+      stage.setAttribute("readonly", "");
+      stage.style.position = "fixed";
+      stage.style.opacity = "0";
+      document.body.appendChild(stage);
+      stage.select();
+      try { ok = document.execCommand("copy"); } catch (_) { ok = false; }
+      stage.remove();
+      done(ok ? "copied" : "failed");
+    }
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).then(function () { done("copied"); }, legacyCopy);
+      return;
+    }
+    legacyCopy();
+  }
+  document.addEventListener("click", function (e) {
+    var b = e.target.closest && e.target.closest("button.copy-mark");
+    if (b) copyAddress(b);
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key !== "c" || e.ctrlKey || e.metaKey || e.altKey || typingIn(e)) return;
+    var p = palette();
+    if ((p && !p.hidden) || openOverlay()) return;
+    var b = document.querySelector(".reader-backdrop button.copy-mark:not(.copy-anchor)") ||
+      document.querySelector(".pane.focused button.copy-mark:not(.copy-anchor)") ||
+      document.querySelector("button.copy-mark:not(.copy-anchor)");
+    if (!b) return;
+    e.preventDefault();
+    copyAddress(b);
+  });
 
   // --- trail canvas ------------------------------------------------------
   // The one piece of JS the trail engine needs (ADR 0005): new panes open

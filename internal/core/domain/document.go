@@ -148,6 +148,9 @@ type Rendered struct {
 	// HTML so the reading-room pane (which renders the document title itself)
 	// does not show it twice. Empty when the body does not start with an H1.
 	Title string
+	// TitleAnchor is the lifted H1's protocol anchor, so the pane's own <h1>
+	// can still be the #fragment target. Empty when nothing was lifted.
+	TitleAnchor string
 }
 
 // Ref is a knowledge-graph coordinate: a document addressed by (world, path).
@@ -335,10 +338,11 @@ type IndexEntry struct {
 // frontmatter. Listings and catalog views leave them zero — an empty margin
 // is correct.
 type Document struct {
-	Title  string
-	Source string
-	Path   string
-	HTML   string
+	Title       string
+	TitleAnchor string // the lifted H1's anchor (see Rendered.TitleAnchor)
+	Source      string
+	Path        string
+	HTML        string
 
 	Status     string // status vocabulary: draft | wip | accepted | archived
 	Type       string // OKF document kind (the OKF-native `type` field); empty ⇒ untyped

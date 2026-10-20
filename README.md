@@ -91,8 +91,10 @@ interaction layer (returning server-rendered fragments); there is no JSON API
 and no client-side state. All assets are vendored and served from the binary —
 no CDN: htmx + its SSE extension, and the two rendering islands (mermaid,
 KaTeX), which lazy-load only when a page contains something to render and
-degrade to readable source without JS. Each island is recorded as a concession
-in ADR 0003.
+degrade to readable source without JS. A third, smaller concession copies a
+document's `mark://` address (and a heading's `#anchor`) to the clipboard, a
+thing no server can do; without JS the address is plain selectable text. Each
+island is recorded as a concession in ADR 0003.
 
 ## Run
 
