@@ -228,7 +228,11 @@ func assignHeadingIDs(doc ast.Node, body string) {
 		return // the two parses disagree: no ids beats shifted ones
 	}
 	for i, h := range headings {
-		h.SetAttributeString("id", []byte(anchors[i]))
+		// A punctuation-only heading slugs to "" in the protocol too, so it has
+		// no address to copy; minting one here would not resolve in mark_fetch.
+		if anchors[i] != "" {
+			h.SetAttributeString("id", []byte(anchors[i]))
+		}
 	}
 }
 

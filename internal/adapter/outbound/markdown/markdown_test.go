@@ -247,6 +247,14 @@ func TestRenderHeadingAnchors(t *testing.T) {
 	}
 }
 
+func TestRenderPunctuationHeadingHasNoAnchor(t *testing.T) {
+	// The protocol slugs "!!!" to nothing, so the page mints no id either: an
+	// id the protocol cannot resolve would copy a dead mark:// address.
+	if html := render(t, "## !!!"); strings.Contains(html, "id=") {
+		t.Errorf("punctuation-only heading got an id: %q", html)
+	}
+}
+
 func TestRenderStripsAuthoredSidenoteIDs(t *testing.T) {
 	// The sidenote/footnote allowances must not open DOM clobbering: only
 	// fn-shaped ids pass, and only on the elements goldmark emits them on.
