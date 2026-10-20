@@ -144,7 +144,7 @@
     root.querySelectorAll("button.copy-mark[hidden]").forEach(function (b) { b.hidden = false; });
     var proto = document.getElementById("copy-mark-proto");
     if (!proto) return;
-    root.querySelectorAll(".doc-body[data-mark] :is(h2, h3, h4, h5, h6)[id]").forEach(function (h) {
+    root.querySelectorAll(".doc-body[data-mark] :is(h1, h2, h3, h4, h5, h6)[id]").forEach(function (h) {
       if (h.querySelector(".copy-anchor")) return;
       var b = proto.content.firstElementChild.cloneNode(true);
       b.classList.add("copy-anchor");
@@ -160,7 +160,7 @@
     // The pane's own button carries a #fragment along when it lands in
     // the same pane, so a pasted address opens on the section being read.
     if (!button.classList.contains("copy-anchor")) {
-      var id = location.hash.slice(1), scope = button.closest(".pane") || document;
+      var id = location.hash.slice(1), scope = button.closest(".pane, .reader-panel") || document;
       try { id = decodeURIComponent(id); } catch (_) { /* malformed escape: match raw */ }
       if (id && scope.querySelector("#" + CSS.escape(id))) text += location.hash;
     }

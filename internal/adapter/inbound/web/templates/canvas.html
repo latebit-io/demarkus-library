@@ -15,7 +15,7 @@
       <h1 class="sr-only">{{ .Title }}</h1>
       {{template "floor-body" .Floor}}
       {{- else }}
-      <h1>{{ .Title }}</h1>
+      <h1{{if .TitleAnchor}} id="{{ .TitleAnchor }}"{{end}}>{{ .Title }}</h1>
       {{ .Content }}
       {{- end }}
     </article>
@@ -183,7 +183,7 @@
     <a class="reader-close" href="{{ .CloseURL }}" title="Close (Esc)" aria-label="Close reader">✕</a>
     <div class="pane-cols">
       <article class="doc-body"{{if .Reader.MarkURL}} data-mark="{{ .Reader.MarkURL }}"{{end}}>
-        <h1>{{ .Reader.Title }}</h1>
+        <h1{{if .Reader.TitleAnchor}} id="{{ .Reader.TitleAnchor }}"{{end}}>{{ .Reader.Title }}</h1>
         {{ .Reader.Content }}
       </article>
       {{- if .Reader.HasMargin }}

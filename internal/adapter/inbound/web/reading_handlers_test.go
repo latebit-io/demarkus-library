@@ -638,21 +638,28 @@ func TestWantsFragmentDistinguishesTargetedSwaps(t *testing.T) {
 // escape row carries the copy button instead (#94).
 func TestEscapeRowCopiesWhereNoPaneHead(t *testing.T) {
 	svc := &fakeReading{docs: map[string]domain.Document{
-		"/x.md": {Title: "X", Path: "/x.md", HTML: "<p>x</p>"},
+		"/x.md": {Title: "X", TitleAnchor: "x", Path: "/x.md", HTML: "<p>x</p>"},
 	}}
 	app := readingApp(t, svc)
 	want := `<code>mark://w.io/x.md</code><button type="button" class="copy-mark" data-copy="mark://w.io/x.md"`
+	// The lifted H1's anchor lands on the rendered title, so #x has a target.
+	wantTitle := `<h1 id="x">X</h1>`
 
 	req := httptest.NewRequest(http.MethodGet, "/w/w.io/d/x.md", http.NoBody)
 	req.Header.Set("HX-Request", "true")
 	rec := httptest.NewRecorder()
 	app.ServeHTTP(rec, req)
-	if !strings.Contains(rec.Body.String(), want) {
-		t.Errorf("permalink fragment escape row missing %q", want)
+	for _, w := range []string{want, wantTitle} {
+		if !strings.Contains(rec.Body.String(), w) {
+			t.Errorf("permalink fragment missing %q", w)
+		}
 	}
 
 	body := get(app, "/t/w.io/d/x.md?reader=0").Body.String()
 	if !strings.Contains(body, want) {
 		t.Errorf("reader overlay escape row missing %q", want)
+	}
+	if n := strings.Count(body, wantTitle); n != 2 { // the canvas pane and the reader overlay
+		t.Errorf("anchored title appears %d times, want 2", n)
 	}
 }

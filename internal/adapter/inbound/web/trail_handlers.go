@@ -67,11 +67,12 @@ type paneVM struct {
 	FocusURL string // spine/header click: same path, focus moves here
 	Gone     bool   // unfocused pane whose document no longer reads
 
-	Title     string
-	World     string
-	WorldPath string
-	Path      string
-	Content   template.HTML
+	Title       string
+	TitleAnchor string // the lifted H1's anchor: the pane's <h1> is the #fragment target
+	World       string
+	WorldPath   string
+	Path        string
+	Content     template.HTML
 
 	HasMargin   bool // focused document pane: render the trust signals
 	Status      string
@@ -378,14 +379,15 @@ func (h *ReadingHandler) paneView(ctx context.Context, req *paneRequest) paneVM 
 	}
 
 	vm := paneVM{
-		Mode:      mode,
-		Kind:      addr.Kind,
-		FocusURL:  trailURL(trailFocused(trailState, paneIndex)),
-		Title:     doc.Title,
-		World:     addr.World,
-		WorldPath: url.PathEscape(addr.World),
-		Path:      doc.Path,
-		Status:    doc.Status,
+		Mode:        mode,
+		Kind:        addr.Kind,
+		FocusURL:    trailURL(trailFocused(trailState, paneIndex)),
+		Title:       doc.Title,
+		TitleAnchor: doc.TitleAnchor,
+		World:       addr.World,
+		WorldPath:   url.PathEscape(addr.World),
+		Path:        doc.Path,
+		Status:      doc.Status,
 	}
 	if overlay == "" {
 		h.headAffordances(&vm, req)

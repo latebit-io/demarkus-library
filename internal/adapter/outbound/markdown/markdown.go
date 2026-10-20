@@ -199,16 +199,17 @@ func (r *Renderer) Render(markdown string) (domain.Rendered, error) {
 	// so a body that opens with "# Title" would otherwise show two headers.
 	doc := r.md.Parser().Parse(text.NewReader(src))
 	assignHeadingIDs(doc, body)
-	title := stripLeadingH1(doc, src)
+	lifted := stripLeadingH1(doc, src)
 
 	var buf bytes.Buffer
 	if err := r.md.Renderer().Render(&buf, src, doc); err != nil {
 		return domain.Rendered{}, err
 	}
 	return domain.Rendered{
-		HTML:       r.policy.Sanitize(buf.String()),
-		Properties: parseFrontmatter(fence),
-		Title:      title,
+		HTML:        r.policy.Sanitize(buf.String()),
+		Properties:  parseFrontmatter(fence),
+		Title:       lifted.Text,
+		TitleAnchor: lifted.Anchor,
 	}, nil
 }
 
@@ -236,25 +237,39 @@ func assignHeadingIDs(doc ast.Node, body string) {
 	}
 }
 
+// liftedTitle is the leading H1 taken out of the body: its text, rendered
+// once by the pane, and its anchor, which that pane's <h1> keeps.
+type liftedTitle struct {
+	Text   string
+	Anchor string
+}
+
 // stripLeadingH1 removes the document's leading level-1 heading when it is the
-// very first block and returns its plain text — the document's title, rendered
-// once by the pane rather than duplicated in the body. Anything else (a leading
-// paragraph, an H2, no heading) leaves the tree untouched and returns "".
-func stripLeadingH1(doc ast.Node, src []byte) string {
+// very first block and returns it — the document's title, rendered once by the
+// pane rather than duplicated in the body. Anything else (a leading paragraph,
+// an H2, no heading) leaves the tree untouched and returns the zero value.
+func stripLeadingH1(doc ast.Node, src []byte) liftedTitle {
 	first := doc.FirstChild()
 	if first == nil {
-		return ""
+		return liftedTitle{}
 	}
 	h, ok := first.(*ast.Heading)
 	if !ok || h.Level != 1 {
-		return ""
+		return liftedTitle{}
 	}
 	title := headingText(h, src)
 	if title == "" {
-		return "" // an empty "# " is not a title; leave the (empty) heading be
+		return liftedTitle{} // an empty "# " is not a title; leave the (empty) heading be
 	}
+	anchor, _ := h.AttributeString("id")
 	doc.RemoveChild(doc, first)
-	return title
+	return liftedTitle{Text: title, Anchor: string(anchorBytes(anchor))}
+}
+
+// anchorBytes reads the id goldmark stored as []byte; nil when none was set.
+func anchorBytes(v any) []byte {
+	b, _ := v.([]byte)
+	return b
 }
 
 // headingText collects the plain text of a heading, including text inside

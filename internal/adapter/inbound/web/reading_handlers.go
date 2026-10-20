@@ -64,13 +64,14 @@ type tagLink struct {
 
 // page is the view model shared by the "page" layout and the "content" partial.
 type page struct {
-	navChrome // the shared nav (chrome.go)
-	Title     string
-	Host      string
-	Path      string
-	Content   template.HTML // sanitized by the markdown adapter, links rewritten here
-	World     string        // current world (display)
-	WorldPath string        // current world, path-escaped for URL building
+	navChrome   // the shared nav (chrome.go)
+	Title       string
+	TitleAnchor string // the lifted H1's anchor: the <h1> is the #fragment target
+	Host        string
+	Path        string
+	Content     template.HTML // sanitized by the markdown adapter, links rewritten here
+	World       string        // current world (display)
+	WorldPath   string        // current world, path-escaped for URL building
 
 	// The margin (documents only — listings and catalog views render
 	// without one; an empty margin is correct, ADR 0005 decision 8).
@@ -267,13 +268,14 @@ func (h *ReadingHandler) present(c *echo.Context, doc domain.Document, err error
 	// The librarian door is the bare entrance here: only the standalone
 	// surfaces reach this nav, and they have no trail for it to carry.
 	vm := page{
-		navChrome: h.chrome.build(c),
-		Title:     doc.Title,
-		Host:      doc.Source,
-		Path:      doc.Path,
-		Content:   template.HTML(content), //nolint:gosec // sanitized in the markdown adapter; rewriteLinks/linkify only edit links
-		World:     opts.world,
-		WorldPath: url.PathEscape(opts.world),
+		navChrome:   h.chrome.build(c),
+		Title:       doc.Title,
+		TitleAnchor: doc.TitleAnchor,
+		Host:        doc.Source,
+		Path:        doc.Path,
+		Content:     template.HTML(content), //nolint:gosec // sanitized in the markdown adapter; rewriteLinks/linkify only edit links
+		World:       opts.world,
+		WorldPath:   url.PathEscape(opts.world),
 	}
 	if opts.doc {
 		vm.IsDoc = true

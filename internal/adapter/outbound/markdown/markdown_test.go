@@ -247,6 +247,21 @@ func TestRenderHeadingAnchors(t *testing.T) {
 	}
 }
 
+func TestRenderLiftedTitleKeepsAnchor(t *testing.T) {
+	// The lifted H1 leaves the body, but its anchor rides along so the pane's
+	// own <h1> can be the target of mark://…#notes.
+	out, err := NewRenderer().Render("# Notes\n\n## Notes")
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if out.TitleAnchor != "notes" {
+		t.Errorf("TitleAnchor = %q, want notes", out.TitleAnchor)
+	}
+	if !strings.Contains(out.HTML, `<h2 id="notes-1">`) {
+		t.Errorf("body heading should keep the deduped anchor: %q", out.HTML)
+	}
+}
+
 func TestRenderPunctuationHeadingHasNoAnchor(t *testing.T) {
 	// The protocol slugs "!!!" to nothing, so the page mints no id either: an
 	// id the protocol cannot resolve would copy a dead mark:// address.

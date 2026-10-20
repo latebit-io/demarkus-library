@@ -102,7 +102,7 @@
 
 {{define "content"}}{{if .IsDoc}}<div class="doc-pane">
   <article class="doc-body"{{if .MarkURL}} data-mark="{{ .MarkURL }}"{{end}}>
-    <h1>{{ .Title }}</h1>
+    <h1{{if .TitleAnchor}} id="{{ .TitleAnchor }}"{{end}}>{{ .Title }}</h1>
     {{ .Content }}
   </article>
   <aside class="doc-margin">
