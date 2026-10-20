@@ -89,6 +89,7 @@ type page struct {
 	Writer      string            // demarkus provenance: the user key; User is the session identity
 	Meta        []domain.Property // every other out-of-band metadata key, sorted (importance, etag, …)
 	MarkURL     string            // canonical protocol address — the escape hatch (decision 12)
+	EscapeCopy  bool              // the permalink has no pane head, so the escape row carries the copy button
 	ReaderURL   string            // unused on the single-doc permalink (reader mode is a trail lens); kept so doc-meta renders for both VMs
 	GraphURL    string            // margin affordance: open this doc's graph neighborhood (empty ⇒ no references)
 	GraphDegree int               // reference edges the graph affordance advertises
@@ -286,6 +287,7 @@ func (h *ReadingHandler) present(c *echo.Context, doc domain.Document, err error
 		vm.Writer = doc.User
 		vm.Meta = doc.Meta
 		vm.MarkURL = markURL(opts.world, doc.Path)
+		vm.EscapeCopy = true
 		// The single-doc permalink view is not a trail, so its backlinks and
 		// graph affordance point at /w/ permalinks rather than trail URLs.
 		// Gated on real references, like the canvas margin: no graph affordance

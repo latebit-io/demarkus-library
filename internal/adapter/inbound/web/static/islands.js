@@ -202,7 +202,8 @@
     if (e.key !== "c" || e.ctrlKey || e.metaKey || e.altKey || typingIn(e)) return;
     var p = palette();
     if ((p && !p.hidden) || openOverlay()) return;
-    var b = document.querySelector(".pane.focused button.copy-mark:not(.copy-anchor)") ||
+    var b = document.querySelector(".reader-backdrop button.copy-mark:not(.copy-anchor)") ||
+      document.querySelector(".pane.focused button.copy-mark:not(.copy-anchor)") ||
       document.querySelector("button.copy-mark:not(.copy-anchor)");
     if (!b) return;
     e.preventDefault();

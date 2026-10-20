@@ -64,7 +64,7 @@
       </div>
       {{- end }}
       <div class="escape">
-        <code>{{ .MarkURL }}</code>
+        <code>{{ .MarkURL }}</code>{{if .EscapeCopy}}{{template "copy-mark" .MarkURL}}{{end}}
         <a href="/w/{{ .WorldPath }}/raw{{ .Path }}">source</a>
         · <a href="/w/{{ .WorldPath }}/versions{{ .Path }}">editions</a>
         {{- if .ReaderURL }} · <a href="{{ .ReaderURL }}">reader</a>{{ end }}

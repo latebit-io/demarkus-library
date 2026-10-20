@@ -400,6 +400,8 @@ func TestDocRendersMargin(t *testing.T) {
 		// wakes it, so JS off leaves the address plain text. The article names
 		// its address so heading clones can compose mark://…#anchor.
 		`<article class="doc-body" data-mark="mark://soul.demarkus.io/adr/0007.md">`,
+		// The pane head carries the button, so the escape row stays plain.
+		"<code>mark://soul.demarkus.io/adr/0007.md</code>\n",
 		`<code>soul.demarkus.io/adr/0007.md</code></a><button type="button" class="copy-mark" data-copy="mark://soul.demarkus.io/adr/0007.md" title="Copy mark:// address (c)" aria-label="Copy mark:// address" hidden>`,
 		`href="/w/soul.demarkus.io/raw/adr/0007.md"`,
 		`href="/w/soul.demarkus.io/versions/adr/0007.md"`,
@@ -629,5 +631,28 @@ func TestWantsFragmentDistinguishesTargetedSwaps(t *testing.T) {
 				t.Errorf("wantsFragment = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+// Where no pane head exists (the permalink fragment, the reader overlay) the
+// escape row carries the copy button instead (#94).
+func TestEscapeRowCopiesWhereNoPaneHead(t *testing.T) {
+	svc := &fakeReading{docs: map[string]domain.Document{
+		"/x.md": {Title: "X", Path: "/x.md", HTML: "<p>x</p>"},
+	}}
+	app := readingApp(t, svc)
+	want := `<code>mark://w.io/x.md</code><button type="button" class="copy-mark" data-copy="mark://w.io/x.md"`
+
+	req := httptest.NewRequest(http.MethodGet, "/w/w.io/d/x.md", http.NoBody)
+	req.Header.Set("HX-Request", "true")
+	rec := httptest.NewRecorder()
+	app.ServeHTTP(rec, req)
+	if !strings.Contains(rec.Body.String(), want) {
+		t.Errorf("permalink fragment escape row missing %q", want)
+	}
+
+	body := get(app, "/t/w.io/d/x.md?reader=0").Body.String()
+	if !strings.Contains(body, want) {
+		t.Errorf("reader overlay escape row missing %q", want)
 	}
 }
