@@ -7,13 +7,13 @@
     <div class="edit-pane">
       <header class="doc">
         {{- if .Create }}
-        <div class="meta"><code>mark://{{ .World }}/</code>{{template "copy-mark" (printf "mark://%s/" .World)}} · new document</div>
+        <div class="meta"><code>{{ .MarkURL }}</code>{{template "copy-mark" .MarkURL}} · new document</div>
         <h1>New document in {{ .World }}</h1>
         {{- else if .Append }}
-        <div class="meta"><code>mark://{{ .World }}{{ .Path }}</code>{{template "copy-mark" (printf "mark://%s%s" .World .Path)}} · append</div>
+        <div class="meta"><code>{{ .MarkURL }}</code>{{template "copy-mark" .MarkURL}} · append</div>
         <h1>Append to {{ .Path }}</h1>
         {{- else }}
-        <div class="meta"><code>mark://{{ .World }}{{ .Path }}</code>{{template "copy-mark" (printf "mark://%s%s" .World .Path)}} · edition {{ .Version }}</div>
+        <div class="meta"><code>{{ .MarkURL }}</code>{{template "copy-mark" .MarkURL}} · edition {{ .Version }}</div>
         <h1>Edit {{ .Path }}</h1>
         {{- end }}
       </header>

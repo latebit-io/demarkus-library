@@ -66,7 +66,7 @@ func (h *ReadingHandler) Preview(c *echo.Context) error {
 		World:   world,
 		Path:    doc.Path,
 		Snippet: previewSnippet(doc.HTML),
-		MarkURL: "mark://" + world + doc.Path,
+		MarkURL: markURL(world, doc.Path),
 		DocURL:  docRoute(world, doc.Path),
 	})
 }

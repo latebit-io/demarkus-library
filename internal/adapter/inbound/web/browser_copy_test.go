@@ -8,10 +8,9 @@ import (
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
 )
 
-// The copy affordance (#94): `c` and the pane-head icon put the pane's
-// mark:// address on the clipboard, a same-pane #fragment rides along, and
-// the icon cloned onto a heading copies that section's anchor. The async
-// clipboard is stubbed; headless Chrome has no clipboard to inspect.
+// The copy affordance (#94): `c` and the pane-head icon copy the pane's
+// address, a same-pane #fragment rides along, a heading's clone copies its
+// anchor. navigator.clipboard is stubbed: headless Chrome exposes none.
 func TestBrowserCopyMarkAddress(t *testing.T) {
 	svc := &fakeReading{
 		docs: map[string]domain.Document{

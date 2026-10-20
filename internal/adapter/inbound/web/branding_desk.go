@@ -59,6 +59,9 @@ type brandingVM struct {
 	CancelURL             string
 }
 
+// MarkURL is the branding folder's address, named on the desk's meta line.
+func (v *brandingVM) MarkURL() string { return markURL(v.World, "/.well-known/library/") }
+
 // tokenField is one design-token input on the desk: the token an operator
 // may set without writing CSS, its stored value, and an example.
 type tokenField struct {
@@ -102,7 +105,7 @@ func (h *BrandingHandler) BrandingForm(c *echo.Context) error {
 	if c.QueryParam("saved") == "1" {
 		vm.Notice = "Saved. Readers see the new identity on their next page."
 	}
-	return c.Render(http.StatusOK, "branding", vm)
+	return c.Render(http.StatusOK, "branding", &vm)
 }
 
 func (h *BrandingHandler) brandingVM(c *echo.Context, world string) brandingVM {
@@ -147,7 +150,7 @@ func (h *BrandingHandler) SaveBranding(c *echo.Context) error {
 		vm := h.brandingVM(c, world)
 		form.restore(&vm)
 		vm.Error = err.Error()
-		return c.Render(http.StatusBadRequest, "branding", vm)
+		return c.Render(http.StatusBadRequest, "branding", &vm)
 	}
 	docs := brandingDocs(form)
 
@@ -279,7 +282,7 @@ func (h *BrandingHandler) renderPartialSave(c *echo.Context, failed brandDoc, sa
 		failed.restore(&vm)
 	}
 	vm.Error = msg
-	return c.Render(editErrorStatus(err), "branding", vm)
+	return c.Render(editErrorStatus(err), "branding", &vm)
 }
 
 // publishBrandDoc writes a generated document at its current version. A merge

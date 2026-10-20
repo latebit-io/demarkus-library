@@ -128,15 +128,18 @@ ul.tags a { color: var(--muted); }
                     color: var(--muted); }
 .doc-meta .escape code { font-size: .7rem; display: block; overflow-wrap: anywhere;
                          margin-bottom: .25rem; }
-/* The copy icon (#94) follows an address in a pane head or edit meta line;
-   a clone trails each body heading and surfaces on hover or focus (always,
-   faintly, without hover). Born hidden until islands.js wakes it. */
-button.copy-mark { display: inline-flex; vertical-align: middle; margin-left: .35rem;
-      padding: .15rem; border: 0; border-radius: 3px; background: transparent;
-      color: var(--muted); cursor: pointer; line-height: 0; }
+/* The bare icon button: the librarian's start-over and the copy icon (#94).
+   The copy icon follows an address in a pane head or edit meta line; a clone
+   trails each body heading and surfaces on hover or focus (always, faintly,
+   without hover). Born hidden until islands.js wakes it. */
+.ask-reset button, button.copy-mark { padding: .15rem; border: 0; background: transparent;
+      color: inherit; cursor: pointer; line-height: 0; border-radius: 3px; }
+.ask-reset button:hover, .ask-reset button:focus-visible,
+button.copy-mark:hover, button.copy-mark:focus-visible { color: var(--ink); background: var(--wash); }
+button.copy-mark { display: inline-flex; vertical-align: middle; margin-left: .35rem; color: var(--muted); }
+button.copy-mark[hidden] { display: none; } /* inline-flex would override the UA's [hidden] */
 button.copy-mark svg { width: .95rem; height: .95rem; fill: none; stroke: currentColor;
       stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
-button.copy-mark:hover, button.copy-mark:focus-visible { color: var(--ink); background: var(--wash); }
 button.copy-mark .copied-icon, button.copy-mark.copied .copy-icon { display: none; }
 button.copy-mark.copied .copied-icon { display: block; }
 .copy-anchor { opacity: 0; transition: opacity .12s; }
@@ -920,9 +923,6 @@ body.canvas-page { padding-bottom: 4.5rem; }
    in the head's own ink; the negative margin keeps the icon from growing
    the head. */
 .ask-reset { float: right; margin: -.3rem 0 -.3rem .5rem; line-height: 0; }
-.ask-reset button { padding: .15rem; border: 0; background: transparent; color: inherit;
-        cursor: pointer; line-height: 0; border-radius: 3px; }
-.ask-reset button:hover, .ask-reset button:focus-visible { color: var(--ink); background: var(--wash); }
 .ask-starters button {
         font: inherit; font-family: var(--font-ui); font-size: .78rem; color: var(--muted);
         background: transparent; border: 1px solid var(--rule); border-radius: 3px;

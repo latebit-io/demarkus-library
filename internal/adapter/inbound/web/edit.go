@@ -60,6 +60,15 @@ type editVM struct {
 	CancelURL  string // cancel target: back onto the trail, or the standalone page
 }
 
+// MarkURL is the address the meta line names and its copy button carries;
+// a new document has only its world to name yet.
+func (v *editVM) MarkURL() string {
+	if v.Create {
+		return markURL(v.World, "/")
+	}
+	return markURL(v.World, v.Path)
+}
+
 // returnTrail parses the trail context carried through the edit flow (the
 // `trail` + `tpane` params the canvas mints on its edit affordances, echoed
 // back as hidden form fields). ok=false when absent or malformed — the flow

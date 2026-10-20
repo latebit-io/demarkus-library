@@ -137,23 +137,19 @@
 
   // --- copy mark:// address (c) — #94 ----------------------------------
   // Pane heads and edit meta lines carry the icon button, born hidden and
-  // woken here so JS off leaves plain text. Each body heading gets a clone
-  // that copies mark://…#anchor; the ids come from the markdown adapter.
+  // woken here so JS off leaves plain text. Each heading of an article that
+  // names its address (data-mark) gets a clone copying mark://…#anchor.
   function wakeCopy(root) {
     if (!root.querySelectorAll) return;
     root.querySelectorAll("button.copy-mark[hidden]").forEach(function (b) { b.hidden = false; });
-    root.querySelectorAll(".doc-body :is(h2, h3, h4, h5, h6)[id]").forEach(function (h) {
+    var proto = document.getElementById("copy-mark-proto");
+    if (!proto) return;
+    root.querySelectorAll(".doc-body[data-mark] :is(h2, h3, h4, h5, h6)[id]").forEach(function (h) {
       if (h.querySelector(".copy-anchor")) return;
-      var scope = h.closest(".pane, .reader-panel") || document;
-      var own = scope.querySelector("button.copy-mark:not(.copy-anchor)");
-      var code = scope.querySelector(".escape code.mark-url");
-      var addr = own ? own.getAttribute("data-copy") : code && code.textContent.trim();
-      var proto = own || document.querySelector("button.copy-mark:not(.copy-anchor)");
-      if (!addr || !proto) return;
-      var b = proto.cloneNode(true);
+      var b = proto.content.firstElementChild.cloneNode(true);
       b.classList.add("copy-anchor");
       b.hidden = false;
-      b.setAttribute("data-copy", addr + "#" + h.id);
+      b.setAttribute("data-copy", h.closest("[data-mark]").getAttribute("data-mark") + "#" + h.id);
       b.title = "Copy section address";
       b.setAttribute("aria-label", "Copy section address");
       h.appendChild(b);
@@ -165,6 +161,7 @@
     // the same pane, so a pasted address opens on the section being read.
     if (!button.classList.contains("copy-anchor")) {
       var id = location.hash.slice(1), scope = button.closest(".pane") || document;
+      try { id = decodeURIComponent(id); } catch (_) { /* malformed escape: match raw */ }
       if (id && scope.querySelector("#" + CSS.escape(id))) text += location.hash;
     }
     function done(state) {
@@ -178,8 +175,7 @@
       }, 1500);
     }
     // No secure context (plain http:// dev host): the legacy command copies
-    // a selection, so stage the text in a throwaway textarea; failing that,
-    // leave the on-screen address selected for a manual copy.
+    // a selection, so stage the text in a throwaway textarea.
     function legacyCopy() {
       var stage = document.createElement("textarea"), ok = false;
       stage.value = text;
@@ -190,15 +186,7 @@
       stage.select();
       try { ok = document.execCommand("copy"); } catch (_) { ok = false; }
       stage.remove();
-      if (ok) { done("copied"); return; }
-      var code = button.parentNode.querySelector("code");
-      if (!code) { done("failed"); return; }
-      var range = document.createRange();
-      range.selectNodeContents(code);
-      var sel = window.getSelection();
-      sel.removeAllRanges();
-      sel.addRange(range);
-      done("selected");
+      done(ok ? "copied" : "failed");
     }
     if (navigator.clipboard && window.isSecureContext) {
       navigator.clipboard.writeText(text).then(function () { done("copied"); }, legacyCopy);

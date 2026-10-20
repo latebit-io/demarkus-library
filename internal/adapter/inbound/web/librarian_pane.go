@@ -303,7 +303,7 @@ func (h librarianPanes) paneContextLabel(ctx context.Context, p paneAddr) string
 	case paneTag:
 		return "tag page #" + p.Value + " in world " + p.World
 	default:
-		label := "mark://" + p.World + p.Value
+		label := markURL(p.World, p.Value)
 		if doc, err := h.reader.OpenCached(ctx, p.World, p.Value); err == nil && doc.Title != "" {
 			label += " — " + strconv.Quote(neutralizeContextTags(doc.Title))
 		}

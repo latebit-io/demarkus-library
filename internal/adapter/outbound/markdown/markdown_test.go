@@ -230,13 +230,20 @@ func TestRenderStripsNonChromaClasses(t *testing.T) {
 }
 
 func TestRenderHeadingAnchors(t *testing.T) {
-	// Ids are the protocol's anchors, deduped over the whole body including
-	// the lifted H1, so mark://…#key-facts-1 and the page fragment agree.
-	html := render(t, "# Title\n\n## Key Facts\n\n## Key Facts\n\n### The `kit` API")
-	for _, want := range []string{`<h2 id="key-facts">`, `<h2 id="key-facts-1">`, `<h3 id="the-kit-api">`} {
-		if !strings.Contains(html, want) {
-			t.Errorf("missing %q in %q", want, html)
-		}
+	// Ids are the protocol's anchors (mdoutline), so mark://…#anchor and the
+	// page fragment agree; the dedupe counts the lifted H1 like the protocol.
+	tests := []struct{ name, src, want string }{
+		{name: "slug", src: "## Key Facts", want: `<h2 id="key-facts">`},
+		{name: "duplicate suffixed", src: "## Notes\n\n## Notes", want: `<h2 id="notes-1">`},
+		{name: "inline code slugged", src: "### The `kit` API", want: `<h3 id="the-kit-api">`},
+		{name: "lifted title counts", src: "# Notes\n\n## Notes", want: `<h2 id="notes-1">`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if html := render(t, tt.src); !strings.Contains(html, tt.want) {
+				t.Errorf("missing %q in %q", tt.want, html)
+			}
+		})
 	}
 }
 

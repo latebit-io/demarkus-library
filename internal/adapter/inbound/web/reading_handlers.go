@@ -285,7 +285,7 @@ func (h *ReadingHandler) present(c *echo.Context, doc domain.Document, err error
 		vm.Agent = doc.Agent
 		vm.Writer = doc.User
 		vm.Meta = doc.Meta
-		vm.MarkURL = "mark://" + opts.world + doc.Path
+		vm.MarkURL = markURL(opts.world, doc.Path)
 		// The single-doc permalink view is not a trail, so its backlinks and
 		// graph affordance point at /w/ permalinks rather than trail URLs.
 		// Gated on real references, like the canvas margin: no graph affordance

@@ -216,19 +216,20 @@ func (r *Renderer) Render(markdown string) (domain.Rendered, error) {
 // (GitHub slug, -N dedupe), so a page #fragment and mark://…#anchor name the
 // same section. Runs before the H1 lift: the dedupe counts the title too.
 func assignHeadingIDs(doc ast.Node, body string) {
-	anchors := mdoutline.Headings(body)
-	next := 0
+	var headings []*ast.Heading
 	_ = ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
-		h, ok := n.(*ast.Heading)
-		if !entering || !ok || h.Lines().Len() == 0 {
-			return ast.WalkContinue, nil
+		if h, ok := n.(*ast.Heading); entering && ok && h.Lines().Len() > 0 {
+			headings = append(headings, h)
 		}
-		if next < len(anchors) {
-			h.SetAttributeString("id", []byte(anchors[next].Anchor))
-		}
-		next++
 		return ast.WalkContinue, nil
 	})
+	anchors := mdoutline.Anchors(body)
+	if len(anchors) != len(headings) {
+		return // the two parses disagree: no ids beats shifted ones
+	}
+	for i, h := range headings {
+		h.SetAttributeString("id", []byte(anchors[i]))
+	}
 }
 
 // stripLeadingH1 removes the document's leading level-1 heading when it is the
