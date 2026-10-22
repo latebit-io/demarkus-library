@@ -79,6 +79,9 @@ type Config struct {
 	HistoryExchanges int
 	// AsksPerHour caps each conversation's asks (default defaultAsksPerHour).
 	AsksPerHour int
+	// RateLimitRetries is how many times a throttled model call is retried
+	// with backoff (default defaultRateLimitRetries).
+	RateLimitRetries int
 }
 
 // Librarian implements port.Librarian on a per-conversation nib agent.
@@ -118,9 +121,11 @@ func New(cfg Config) (*Librarian, error) {
 	cfg.MaxConversations = positiveOr(cfg.MaxConversations, defaultMaxConversations)
 	cfg.HistoryExchanges = positiveOr(cfg.HistoryExchanges, defaultHistoryExchanges)
 	cfg.AsksPerHour = positiveOr(cfg.AsksPerHour, defaultAsksPerHour)
+	cfg.RateLimitRetries = positiveOr(cfg.RateLimitRetries, defaultRateLimitRetries)
 	if cfg.Logger == nil {
 		cfg.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
+	cfg.Provider = newRetryingProvider(cfg.Provider, cfg.RateLimitRetries, cfg.Logger)
 
 	tools := []toolWithStep{
 		&worldsTool{maps: cfg.Map},

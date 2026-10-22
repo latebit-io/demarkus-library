@@ -21,6 +21,9 @@ import (
 type run struct {
 	question string
 	started  time.Time
+	// notes carries advisory trace lines raised outside nib's event stream
+	// (a provider retry) to the translator; see notice.
+	notes chan domain.LibrarianEvent
 
 	mu          sync.Mutex
 	steps       []domain.LibrarianStep
@@ -29,8 +32,12 @@ type run struct {
 	stopped     bool
 }
 
+// notesBufferSize bounds queued notices; a notice past it is still recorded
+// as a step, only its live frame is dropped.
+const notesBufferSize = 8
+
 func newRun(question string, started time.Time) *run {
-	return &run{question: question, started: started}
+	return &run{question: question, started: started, notes: make(chan domain.LibrarianEvent, notesBufferSize)}
 }
 
 type runKey struct{}
@@ -62,6 +69,15 @@ func (r *run) addStep(step domain.LibrarianStep) {
 	r.mu.Lock()
 	r.steps = append(r.steps, step)
 	r.mu.Unlock()
+}
+
+// notice records text as a trace step and queues it for the live stream.
+func (r *run) notice(text string) {
+	r.addStep(domain.LibrarianStep{Text: text})
+	select {
+	case r.notes <- domain.LibrarianEvent{Kind: domain.LibrarianTrace, Text: text}:
+	default:
+	}
 }
 
 // addSource records an opened document once, however often it was opened.
@@ -144,7 +160,14 @@ func (l *Librarian) translate(ctx context.Context, conv *conversation, out chan<
 	var streamed strings.Builder // the message in progress: the answer if the reader stops mid-message
 	outcome := "answered"
 
-	for ev := range conv.events {
+	for {
+		var ev nibevent.Event
+		select {
+		case ev = <-conv.events:
+		case note := <-current.notes:
+			emit(note)
+			continue
+		}
 		switch e := ev.(type) {
 		case nibevent.MessageStart:
 			streamed.Reset()
@@ -198,7 +221,7 @@ func (l *Librarian) translate(ctx context.Context, conv *conversation, out chan<
 			case ctx.Err() != nil:
 				outcome = "abandoned"
 			case outcome == "capped":
-				answer = l.finalWord(ctx, e.Messages, emit, &usage)
+				answer = l.finalWord(withRun(ctx, current), e.Messages, emit, &usage)
 			}
 			l.mu.Lock()
 			conv.exchanges = append(conv.exchanges, current.exchange(answer))
