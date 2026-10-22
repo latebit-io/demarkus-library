@@ -21,6 +21,7 @@ import (
 type run struct {
 	question string
 	started  time.Time
+	emit     func(domain.LibrarianEvent) // the live stream; set by Ask before the run starts
 
 	mu          sync.Mutex
 	steps       []domain.LibrarianStep
@@ -62,6 +63,16 @@ func (r *run) addStep(step domain.LibrarianStep) {
 	r.mu.Lock()
 	r.steps = append(r.steps, step)
 	r.mu.Unlock()
+}
+
+// notice records text as a trace step and streams it at once. Every notice
+// is raised inside a Provider.Stream call, so none can follow the stream's
+// close.
+func (r *run) notice(text string) {
+	r.addStep(domain.LibrarianStep{Text: text})
+	if r.emit != nil {
+		r.emit(domain.LibrarianEvent{Kind: domain.LibrarianTrace, Text: text})
+	}
 }
 
 // addSource records an opened document once, however often it was opened.
@@ -134,12 +145,7 @@ func (l *Librarian) translate(ctx context.Context, conv *conversation, out chan<
 	l.mu.Unlock()
 	defer l.release(conv, current)
 
-	emit := func(ev domain.LibrarianEvent) {
-		select {
-		case out <- ev:
-		case <-ctx.Done():
-		}
-	}
+	emit := current.emit
 	var usage usageTally
 	var streamed strings.Builder // the message in progress: the answer if the reader stops mid-message
 	outcome := "answered"
@@ -198,7 +204,7 @@ func (l *Librarian) translate(ctx context.Context, conv *conversation, out chan<
 			case ctx.Err() != nil:
 				outcome = "abandoned"
 			case outcome == "capped":
-				answer = l.finalWord(ctx, e.Messages, emit, &usage)
+				answer = l.finalWord(withRun(ctx, current), e.Messages, emit, &usage)
 			}
 			l.mu.Lock()
 			conv.exchanges = append(conv.exchanges, current.exchange(answer))

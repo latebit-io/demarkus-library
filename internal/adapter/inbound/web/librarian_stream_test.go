@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -39,6 +40,7 @@ func librarianApp(t *testing.T, lib *fakeLibrarian) *echo.Echo {
 // fakeLibrarian scripts one Ask stream, records the questions asked, and
 // serves a canned history.
 type fakeLibrarian struct {
+	mu       sync.Mutex // guards history: a resume polls it from the handler goroutine
 	events   []domain.LibrarianEvent
 	history  []domain.LibrarianExchange
 	askErr   error
@@ -48,12 +50,19 @@ type fakeLibrarian struct {
 	personas []domain.LibrarianPersona
 	stopped  []string
 	resets   []string
+	// ctxs receives each Ask's context when set; release, when set, holds
+	// the stream open (run in flight) until closed.
+	ctxs    chan context.Context
+	release chan struct{}
 }
 
-func (f *fakeLibrarian) Ask(_ context.Context, ask domain.LibrarianAsk) (<-chan domain.LibrarianEvent, error) {
+func (f *fakeLibrarian) Ask(ctx context.Context, ask domain.LibrarianAsk) (<-chan domain.LibrarianEvent, error) {
 	f.asked = append(f.asked, ask.Question)
 	f.contexts = append(f.contexts, ask.Context)
 	f.personas = append(f.personas, ask.Persona)
+	if f.ctxs != nil {
+		f.ctxs <- ctx
+	}
 	if f.askErr != nil {
 		return nil, f.askErr
 	}
@@ -61,12 +70,29 @@ func (f *fakeLibrarian) Ask(_ context.Context, ask domain.LibrarianAsk) (<-chan 
 	for _, ev := range f.events {
 		ch <- ev
 	}
-	close(ch)
+	if f.release == nil {
+		close(ch)
+		return ch, nil
+	}
+	go func() {
+		<-f.release
+		close(ch)
+	}()
 	return ch, nil
 }
 
-func (f *fakeLibrarian) History(string) []domain.LibrarianExchange { return f.history }
-func (f *fakeLibrarian) Stop(conversation string)                  { f.stopped = append(f.stopped, conversation) }
+func (f *fakeLibrarian) History(string) []domain.LibrarianExchange {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.history
+}
+
+func (f *fakeLibrarian) setHistory(history []domain.LibrarianExchange) {
+	f.mu.Lock()
+	f.history = history
+	f.mu.Unlock()
+}
+func (f *fakeLibrarian) Stop(conversation string) { f.stopped = append(f.stopped, conversation) }
 func (f *fakeLibrarian) Reset(conversation string) error {
 	f.resets = append(f.resets, conversation)
 	return f.resetErr
@@ -145,15 +171,162 @@ func TestLibrarianStream_LibrarianPathMapsEvents(t *testing.T) {
 		t.Errorf("echo fallback ran despite a wired librarian:\n%s", body)
 	}
 
-	// Tokens are one-shot: replaying the stream URL must not re-run the ask.
+	// A token starts one run: the same URL again (hx-sse reconnecting after
+	// a drop) resumes it — never re-runs the ask — and renders the finished
+	// exchange from History.
+	lib.setHistory([]domain.LibrarianExchange{{
+		Question: "where is it",
+		Answer:   "It lives in ops.",
+		Steps:    []domain.LibrarianStep{{Text: "opened", Ref: deploy}},
+		Sources:  []domain.LibrarianSource{{Ref: deploy, Title: "Deploy <runbook>"}},
+	}})
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, streamURL, http.NoBody))
 	if len(lib.asked) != 1 {
 		t.Errorf("replayed token re-ran the ask: %v", lib.asked)
 	}
-	if replay := rec.Body.String(); !strings.Contains(replay, "expired") || !strings.Contains(replay, "event: done") {
-		t.Errorf("replayed token did not close gracefully:\n%s", replay)
+	replay := rec.Body.String()
+	for _, want := range []string{
+		"reconnected",
+		`<hx-partial hx-target="find .ask-answer" hx-swap="innerHTML"><p>It lives in ops.</p></hx-partial>`,
+		`<summary>1 step</summary>`,
+		`Deploy &lt;runbook&gt;</a></p></hx-partial>`,
+		"event: done",
+	} {
+		if !strings.Contains(replay, want) {
+			t.Errorf("resumed stream missing %q:\n%s", want, replay)
+		}
 	}
+	if strings.Contains(replay, "expired") {
+		t.Errorf("resumed stream reported the ask expired:\n%s", replay)
+	}
+}
+
+func TestLibrarianStream_UnknownTokenExpires(t *testing.T) {
+	t.Parallel()
+
+	lib := &fakeLibrarian{}
+	e := librarianApp(t, lib)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/a/stream?ask=deadbeef", http.NoBody))
+	if body := rec.Body.String(); !strings.Contains(body, "expired") || !strings.Contains(body, "event: done") {
+		t.Errorf("unknown token did not close gracefully:\n%s", body)
+	}
+	if len(lib.asked) != 0 {
+		t.Errorf("unknown token ran an ask: %v", lib.asked)
+	}
+}
+
+func TestLibrarianStream_RunOutlivesDroppedConnection(t *testing.T) {
+	t.Parallel()
+
+	// The run's context is detached from the request: a dropped stream is
+	// a reconnect in waiting, not the reader leaving.
+	lib := &fakeLibrarian{
+		events:  []domain.LibrarianEvent{{Kind: domain.LibrarianToken, Text: "working"}},
+		ctxs:    make(chan context.Context, 1),
+		release: make(chan struct{}),
+	}
+	e := librarianApp(t, lib)
+	streamURL := askToken(t, e, "slow one")
+
+	reqCtx, drop := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		e.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, streamURL, http.NoBody).WithContext(reqCtx))
+		close(done)
+	}()
+	runCtx := <-lib.ctxs
+	drop()
+	time.Sleep(50 * time.Millisecond)
+	if runCtx.Err() != nil {
+		t.Fatalf("run ended with the connection: %v", runCtx.Err())
+	}
+	close(lib.release)
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("stream handler did not return after the run ended")
+	}
+}
+
+func TestLibrarianStream_ResumeWaitsForTheExchange(t *testing.T) {
+	t.Parallel()
+
+	// A reconnect while the run is still working waits for it to end, then
+	// renders the exchange History gained.
+	lib := &fakeLibrarian{
+		events:  []domain.LibrarianEvent{{Kind: domain.LibrarianToken, Text: "working"}},
+		ctxs:    make(chan context.Context, 1),
+		release: make(chan struct{}),
+	}
+	e := librarianApp(t, lib)
+	streamURL := askToken(t, e, "q")
+	first := make(chan struct{})
+	go func() {
+		e.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, streamURL, http.NoBody))
+		close(first)
+	}()
+	<-lib.ctxs // the first stream owns the run before the reconnect arrives
+
+	rec := httptest.NewRecorder()
+	resumed := make(chan struct{})
+	go func() {
+		e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, streamURL, http.NoBody))
+		close(resumed)
+	}()
+	select {
+	case <-resumed:
+		t.Fatalf("resume settled before the run ended:\n%s", rec.Body.String())
+	case <-time.After(50 * time.Millisecond):
+	}
+	lib.setHistory([]domain.LibrarianExchange{{Question: "q", Answer: "late answer"}})
+	close(lib.release)
+	for _, done := range []chan struct{}{first, resumed} {
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			t.Fatal("stream did not settle once the run ended")
+		}
+	}
+	if body := rec.Body.String(); !strings.Contains(body, "<p>late answer</p>") || !strings.Contains(body, "event: done") {
+		t.Errorf("resume did not render the exchange:\n%s", body)
+	}
+}
+
+func TestSSEWriter_KeepaliveUntilClosed(t *testing.T) {
+	t.Parallel()
+
+	var mu sync.Mutex
+	var buf strings.Builder
+	w := &lockedWriter{mu: &mu, w: &buf}
+	out := newSSEWriter(context.Background(), w, func() {}, 5*time.Millisecond)
+	time.Sleep(30 * time.Millisecond)
+	out.close()
+	mu.Lock()
+	n := strings.Count(buf.String(), ": keepalive\n\n")
+	mu.Unlock()
+	if n == 0 {
+		t.Fatal("no keepalive frames written")
+	}
+	time.Sleep(20 * time.Millisecond)
+	mu.Lock()
+	defer mu.Unlock()
+	if strings.Count(buf.String(), ": keepalive\n\n") != n {
+		t.Error("keepalive kept writing after close")
+	}
+}
+
+// lockedWriter lets the test read the buffer while the keepalive writes it.
+type lockedWriter struct {
+	mu *sync.Mutex
+	w  *strings.Builder
+}
+
+func (l *lockedWriter) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.w.Write(p)
 }
 
 func TestLibrarianStream_BareQIsNeverARealAsk(t *testing.T) {
