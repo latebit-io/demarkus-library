@@ -79,9 +79,6 @@ type Config struct {
 	HistoryExchanges int
 	// AsksPerHour caps each conversation's asks (default defaultAsksPerHour).
 	AsksPerHour int
-	// RateLimitRetries is how many times a throttled model call is retried
-	// with backoff (default defaultRateLimitRetries).
-	RateLimitRetries int
 }
 
 // Librarian implements port.Librarian on a per-conversation nib agent.
@@ -121,11 +118,10 @@ func New(cfg Config) (*Librarian, error) {
 	cfg.MaxConversations = positiveOr(cfg.MaxConversations, defaultMaxConversations)
 	cfg.HistoryExchanges = positiveOr(cfg.HistoryExchanges, defaultHistoryExchanges)
 	cfg.AsksPerHour = positiveOr(cfg.AsksPerHour, defaultAsksPerHour)
-	cfg.RateLimitRetries = positiveOr(cfg.RateLimitRetries, defaultRateLimitRetries)
 	if cfg.Logger == nil {
 		cfg.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
-	cfg.Provider = newRetryingProvider(cfg.Provider, cfg.RateLimitRetries, cfg.Logger)
+	cfg.Provider = newRetryingProvider(cfg.Provider, defaultRateLimitRetries, cfg.Logger)
 
 	tools := []toolWithStep{
 		&worldsTool{maps: cfg.Map},
@@ -167,6 +163,16 @@ func (l *Librarian) Ask(ctx context.Context, ask domain.LibrarianAsk) (<-chan do
 	current := conv.run
 	l.mu.Unlock()
 
+	// The run's emitter is set before the agent starts so a provider retry
+	// can narrate from nib's goroutine; sends select against ctx so a gone
+	// consumer never wedges anyone.
+	out := make(chan domain.LibrarianEvent, outBufferSize)
+	current.emit = func(ev domain.LibrarianEvent) {
+		select {
+		case out <- ev:
+		case <-ctx.Done():
+		}
+	}
 	if err := conv.agent.PromptWithMessages(withRun(ctx, current), msgs); err != nil {
 		l.release(conv, current)
 		if errors.Is(err, nibagent.ErrRunInProgress) {
@@ -174,7 +180,6 @@ func (l *Librarian) Ask(ctx context.Context, ask domain.LibrarianAsk) (<-chan do
 		}
 		return nil, fmt.Errorf("librarian: prompt: %w", err)
 	}
-	out := make(chan domain.LibrarianEvent, outBufferSize)
 	go l.translate(ctx, conv, out)
 	return out, nil
 }

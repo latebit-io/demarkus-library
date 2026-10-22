@@ -39,15 +39,17 @@ const (
 // SSE stream: the question, the conversation it belongs to (the stream must
 // present the same session), and the trail context for citation rewriting.
 type pendingAsk struct {
-	question string
-	context  string // the reader's trail context, built at POST time
+	question string // cleared at the first take: the run has it from there
+	context  string // the reader's trail context, built at POST time; cleared likewise
 	convKey  string
 	t        trail
 	// historyLen counts the conversation's exchanges at POST time; a resume
-	// watches History for the one this ask appends.
+	// renders the one this ask appends.
 	historyLen int
 	expires    time.Time
+	done       chan struct{}      // closed when the run has ended
 	started    bool               // a stream took it; later takes resume
+	attached   int                // streams on this ask; the grace runs only at zero
 	stop       context.CancelFunc // ends the run; nil until the stream holds it
 	abandon    *time.Timer        // the grace countdown while no stream is attached
 }
@@ -98,6 +100,7 @@ func (p *pendingAsks) put(a pendingAsk) (string, error) {
 	if len(p.m) >= maxPendingAsks {
 		return "", errAskFlood
 	}
+	a.done = make(chan struct{})
 	p.m[token] = &a
 	return token, nil
 }
@@ -118,6 +121,7 @@ func (p *pendingAsks) take(token, convKey string) (pendingAsk, askState) {
 		delete(p.m, token)
 		return pendingAsk{}, askGone
 	}
+	a.attached++
 	if a.started {
 		if a.abandon != nil {
 			a.abandon.Stop()
@@ -127,7 +131,9 @@ func (p *pendingAsks) take(token, convKey string) (pendingAsk, askState) {
 	}
 	a.started = true
 	a.expires = now.Add(askResumeTTL)
-	return *a, askFresh
+	fresh := *a
+	a.question, a.context = "", "" // up to 12KB per entry; the run owns them now
+	return fresh, askFresh
 }
 
 // hold records the run's cancel so detach can end it.
@@ -139,13 +145,18 @@ func (p *pendingAsks) hold(token string, stop context.CancelFunc) {
 	}
 }
 
-// detach starts the grace countdown for a token whose stream dropped: the
-// run ends when it fires unless a reconnect takes the token first.
+// detach records a dropped stream. With none left attached the grace
+// countdown starts: the run ends when it fires unless a reconnect takes the
+// token first.
 func (p *pendingAsks) detach(token string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	a, ok := p.m[token]
-	if !ok || a.stop == nil {
+	if !ok || a.attached == 0 {
+		return
+	}
+	a.attached--
+	if a.attached > 0 || a.stop == nil {
 		return
 	}
 	if a.abandon != nil {

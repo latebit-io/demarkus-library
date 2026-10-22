@@ -253,33 +253,80 @@ func TestLibrarianStream_RunOutlivesDroppedConnection(t *testing.T) {
 func TestLibrarianStream_ResumeWaitsForTheExchange(t *testing.T) {
 	t.Parallel()
 
-	// A reconnect while the run is still working waits for History to
-	// gain the exchange, then renders it.
-	lib := &fakeLibrarian{events: []domain.LibrarianEvent{{Kind: domain.LibrarianDone}}}
+	// A reconnect while the run is still working waits for it to end, then
+	// renders the exchange History gained.
+	lib := &fakeLibrarian{
+		events:  []domain.LibrarianEvent{{Kind: domain.LibrarianToken, Text: "working"}},
+		ctxs:    make(chan context.Context, 1),
+		release: make(chan struct{}),
+	}
 	e := librarianApp(t, lib)
 	streamURL := askToken(t, e, "q")
-	e.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, streamURL, http.NoBody))
+	first := make(chan struct{})
+	go func() {
+		e.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, streamURL, http.NoBody))
+		close(first)
+	}()
+	<-lib.ctxs // the first stream owns the run before the reconnect arrives
 
 	rec := httptest.NewRecorder()
-	done := make(chan struct{})
+	resumed := make(chan struct{})
 	go func() {
 		e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, streamURL, http.NoBody))
-		close(done)
+		close(resumed)
 	}()
 	select {
-	case <-done:
-		t.Fatalf("resume settled before the exchange existed:\n%s", rec.Body.String())
-	case <-time.After(3 * resumePoll):
+	case <-resumed:
+		t.Fatalf("resume settled before the run ended:\n%s", rec.Body.String())
+	case <-time.After(50 * time.Millisecond):
 	}
 	lib.setHistory([]domain.LibrarianExchange{{Question: "q", Answer: "late answer"}})
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("resume did not settle once the exchange landed")
+	close(lib.release)
+	for _, done := range []chan struct{}{first, resumed} {
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			t.Fatal("stream did not settle once the run ended")
+		}
 	}
 	if body := rec.Body.String(); !strings.Contains(body, "<p>late answer</p>") || !strings.Contains(body, "event: done") {
 		t.Errorf("resume did not render the exchange:\n%s", body)
 	}
+}
+
+func TestSSEWriter_KeepaliveUntilClosed(t *testing.T) {
+	t.Parallel()
+
+	var mu sync.Mutex
+	var buf strings.Builder
+	w := &lockedWriter{mu: &mu, w: &buf}
+	out := newSSEWriter(context.Background(), w, func() {}, 5*time.Millisecond)
+	time.Sleep(30 * time.Millisecond)
+	out.close()
+	mu.Lock()
+	n := strings.Count(buf.String(), ": keepalive\n\n")
+	mu.Unlock()
+	if n == 0 {
+		t.Fatal("no keepalive frames written")
+	}
+	time.Sleep(20 * time.Millisecond)
+	mu.Lock()
+	defer mu.Unlock()
+	if strings.Count(buf.String(), ": keepalive\n\n") != n {
+		t.Error("keepalive kept writing after close")
+	}
+}
+
+// lockedWriter lets the test read the buffer while the keepalive writes it.
+type lockedWriter struct {
+	mu *sync.Mutex
+	w  *strings.Builder
+}
+
+func (l *lockedWriter) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.w.Write(p)
 }
 
 func TestLibrarianStream_BareQIsNeverARealAsk(t *testing.T) {

@@ -43,6 +43,43 @@ func TestPendingAsks_ReconnectGrace(t *testing.T) {
 	}
 }
 
+func TestPendingAsks_GraceWaitsForEveryStream(t *testing.T) {
+	t.Parallel()
+
+	p := newPendingAsks()
+	p.grace = 20 * time.Millisecond
+	token, err := p.put(pendingAsk{convKey: "s", expires: time.Now().Add(time.Minute)})
+	if err != nil {
+		t.Fatalf("put: %v", err)
+	}
+	p.take(token, "s") // the first stream
+	// A duplicate connection resumes and drops before the first stream
+	// holds the run: no timer, and the count must not go stale.
+	p.take(token, "s")
+	p.detach(token)
+	stopped := make(chan struct{}, 2)
+	p.hold(token, func() { stopped <- struct{}{} })
+
+	// A second resume attaches; the first stream dropping must not end the
+	// run under it.
+	p.take(token, "s")
+	p.detach(token)
+	select {
+	case <-stopped:
+		t.Fatal("run stopped while a resumed stream was attached")
+	case <-time.After(3 * p.grace):
+	}
+	// The last stream drops: the grace runs.
+	p.detach(token)
+	select {
+	case <-stopped:
+	case <-time.After(time.Second):
+		t.Fatal("run not stopped after the last stream detached")
+	}
+	// A stray extra detach is ignored, not a negative count.
+	p.detach(token)
+}
+
 func TestPendingAsks_ExpiredIsGone(t *testing.T) {
 	t.Parallel()
 

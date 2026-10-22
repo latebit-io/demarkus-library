@@ -21,9 +21,7 @@ import (
 type run struct {
 	question string
 	started  time.Time
-	// notes carries advisory trace lines raised outside nib's event stream
-	// (a provider retry) to the translator; see notice.
-	notes chan domain.LibrarianEvent
+	emit     func(domain.LibrarianEvent) // the live stream; set by Ask before the run starts
 
 	mu          sync.Mutex
 	steps       []domain.LibrarianStep
@@ -32,12 +30,8 @@ type run struct {
 	stopped     bool
 }
 
-// notesBufferSize bounds queued notices; a notice past it is still recorded
-// as a step, only its live frame is dropped.
-const notesBufferSize = 8
-
 func newRun(question string, started time.Time) *run {
-	return &run{question: question, started: started, notes: make(chan domain.LibrarianEvent, notesBufferSize)}
+	return &run{question: question, started: started}
 }
 
 type runKey struct{}
@@ -71,12 +65,13 @@ func (r *run) addStep(step domain.LibrarianStep) {
 	r.mu.Unlock()
 }
 
-// notice records text as a trace step and queues it for the live stream.
+// notice records text as a trace step and streams it at once. Every notice
+// is raised inside a Provider.Stream call, so none can follow the stream's
+// close.
 func (r *run) notice(text string) {
 	r.addStep(domain.LibrarianStep{Text: text})
-	select {
-	case r.notes <- domain.LibrarianEvent{Kind: domain.LibrarianTrace, Text: text}:
-	default:
+	if r.emit != nil {
+		r.emit(domain.LibrarianEvent{Kind: domain.LibrarianTrace, Text: text})
 	}
 }
 
@@ -150,24 +145,12 @@ func (l *Librarian) translate(ctx context.Context, conv *conversation, out chan<
 	l.mu.Unlock()
 	defer l.release(conv, current)
 
-	emit := func(ev domain.LibrarianEvent) {
-		select {
-		case out <- ev:
-		case <-ctx.Done():
-		}
-	}
+	emit := current.emit
 	var usage usageTally
 	var streamed strings.Builder // the message in progress: the answer if the reader stops mid-message
 	outcome := "answered"
 
-	for {
-		var ev nibevent.Event
-		select {
-		case ev = <-conv.events:
-		case note := <-current.notes:
-			emit(note)
-			continue
-		}
+	for ev := range conv.events {
 		switch e := ev.(type) {
 		case nibevent.MessageStart:
 			streamed.Reset()

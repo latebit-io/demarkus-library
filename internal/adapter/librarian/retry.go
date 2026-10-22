@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
-	"strconv"
 	"time"
 
 	"github.com/latebit-io/nib/ai/llm"
@@ -22,8 +21,9 @@ const (
 	rateLimitBackoff = 2 * time.Second
 )
 
-// statusPattern finds the HTTP status in a nib provider error message; nib
-// gives no typed error for it.
+// statusPattern finds the HTTP status in a nib provider error message. nib
+// types only 401; once latebit-io/nib#219 ships a status error, errors.As
+// replaces this.
 var statusPattern = regexp.MustCompile(`\bstatus (\d{3})\b`)
 
 // retryingProvider wraps the LLM provider with a backoff on throttling.
@@ -60,12 +60,11 @@ func (p *retryingProvider) Stream(ctx context.Context, msgs []llm.Message, tools
 // isThrottled reports a 429 (rate limited) or 529 (Anthropic overloaded):
 // the statuses a short wait can cure.
 func isThrottled(err error) bool {
-	m := statusPattern.FindStringSubmatch(err.Error())
-	if m == nil {
+	matches := statusPattern.FindStringSubmatch(err.Error())
+	if matches == nil {
 		return false
 	}
-	status, _ := strconv.Atoi(m[1])
-	return status == 429 || status == 529
+	return matches[1] == "429" || matches[1] == "529"
 }
 
 // sleepCtx waits d or until ctx ends, returning ctx's error in that case.
