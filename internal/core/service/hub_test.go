@@ -302,15 +302,35 @@ func TestHubGraphIsCachedPerReader(t *testing.T) {
 }
 
 func TestHostOfAcceptsMarkURLAndBareHost(t *testing.T) {
-	for in, want := range map[string]string{
-		"mark://Root.svc:6309/index.md": "root.svc:6309",
-		"root.svc:6309":                 "root.svc:6309",
-		"world-a.svc:6309/":             "world-a.svc:6309",
-		"https://root.svc:6309":         "",
-		"":                              "",
+	for name, tc := range map[string]struct{ in, want string }{
+		"mark URL":       {"mark://Root.svc:6309/index.md", "root.svc:6309"},
+		"bare host":      {"root.svc:6309", "root.svc:6309"},
+		"trailing slash": {"world-a.svc:6309/", "world-a.svc:6309"},
+		"other scheme":   {"https://root.svc:6309", ""},
+		"empty":          {"", ""},
 	} {
-		if got := hostOf(in); got != want {
-			t.Errorf("hostOf(%q) = %q, want %q", in, got, want)
-		}
+		t.Run(name, func(t *testing.T) {
+			if got := hostOf(tc.in); got != tc.want {
+				t.Errorf("hostOf(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestHubGraphDoesNotCacheWithoutAWorldList(t *testing.T) {
+	// A failed world list leaves nothing resolvable; serving that for a whole
+	// TTL would blank durable edges, so the next call reads again.
+	var called string
+	gw := fakeGateway{
+		worldsErr: errTest,
+		fetchBody: map[string]string{hubGraphPath: "stub"},
+		called:    &called,
+	}
+	svc := NewReadingService(gw, fakeRenderer{}, nil).WithHub("root", hubStubTopology)
+	svc.Neighborhood(t.Context(), "root", "/index.md")
+	called = ""
+	svc.Neighborhood(t.Context(), "root", "/index.md")
+	if called == "" {
+		t.Error("an incomplete hub graph was cached")
 	}
 }

@@ -99,10 +99,14 @@ func (s *ReadingService) hubGraph(ctx context.Context) hubGraph {
 	epoch := s.hubs.epoch(reader)
 	// The durable store is never evicted: a cold pod must hold the whole hub.
 	g := hubGraph{topo: s.readHub(ctx, s.hub), edges: &linkGraph{unbounded: true}}
-	if worlds, err := s.world.Worlds(ctx); err == nil {
+	worlds, err := s.world.Worlds(ctx)
+	if err == nil {
 		g.hosts = indexHosts(worlds)
 	}
 	g.edges.observeAll(resolveHubEdges(g.topo.edges, g.hosts))
+	if err != nil {
+		return g // no host index resolves nothing; serve it once, never cache it
+	}
 	s.hubs.sweep(hubTTL) // readers come and go; keep only live windows
 	s.hubs.put(reader, epoch, g)
 	return g
