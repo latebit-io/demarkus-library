@@ -151,10 +151,13 @@ func hostName(world string, host2name map[string]string, authorized map[string]b
 	return world, true // unmatched host → portal (kept verbatim)
 }
 
-// hostOf extracts the host from a world's mark:// URL, "" when absent.
-func hostOf(url string) string {
-	rest, ok := strings.CutPrefix(strings.TrimSpace(url), "mark://")
-	if !ok {
+// hostOf extracts the host from a world's mark:// URL or a bare host:port
+// (an address column without the scheme); "" when absent or another scheme.
+func hostOf(address string) string {
+	rest := strings.TrimSpace(address)
+	if prefixed, ok := strings.CutPrefix(rest, "mark://"); ok {
+		rest = prefixed
+	} else if rest == "" || strings.Contains(rest, "://") {
 		return ""
 	}
 	host, _, _ := strings.Cut(rest, "/")

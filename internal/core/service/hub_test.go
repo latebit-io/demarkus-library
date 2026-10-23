@@ -300,3 +300,17 @@ func TestHubGraphIsCachedPerReader(t *testing.T) {
 		t.Error("reader B was served reader A's cached hub graph")
 	}
 }
+
+func TestHostOfAcceptsMarkURLAndBareHost(t *testing.T) {
+	for in, want := range map[string]string{
+		"mark://Root.svc:6309/index.md": "root.svc:6309",
+		"root.svc:6309":                 "root.svc:6309",
+		"world-a.svc:6309/":             "world-a.svc:6309",
+		"https://root.svc:6309":         "",
+		"":                              "",
+	} {
+		if got := hostOf(in); got != want {
+			t.Errorf("hostOf(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
