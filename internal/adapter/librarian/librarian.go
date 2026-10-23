@@ -130,6 +130,8 @@ func New(cfg Config) (*Librarian, error) {
 		&openTool{reader: cfg.Reader, defaultWorld: cfg.DefaultWorld},
 		&linksTool{graph: cfg.Graph, reader: cfg.Reader, defaultWorld: cfg.DefaultWorld},
 		&versionsTool{catalog: cfg.Catalog, defaultWorld: cfg.DefaultWorld},
+		&recentTool{catalog: cfg.Catalog, now: time.Now},
+		&mapTool{maps: cfg.Map, defaultWorld: cfg.DefaultWorld},
 	}
 	l := &Librarian{cfg: cfg, steps: map[string]stepDescriber{}, now: time.Now, convs: map[string]*conversation{}}
 	for _, tool := range tools {

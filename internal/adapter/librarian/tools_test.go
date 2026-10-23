@@ -126,6 +126,8 @@ func TestTools_MalformedArgsErrorNotPanic(t *testing.T) {
 		{"links", (&linksTool{graph: ports, reader: ports, defaultWorld: "root"}).Execute(context.Background(), call("links", `[1,2]`))},
 		{"lookup", (&lookupTool{catalog: ports}).Execute(context.Background(), call("lookup", `{"full_text":"yes"}`))},
 		{"versions", (&versionsTool{catalog: ports, defaultWorld: "root"}).Execute(context.Background(), call("versions", `"x"`))},
+		{"recent", (&recentTool{catalog: ports, now: time.Now}).Execute(context.Background(), call("recent", `{"days":"seven"}`))},
+		{"map", (&mapTool{maps: ports, defaultWorld: "root"}).Execute(context.Background(), call("map", `{"world":7}`))},
 	} {
 		if !tc.res.IsError {
 			t.Errorf("%s: malformed args accepted: %+v", tc.name, tc.res)
@@ -207,6 +209,82 @@ func TestVersionsTool_ListsEditions(t *testing.T) {
 	}
 }
 
+func TestRecentTool_WindowsTheCatalog(t *testing.T) {
+	t.Parallel()
+
+	ports := newFakePorts()
+	ports.catalog = domain.CatalogResult{Hits: []domain.CatalogHit{{
+		Ref: domain.Ref{World: "soul", Path: "/journal/2026-10-22.md"}, Title: "Journal", Status: "published",
+	}}}
+	now := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
+	tool := &recentTool{catalog: ports, now: func() time.Time { return now }}
+	res := tool.Execute(context.Background(), call("recent", `{"days":3,"tag":"#journal","world":"soul"}`))
+	if res.IsError {
+		t.Fatalf("unexpected error: %s", res.Content)
+	}
+	for _, want := range []string{"Modified since 2026-10-19", "mark://soul/journal/2026-10-22.md — Journal [published]"} {
+		if !strings.Contains(res.Content, want) {
+			t.Errorf("missing %q:\n%s", want, res.Content)
+		}
+	}
+	q := ports.queries[len(ports.queries)-1]
+	if q.Since != now.Add(-3*24*time.Hour) || q.Tag != "journal" || q.World != "soul" || q.Query != "" {
+		t.Errorf("query = %+v", q)
+	}
+
+	// A window past the cap clamps; an empty window says so plainly.
+	ports.catalog = domain.CatalogResult{}
+	res = tool.Execute(context.Background(), call("recent", `{"days":9999}`))
+	if res.IsError || !strings.Contains(res.Content, "Nothing changed in the last 365 days") {
+		t.Errorf("empty window = %+v", res)
+	}
+	if q := ports.queries[len(ports.queries)-1]; q.Since != now.Add(-365*24*time.Hour) {
+		t.Errorf("uncapped window: since = %v", q.Since)
+	}
+}
+
+func TestMapTool_RendersClustersAndLinks(t *testing.T) {
+	t.Parallel()
+
+	ports := newFakePorts()
+	docs := make([]domain.FloorDoc, 0, mapClusterDocs+2)
+	for i := range mapClusterDocs + 2 {
+		docs = append(docs, domain.FloorDoc{Path: fmt.Sprintf("/adr/%04d.md", i), Title: fmt.Sprintf("ADR %d", i)})
+	}
+	ports.worldMap = domain.WorldMap{
+		World: domain.WorldInfo{Name: "soul"},
+		Clusters: []domain.WorldCluster{
+			{Dir: "", ListPath: "/", Docs: []domain.FloorDoc{{Path: "/index.md", Title: "Hub", Status: "published"}}},
+			{Dir: "adr", ListPath: "/adr/", Docs: docs, More: 3},
+		},
+		Edges: []domain.Edge{{From: domain.Ref{World: "soul", Path: "/index.md"}, To: domain.Ref{World: "soul", Path: "/adr/0000.md"}}},
+	}
+	tool := &mapTool{maps: ports, defaultWorld: "root"}
+	res := tool.Execute(context.Background(), call("map", `{"world":"soul"}`))
+	if res.IsError {
+		t.Fatalf("unexpected error: %s", res.Content)
+	}
+	for _, want := range []string{
+		"world soul — 12 documents in 2 clusters",
+		"(root) (1):\n  /index.md — Hub [published]",
+		"adr/ (11):",
+		"  /adr/0005.md — ADR 5\n  +5 more under /adr/",
+		"links among the mapped documents:\n  /index.md -> /adr/0000.md",
+	} {
+		if !strings.Contains(res.Content, want) {
+			t.Errorf("missing %q:\n%s", want, res.Content)
+		}
+	}
+	if strings.Contains(res.Content, "/adr/0006.md") {
+		t.Errorf("cluster not capped at %d docs:\n%s", mapClusterDocs, res.Content)
+	}
+
+	ports.worldMap = domain.WorldMap{Unreadable: true}
+	if res := tool.Execute(context.Background(), call("map", `{}`)); !res.IsError || !strings.Contains(res.Content, "world root is unreadable") {
+		t.Errorf("unreadable map = %+v", res)
+	}
+}
+
 func TestOpenTool_RecordsSourceForTheRun(t *testing.T) {
 	t.Parallel()
 
@@ -243,6 +321,9 @@ func TestDescribe_NarratesToolCalls(t *testing.T) {
 		{"open a section", "open", `{"path":"/ops/deploy.md#steps"}`, domain.LibrarianStep{Text: "opened §steps of", Ref: deploy}},
 		{"links", "links", `{"path":"/ops/deploy.md"}`, domain.LibrarianStep{Text: "traced the links of", Ref: deploy}},
 		{"versions", "versions", `{"path":"/ops/deploy.md","world":"root"}`, domain.LibrarianStep{Text: "listed the editions of", Ref: deploy}},
+		{"recent default window", "recent", `{}`, domain.LibrarianStep{Text: "checked what changed in the last 7 days"}},
+		{"recent in a world", "recent", `{"days":1,"world":"soul"}`, domain.LibrarianStep{Text: "checked what changed in the last day in soul"}},
+		{"map default world", "map", `{}`, domain.LibrarianStep{Text: "mapped world root"}},
 		{"malformed falls back raw", "open", `{"force":true}`, domain.LibrarianStep{Text: "open force=true"}},
 		{"unknown tool falls back raw", "mystery", `{"a":"b"}`, domain.LibrarianStep{Text: `mystery a="b"`}},
 	}

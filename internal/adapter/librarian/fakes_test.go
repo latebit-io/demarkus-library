@@ -24,6 +24,7 @@ type fakePorts struct {
 	catalogErr error
 	queries    []domain.CatalogQuery
 	versions   domain.RawDocument
+	worldMap   domain.WorldMap
 }
 
 func newFakePorts() *fakePorts {
@@ -117,10 +118,10 @@ func (f *fakePorts) Neighborhood(world, path string) domain.Neighborhood {
 func (f *fakePorts) Floor(context.Context) (domain.Floor, error)       { return f.floor, nil }
 func (f *fakePorts) FloorCached(context.Context) (domain.Floor, error) { return f.floor, nil }
 func (f *fakePorts) WorldMap(context.Context, string) (domain.WorldMap, error) {
-	return domain.WorldMap{}, nil
+	return f.worldMap, nil
 }
 func (f *fakePorts) WorldMapCached(context.Context, string) (domain.WorldMap, error) {
-	return domain.WorldMap{}, nil
+	return f.worldMap, nil
 }
 
 // Catalog

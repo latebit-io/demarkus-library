@@ -127,18 +127,24 @@ func (t *worldsTool) Execute(ctx context.Context, _ llm.ToolCall) nibagent.ToolR
 			continue
 		}
 		fmt.Fprintf(&b, "world %s\n", w.World.Name)
-		for _, d := range w.Docs {
-			fmt.Fprintf(&b, "  %s — %s", d.Path, d.Title)
-			if d.Status != "" {
-				fmt.Fprintf(&b, " [%s]", d.Status)
-			}
-			b.WriteByte('\n')
-		}
+		writeFloorDocs(&b, w.Docs)
 	}
 	if b.Len() == 0 {
 		return nibagent.ToolResult{Content: "No worlds reachable."}
 	}
 	return nibagent.ToolResult{Content: b.String()}
+}
+
+// writeFloorDocs lists catalog documents for the model, indented one per
+// line: path, title, status.
+func writeFloorDocs(b *strings.Builder, docs []domain.FloorDoc) {
+	for _, d := range docs {
+		fmt.Fprintf(b, "  %s — %s", d.Path, d.Title)
+		if d.Status != "" {
+			fmt.Fprintf(b, " [%s]", d.Status)
+		}
+		b.WriteByte('\n')
+	}
 }
 
 // findTool locates documents by title/path substring over the catalog's

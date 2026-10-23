@@ -5,6 +5,7 @@ import (
 	"errors"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
 )
@@ -100,6 +101,27 @@ func TestLookupParsesHits(t *testing.T) {
 				t.Errorf("hits = %+v\nwant %+v", got.Hits, tt.wantHits)
 			}
 		})
+	}
+}
+
+func TestLookupSinceFiltersModified(t *testing.T) {
+	t.Parallel()
+
+	var filter string
+	svc := newTestService(fakeGateway{filter: &filter}, fakeRenderer{})
+	since := time.Date(2026, 10, 15, 9, 30, 0, 0, time.FixedZone("x", 2*3600))
+	// Since alone: match everything, filtered; the server reads RFC 3339 in UTC.
+	if _, err := svc.Lookup(context.Background(), domain.CatalogQuery{World: "soul", Since: since}); err != nil {
+		t.Fatalf("Lookup: %v", err)
+	}
+	if filter != "modified-after=2026-10-15T07:30:00Z" {
+		t.Errorf("filter = %q", filter)
+	}
+	if _, err := svc.Lookup(context.Background(), domain.CatalogQuery{World: "soul", Tag: "adr", Since: since}); err != nil {
+		t.Fatalf("Lookup: %v", err)
+	}
+	if filter != "tag=adr,modified-after=2026-10-15T07:30:00Z" {
+		t.Errorf("combined filter = %q", filter)
 	}
 }
 

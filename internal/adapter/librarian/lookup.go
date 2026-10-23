@@ -63,7 +63,7 @@ func (t *lookupTool) Execute(ctx context.Context, call llm.ToolCall) nibagent.To
 	if err := decodeArgs(call.Function.Arguments, &in); err != nil {
 		return errResult(err)
 	}
-	in.Query, in.Tag = strings.TrimSpace(in.Query), strings.TrimPrefix(strings.TrimSpace(in.Tag), "#")
+	in.Query, in.Tag = strings.TrimSpace(in.Query), cleanTag(in.Tag)
 	if in.Query == "" && in.Tag == "" {
 		return errResult(errors.New("lookup: give a query or a tag"))
 	}
@@ -81,24 +81,7 @@ func (t *lookupTool) Execute(ctx context.Context, call llm.ToolCall) nibagent.To
 	if in.FullText && !result.BodyMatched {
 		b.WriteString("Section-text search is not available here; these are tag and title matches. Do not retry full_text in this world.\n")
 	}
-	for i := range result.Hits {
-		hit := &result.Hits[i]
-		fmt.Fprintf(&b, "mark://%s%s", hit.World, hit.Path)
-		if hit.Anchor != "" {
-			b.WriteString("#" + hit.Anchor)
-		}
-		fmt.Fprintf(&b, " — %s", hit.Title)
-		if hit.Status != "" {
-			fmt.Fprintf(&b, " [%s]", hit.Status)
-		}
-		if len(hit.Tags) > 0 {
-			fmt.Fprintf(&b, " (tags: %s)", strings.Join(hit.Tags, ", "))
-		}
-		b.WriteByte('\n')
-		if hit.Snippet != "" {
-			fmt.Fprintf(&b, "  %q\n", hit.Snippet)
-		}
-	}
+	writeHits(&b, result.Hits)
 	if partial != nil {
 		fmt.Fprintf(&b, "%s.\n", partial.Error())
 	}
@@ -106,4 +89,32 @@ func (t *lookupTool) Execute(ctx context.Context, call llm.ToolCall) nibagent.To
 		b.WriteString("No catalog entries match. Try find for names, a broader subject, or full_text.\n")
 	}
 	return nibagent.ToolResult{Content: b.String()}
+}
+
+// writeHits lists catalog rows for the model, one per line: address (with the
+// matching section when there is one), title, status, tags, then any snippet.
+func writeHits(b *strings.Builder, hits []domain.CatalogHit) {
+	for i := range hits {
+		hit := &hits[i]
+		fmt.Fprintf(b, "mark://%s%s", hit.World, hit.Path)
+		if hit.Anchor != "" {
+			b.WriteString("#" + hit.Anchor)
+		}
+		fmt.Fprintf(b, " — %s", hit.Title)
+		if hit.Status != "" {
+			fmt.Fprintf(b, " [%s]", hit.Status)
+		}
+		if len(hit.Tags) > 0 {
+			fmt.Fprintf(b, " (tags: %s)", strings.Join(hit.Tags, ", "))
+		}
+		b.WriteByte('\n')
+		if hit.Snippet != "" {
+			fmt.Fprintf(b, "  %q\n", hit.Snippet)
+		}
+	}
+}
+
+// cleanTag tolerates a model writing the tag as #tag.
+func cleanTag(tag string) string {
+	return strings.TrimPrefix(strings.TrimSpace(tag), "#")
 }

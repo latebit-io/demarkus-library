@@ -1,16 +1,20 @@
 package domain
 
+import "time"
+
 // MatchBody asks LOOKUP for section-level text matches instead of the
 // catalog's tag and title match. A world without body match answers from the
 // catalog instead, which CatalogResult.BodyMatched reports.
 const MatchBody = "body"
 
 // CatalogQuery is one ranked catalog search. World "" spans every readable
-// world; Tag narrows to documents carrying it; Match is "" or MatchBody.
+// world; Tag narrows to documents carrying it; Since keeps only documents
+// modified at or after it; Match is "" or MatchBody.
 type CatalogQuery struct {
 	World string
 	Query string
 	Tag   string
+	Since time.Time
 	Match string
 	Limit int
 }

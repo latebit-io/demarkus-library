@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
 )
@@ -18,14 +20,22 @@ const defaultCatalogHits = 25
 // answer returns its hits alongside a *domain.PartialLookupError.
 func (s *ReadingService) Lookup(ctx context.Context, q domain.CatalogQuery) (domain.CatalogResult, error) {
 	lq := domain.LookupQuery{Scope: "/", Query: q.Query, Limit: q.Limit, Match: q.Match}
+	var filter []string
 	if q.Tag != "" {
-		lq.Filter = "tag=" + q.Tag
+		filter = append(filter, "tag="+q.Tag)
 		if lq.Query == "" {
 			lq.Query = q.Tag // the filter narrows; the query still ranks
 		}
 	}
+	if !q.Since.IsZero() {
+		filter = append(filter, "modified-after="+q.Since.UTC().Format(time.RFC3339))
+		if lq.Query == "" {
+			lq.Query = "*" // everything changed since, importance order
+		}
+	}
+	lq.Filter = strings.Join(filter, ",")
 	if lq.Query == "" {
-		return domain.CatalogResult{}, errors.New("lookup: a query or a tag is required")
+		return domain.CatalogResult{}, errors.New("lookup: a query, a tag, or a since time is required")
 	}
 	if lq.Limit <= 0 {
 		lq.Limit = defaultCatalogHits

@@ -237,8 +237,11 @@ func (c *cdp) eval(t *testing.T, expr string) any {
 func (c *cdp) waitFor(t *testing.T, cond string) {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
+	// A condition that throws is "not yet", not a failure: mid-navigation the
+	// page has no document.body, and that is exactly what some waits span.
+	probe := "(() => { try { return !!(" + cond + ") } catch (e) { return false } })()"
 	for time.Now().Before(deadline) {
-		if c.eval(t, "!!("+cond+")") == true {
+		if c.eval(t, probe) == true {
 			return
 		}
 		time.Sleep(50 * time.Millisecond)
