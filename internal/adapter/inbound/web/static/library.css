@@ -138,13 +138,14 @@ ul.tags a { color: var(--muted); }
 button.copy-mark:hover, button.copy-mark:focus-visible { color: var(--ink); background: var(--wash); }
 button.copy-mark { display: inline-flex; vertical-align: middle; margin-left: .35rem; color: var(--muted); }
 button.copy-mark[hidden] { display: none; } /* inline-flex would override the UA's [hidden] */
-button.copy-mark svg { width: .95rem; height: .95rem; fill: none; stroke: currentColor;
+button.copy-mark svg, .diagram-pop svg { width: .95rem; height: .95rem; fill: none; stroke: currentColor;
       stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
 button.copy-mark .copied-icon, button.copy-mark.copied .copy-icon { display: none; }
 button.copy-mark.copied .copied-icon { display: block; }
-.copy-anchor { opacity: 0; transition: opacity .12s; }
-:is(h1, h2, h3, h4, h5, h6):hover > .copy-anchor, .copy-anchor:focus-visible, .copy-anchor.copied { opacity: 1; }
-@media (hover: none) { .copy-anchor { opacity: .5; } }
+.copy-anchor, .diagram-pop { opacity: 0; transition: opacity .12s; }
+:is(h1, h2, h3, h4, h5, h6):hover > .copy-anchor, .copy-anchor:focus-visible, .copy-anchor.copied,
+pre.mermaid:hover > .diagram-pop, .diagram-pop:focus-visible { opacity: 1; }
+@media (hover: none) { .copy-anchor, .diagram-pop { opacity: .5; } }
 
 /* ── The read path's error page: a dead end, deliberately bare. ── */
 .error-page #main { max-width: 34rem; margin: 4rem auto; padding: 0 1.5rem; }
@@ -175,6 +176,13 @@ th, td { text-align: left; padding: .35rem .8rem .35rem 0; border: none; }
 pre { background: var(--wash); padding: .8rem .9rem; overflow-x: auto; border-radius: 3px;
       border: 1px solid var(--faint); font-size: .8rem; line-height: 1.5; }
 code { font-family: var(--font-mono); font-size: .88em; }
+/* A rendered mermaid block (islands.js) holds the button that pops its
+   drawing into the diagram overlay; it reveals like the copy button above. */
+pre.mermaid { position: relative; }
+.diagram-pop { position: absolute; top: .45rem; right: .45rem; display: inline-flex; padding: .3rem;
+        border: 1px solid var(--rule); border-radius: 3px; background: var(--paper); color: var(--muted);
+        cursor: pointer; }
+.diagram-pop:hover, .diagram-pop:focus-visible { color: var(--ink); border-color: var(--ink); }
 .doc-body :not(pre) > code { background: var(--wash); border-radius: 2px; padding: .05em .28em; }
 /* GFM alerts (markdown adapter emits .callout structure; colors are
    GitHub's palette via light-dark(), tracking color-scheme above). */
@@ -409,7 +417,9 @@ svg.world-map .wm-above { transform: translateY(calc(-5px / var(--wm-k, 1))); }
 .wm-focus .wm-sel text:not(.floor-agg-glyph) { font-weight: 700; }
 .wm-focus { position: absolute; inset: 0; z-index: 2; width: 100%; height: 100%;
         pointer-events: none; }
-.graph-canvas svg.floor, .graph-canvas svg.graph { cursor: grab; touch-action: none; user-select: none; }
+.graph-canvas svg.floor, .graph-canvas svg.graph, .graph-canvas svg.diagram { cursor: grab; touch-action: none; user-select: none; }
+/* A popped-out diagram fills the canvas; mermaid pins its natural width inline. */
+.graph-canvas svg.diagram { max-width: none !important; }
 .graph-canvas svg.panning, .graph-canvas svg.panning a { cursor: grabbing; }
 .map-filter { font: inherit; font-size: .8rem; padding: .2rem .55rem; width: 14rem;
         background: var(--paper); color: var(--ink); border: 1px solid var(--rule);

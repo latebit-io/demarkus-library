@@ -94,6 +94,12 @@ func TestGraphOverlayForFocusedDoc(t *testing.T) {
 	if !strings.Contains(body, `id="graph-overlay"`) {
 		t.Errorf("graph overlay missing for focused doc: %s", body)
 	}
+	// The diagram popout rides along: its chrome and the expand-button proto.
+	for _, want := range []string{`id="diagram-overlay"`, `id="diagram-pop-proto"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("%s missing from the canvas: %s", want, body)
+		}
+	}
 	// A node click is a trail jump from the focus (navigating dismisses the overlay).
 	if !strings.Contains(body, `href="/t/w.io/d/x.md/~/w.io/d/y.md"`) {
 		t.Errorf("graph overlay node should jump the trail: %s", body)

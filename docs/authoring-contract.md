@@ -68,7 +68,10 @@ automatically. You write nothing; publish honestly and the room reports it.
 - **Alerts**: GFM alerts (`> [!NOTE]`, `[!TIP]`, `[!IMPORTANT]`,
   `[!WARNING]`, `[!CAUTION]`).
 - **Diagrams**: ` ```mermaid ` fences render client-side; the source is the
-  degradation, so keep diagrams readable as text.
+  degradation, so keep diagrams readable as text. A rendered diagram carries
+  an expand button that pops it out full-screen with zoom and pan (scroll,
+  drag, `+`/`-`, `0` to fit, Esc to close), so a wide diagram need not be
+  split to fit the reading column.
 - **Math**: `\( … \)` inline, `$$ … $$` or `\[ … \]` display (KaTeX).
   Single-`$` inline math is not supported (`$5 and $10` is prose).
 - **Emoji**: `:shortcode:` works.
