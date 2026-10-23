@@ -122,23 +122,8 @@ func (s *ReadingService) buildFloor(ctx context.Context) (domain.Floor, error) {
 		return domain.Floor{}, err
 	}
 
-	// Authorization + addressing baseline (the permission mask): which worlds
-	// the reader may see and the host→name map that joins host-keyed topology
-	// back to authorized names.
-	authorized := make(map[string]bool, len(worlds))
-	host2name := make(map[string]string, len(worlds))
-	for _, w := range worlds {
-		authorized[w.Name] = true
-		// Join key is the world's dial Address (what the topology graph keys
-		// its nodes by); fall back to URL for older brokers / QUIC mode.
-		joinAddr := w.Address
-		if joinAddr == "" {
-			joinAddr = w.URL
-		}
-		if h := hostOf(joinAddr); h != "" {
-			host2name[hostKey(h)] = w.Name
-		}
-	}
+	// The permission mask: which worlds the reader may see, and the host join.
+	hosts := indexHosts(worlds)
 
 	floor := domain.Floor{Worlds: make([]domain.FloorWorld, 0, len(worlds))}
 	for _, w := range worlds {
@@ -176,8 +161,8 @@ func (s *ReadingService) buildFloor(ctx context.Context) (domain.Floor, error) {
 	// masked by the authorized set. Portal worlds are externally-linked hosts
 	// with no authorized name (the extensional universe; ADR 0005 §16). All of
 	// this degrades to nothing when no hub is published and nothing observed.
-	hub := s.readHub(ctx, s.hub)
-	edges, portals := worldEdges(append(hub.edges, s.graph.allEdges()...), host2name, authorized)
+	hub := s.hubGraph(ctx).topo
+	edges, portals := worldEdges(append(hub.edges, s.graph.allEdges()...), hosts.host2name, hosts.authorized)
 	floor.Edges = edges
 	for _, p := range portals {
 		floor.Worlds = append(floor.Worlds, domain.FloorWorld{

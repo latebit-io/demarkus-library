@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"regexp"
@@ -280,7 +281,7 @@ func TestSettleOverlaysKeepsNavAndMarginInStep(t *testing.T) {
 	// The margin arrives with no graph link, as it would when the reference was
 	// recorded after this pane rendered.
 	vm := canvasVM{Panes: []paneVM{{HasMargin: true, World: "w.io", Path: "/x.md"}}}
-	h.settleOverlays(&vm, trail)
+	h.settleOverlays(context.Background(), &vm, trail)
 
 	if vm.OverlayGraphURL == "" {
 		t.Fatal("nav should offer the graph once the reference is observed")
@@ -297,7 +298,7 @@ func TestSettleOverlaysKeepsNavAndMarginInStep(t *testing.T) {
 	h = NewRoom(bare, "w.io", "/index.md").readingHandler()
 	vm = canvasVM{Panes: []paneVM{{HasMargin: true, World: "w.io", Path: "/x.md",
 		GraphURL: "/w/w.io/g/x.md"}}}
-	h.settleOverlays(&vm, trail)
+	h.settleOverlays(context.Background(), &vm, trail)
 	if vm.Panes[0].GraphURL != "" || vm.OverlayGraphURL != "" {
 		t.Errorf("no references should leave no affordance: margin=%q nav=%q",
 			vm.Panes[0].GraphURL, vm.OverlayGraphURL)

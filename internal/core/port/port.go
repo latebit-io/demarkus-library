@@ -79,15 +79,13 @@ type GraphService interface {
 	// observed-links map that feeds Backlinks and Neighborhood —
 	// transport-symmetric, no broker graph store required.
 	RecordLinks(world, path string, targets []domain.Ref)
-	// Backlinks returns the documents observed linking to (world, path) — the
-	// margin's "referenced by" block and the graph pane's inbound edges.
-	// Best-effort: empty when nothing has been observed linking here yet (the
-	// correct cold state, ADR 0005 decision 8), never an error.
-	Backlinks(world, path string) []domain.Ref
-	// Neighborhood assembles the graph pane's data (ADR 0005 decision 4): the
-	// document plus its observed outbound and inbound edges. Store-only (zero
-	// world reads), so it works cold in both transports.
-	Neighborhood(world, path string) domain.Neighborhood
+	// Backlinks returns the documents linking to (world, path) — the margin's
+	// "referenced by" block. Best-effort: empty when none is known, never an error.
+	Backlinks(ctx context.Context, world, path string) []domain.Ref
+	// Neighborhood is the graph pane's data (ADR 0005 decision 4): the document
+	// plus its outbound and inbound edges, observed map unioned with the hub's
+	// reference edges; ctx carries the reader for the hub read. Never an error.
+	Neighborhood(ctx context.Context, world, path string) domain.Neighborhood
 }
 
 // MapService assembles the spatial views (ADR 0005 decision 4): the universe

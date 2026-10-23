@@ -230,10 +230,10 @@ type Edge struct {
 // mark:// address and may be empty — Name remains the addressing primitive.
 //
 // Address is the world's internal dial address (the broker's mark_worlds
-// `address` column): the host:port the broker routes to and the federation
-// agent crawls by, which is therefore how the topology graph keys this world's
-// nodes. The floor uses it to join host-keyed graph edges back to Name. Empty
-// for older brokers / QUIC mode, where URL is the join host instead.
+// `address` column, a mark://host:port): where the broker routes and the
+// federation agent crawls, which is therefore how the topology graph keys this
+// world's nodes. The floor uses it to join host-keyed graph edges back to
+// Name. Empty for older brokers / QUIC mode, where URL is the join host.
 type WorldInfo struct {
 	Name    string
 	URL     string

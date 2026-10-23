@@ -153,11 +153,11 @@ func (f *fakeReading) RecordLinks(_, path string, targets []domain.Ref) {
 	f.recorded[path] = targets
 }
 
-func (f *fakeReading) Backlinks(_, path string) []domain.Ref {
+func (f *fakeReading) Backlinks(_ context.Context, _, path string) []domain.Ref {
 	return f.backlink[path]
 }
 
-func (f *fakeReading) Neighborhood(_, path string) domain.Neighborhood {
+func (f *fakeReading) Neighborhood(_ context.Context, _, path string) domain.Neighborhood {
 	return f.neighbor[path]
 }
 

@@ -1,6 +1,7 @@
 package service
 
 import (
+	"github.com/latebit-io/demarkus-library/internal/core/port"
 	"reflect"
 	"testing"
 
@@ -231,5 +232,105 @@ func TestFloorNoHubDegradesToBaseline(t *testing.T) {
 	}
 	if len(floor.Worlds) != 1 || floor.Worlds[0].Portal || floor.Edges != nil {
 		t.Errorf("baseline floor changed: %+v edges=%+v", floor.Worlds, floor.Edges)
+	}
+}
+
+func TestNeighborhoodUnionsHubEdgesOnAColdPod(t *testing.T) {
+	// Nothing observed yet (a fresh pod): the hub's reference edges still
+	// answer in both directions; an edge touching the external wiki host is a
+	// portal and stays out; a containment edge is not a reference.
+	stub := stubGraphParser{edges: append(hubStubTopology.edges,
+		domain.Edge{From: domain.Ref{World: "wiki.example.org", Path: "/notes.md"}, To: domain.Ref{World: "world-a.svc:6309", Path: "/guide.md"}, Type: domain.EdgeReference},
+		domain.Edge{From: domain.Ref{World: "world-a.svc:6309", Path: "/"}, To: domain.Ref{World: "world-a.svc:6309", Path: "/guide.md"}, Type: domain.EdgeContainment},
+	)}
+	var called string
+	gw := fakeGateway{
+		worlds: []domain.WorldInfo{
+			{Name: "root", URL: "mark://root.svc:6309"},
+			{Name: "world-a", URL: "mark://world-a.svc:6309"},
+		},
+		fetchBody: map[string]string{hubGraphPath: "stub"},
+		called:    &called,
+	}
+	svc := NewReadingService(gw, fakeRenderer{}, nil).WithHub("root", stub)
+
+	guide := domain.Ref{World: "world-a", Path: "/guide.md"}
+	index := domain.Ref{World: "root", Path: "/index.md"}
+	if got := svc.Backlinks(t.Context(), "world-a", "/guide.md"); !reflect.DeepEqual(got, []domain.Ref{index}) {
+		t.Fatalf("cold backlinks = %+v, want [%+v]", got, index)
+	}
+	if n := svc.Neighborhood(t.Context(), "root", "/index.md"); !reflect.DeepEqual(n.Out, []domain.Ref{guide}) || n.In != nil {
+		t.Errorf("cold neighborhood of the hub doc = %+v, want out [%+v], no in", n, guide)
+	}
+
+	// An observed edge unions in, sorted; the hub is not re-read within the TTL.
+	svc.RecordLinks("world-a", "/faq.md", []domain.Ref{guide})
+	called = ""
+	got := svc.Backlinks(t.Context(), "world-a", "/guide.md")
+	want := []domain.Ref{index, {World: "world-a", Path: "/faq.md"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("union backlinks = %+v, want %+v", got, want)
+	}
+	if called != "" {
+		t.Errorf("hub re-read inside the TTL: %s", called)
+	}
+}
+
+func TestHubGraphIsCachedPerReader(t *testing.T) {
+	// The world list is a permission mask: reader B must not be served the
+	// graph resolved for reader A, while A's own repeat read stays cached.
+	var called string
+	gw := fakeGateway{
+		worlds:    []domain.WorldInfo{{Name: "root", URL: "mark://root.svc:6309"}},
+		fetchBody: map[string]string{hubGraphPath: "stub"},
+		called:    &called,
+	}
+	svc := NewReadingService(gw, fakeRenderer{}, nil).WithHub("root", hubStubTopology)
+	a := port.WithReader(t.Context(), "session-a")
+	b := port.WithReader(t.Context(), "session-b")
+
+	svc.Neighborhood(a, "root", "/index.md")
+	called = ""
+	svc.Neighborhood(a, "root", "/index.md")
+	if called != "" {
+		t.Errorf("reader A re-read the hub inside the TTL: %s", called)
+	}
+	svc.Neighborhood(b, "root", "/index.md")
+	if called == "" {
+		t.Error("reader B was served reader A's cached hub graph")
+	}
+}
+
+func TestHostOfAcceptsMarkURLAndBareHost(t *testing.T) {
+	for name, tc := range map[string]struct{ in, want string }{
+		"mark URL":       {"mark://Root.svc:6309/index.md", "root.svc:6309"},
+		"bare host":      {"root.svc:6309", "root.svc:6309"},
+		"trailing slash": {"world-a.svc:6309/", "world-a.svc:6309"},
+		"other scheme":   {"https://root.svc:6309", ""},
+		"empty":          {"", ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := hostOf(tc.in); got != tc.want {
+				t.Errorf("hostOf(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestHubGraphDoesNotCacheWithoutAWorldList(t *testing.T) {
+	// A failed world list leaves nothing resolvable; serving that for a whole
+	// TTL would blank durable edges, so the next call reads again.
+	var called string
+	gw := fakeGateway{
+		worldsErr: errTest,
+		fetchBody: map[string]string{hubGraphPath: "stub"},
+		called:    &called,
+	}
+	svc := NewReadingService(gw, fakeRenderer{}, nil).WithHub("root", hubStubTopology)
+	svc.Neighborhood(t.Context(), "root", "/index.md")
+	called = ""
+	svc.Neighborhood(t.Context(), "root", "/index.md")
+	if called == "" {
+		t.Error("an incomplete hub graph was cached")
 	}
 }

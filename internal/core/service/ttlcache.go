@@ -60,6 +60,19 @@ func (c *ttlCache[T]) put(key string, epoch uint64, value T) {
 	c.all[key] = ttlEntry[T]{value: value, storedAt: c.clockNow()}
 }
 
+// sweep drops every entry older than ttl, so a cache keyed by something
+// unbounded (readers) holds only what the TTL still serves.
+func (c *ttlCache[T]) sweep(ttl time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	now := c.clockNow()
+	for key, e := range c.all {
+		if now.Sub(e.storedAt) >= ttl {
+			delete(c.all, key)
+		}
+	}
+}
+
 // invalidate drops a key so the next read rebuilds it, called after a write so
 // a just-published document shows at once.
 func (c *ttlCache[T]) invalidate(key string) {

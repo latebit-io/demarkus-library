@@ -172,7 +172,7 @@ func (h *ReadingHandler) Trail(c *echo.Context) error {
 		if addr.Kind == paneGraph {
 			// The graph pane is store-only (no world read), so it never errors
 			// and needs no live/cached split — it renders the same in both.
-			vm.Panes[i] = h.spatial.graphPane(t, i, addr)
+			vm.Panes[i] = h.spatial.graphPane(ctx, t, i, addr)
 			continue
 		}
 		if addr.Kind == paneLibrarian {
@@ -226,12 +226,12 @@ func (h *ReadingHandler) Trail(c *echo.Context) error {
 	// The dock is built after the pane loop so the focused doc's links are
 	// already observed (RecordLinks ran during render), giving the walk/jump
 	// connectors and "from here →" chips a graph to read.
-	vm.Dock = h.buildDock(t)
+	vm.Dock = h.buildDock(ctx, t)
 
 	// The graph overlay and the affordances that summon it settle here, after
 	// the pane loop: every pane's links are observed, so a backlink from a pane
 	// rendered later still counts.
-	h.settleOverlays(&vm, t)
+	h.settleOverlays(ctx, &vm, t)
 
 	// The reader overlay reuses the addressed pane's already-fetched document —
 	// no extra world read (the overlay is pure presentation), and focus is
@@ -270,9 +270,9 @@ func (h *ReadingHandler) Trail(c *echo.Context) error {
 // points the nav and margin affordances at it. The graph affordance is gated on
 // real references so `g` never opens an empty canvas; the map is available
 // wherever the focus sits in a world.
-func (h *ReadingHandler) settleOverlays(vm *canvasVM, t trail) {
+func (h *ReadingHandler) settleOverlays(ctx context.Context, vm *canvasVM, t trail) {
 	if fa := t.Panes[t.Focus]; fa.Kind == paneDoc && !domain.IsListingPath(fa.Value) {
-		vm.Graph = h.spatial.graphOverlay(t, fa)
+		vm.Graph = h.spatial.graphOverlay(ctx, t, fa)
 	}
 	// One settled URL for both affordances, so the nav and the margin can never
 	// disagree: a pane rendered after the focus can add the reference that turns
@@ -438,7 +438,7 @@ func (h *ReadingHandler) paneView(ctx context.Context, req *paneRequest) paneVM 
 		// exists). The graph is no longer docked as a trail pane.
 		// It appears only when references exist — an unlinked doc has no graph,
 		// and an affordance that opens an empty canvas teaches nothing.
-		if degree := h.spatial.graphDegree(addr.World, addr.Value); degree > 0 {
+		if degree := h.spatial.graphDegree(ctx, addr.World, addr.Value); degree > 0 {
 			vm.GraphDegree = degree
 			vm.GraphURL = graphRoute(addr.World, addr.Value)
 		}
@@ -456,7 +456,7 @@ func (h *ReadingHandler) paneView(ctx context.Context, req *paneRequest) paneVM 
 			vm.NewURL = "/w/" + url.PathEscape(addr.World) + "/new?dir=" + url.QueryEscape(dirOf(addr.Value)) + "&" + ret
 			vm.AppendURL = "/w/" + url.PathEscape(addr.World) + "/append" + addr.Value + "?" + ret
 		}
-		vm.Backlinks = backlinkLinks(h.reading.Backlinks(addr.World, addr.Value), func(r domain.Ref) string {
+		vm.Backlinks = backlinkLinks(h.reading.Backlinks(ctx, addr.World, addr.Value), func(r domain.Ref) string {
 			next := trailAfterClick(trailState, paneIndex, paneAddr{Kind: paneDoc, World: r.World, Value: r.Path})
 			if reader {
 				return trailReaderURL(next, next.Focus)

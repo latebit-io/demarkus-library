@@ -32,17 +32,10 @@ func (s *ReadingService) NameIndexCached(ctx context.Context, world string) ([]d
 //
 // "universe" scope spans every authorized world through one broker request.
 func (s *ReadingService) NameIndex(ctx context.Context, scope, world string) ([]domain.IndexEntry, error) {
-	// The durable topology sources the orphan flag (ADR 0006 §0.2). Read once;
-	// when no hub is configured it's empty and free, so the per-keystroke palette
-	// pays nothing — only orphan-aware callers on hub systems incur the join.
-	topo := s.readHub(ctx, s.hub)
-	var host2name map[string]string
-	if len(topo.nodes) > 0 {
-		var err error
-		if host2name, err = s.host2name(ctx); err != nil {
-			return nil, err // outbound failure propagates; the web layer decides
-		}
-	}
+	// The durable topology sources the orphan flag (ADR 0006 §0.2), from the
+	// shared hub read: best-effort, so a hub outage costs the flag, not the index.
+	hub := s.hubGraph(ctx)
+	topo, host2name := hub.topo, hub.hosts.host2name
 
 	if scope != "universe" {
 		return s.worldNameIndex(ctx, world, worldOrphans(world, host2name, topo))

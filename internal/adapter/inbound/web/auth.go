@@ -12,6 +12,7 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/latebit-io/demarkus-library/internal/adapter/bearer"
 	"github.com/latebit-io/demarkus-library/internal/adapter/inbound/web/session"
+	"github.com/latebit-io/demarkus-library/internal/core/port"
 )
 
 // sessionCookie is the browser's only piece of auth state: the opaque session
@@ -127,7 +128,7 @@ func SessionBearer(mgr *session.Manager) echo.MiddlewareFunc {
 				// on the next page, not this asset's. No reader marks: the
 				// asset renders no page, so the id token stays unparsed.
 				if token, err := mgr.Token(c.Request().Context(), cookie.Value); err == nil {
-					withBearer(c, token)
+					withBearer(c, cookie.Value, token)
 				}
 			}
 			return next(c)
@@ -147,13 +148,15 @@ func attachSession(c *echo.Context, mgr *session.Manager, sessionID string) erro
 	if email := emailFromIDToken(token); email != "" {
 		c.Set(userEmailKey, email)
 	}
-	withBearer(c, token)
+	withBearer(c, sessionID, token)
 	return nil
 }
 
-func withBearer(c *echo.Context, token string) {
+// withBearer marks the request as the reader's: the bearer for outbound calls
+// and the session id as the core's per-reader key.
+func withBearer(c *echo.Context, sessionID, token string) {
 	r := c.Request()
-	c.SetRequest(r.WithContext(bearer.WithToken(r.Context(), token)))
+	c.SetRequest(r.WithContext(port.WithReader(bearer.WithToken(r.Context(), token), sessionID)))
 }
 
 // redirectToLogin sends the reader to /login, preserving where they were

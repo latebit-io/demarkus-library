@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"sort"
 	"sync"
 
@@ -16,20 +17,39 @@ func (s *ReadingService) RecordLinks(world, path string, targets []domain.Ref) {
 }
 
 // Backlinks returns the documents observed linking to (world, path).
-func (s *ReadingService) Backlinks(world, path string) []domain.Ref {
-	return s.graph.backlinks(domain.Ref{World: world, Path: path})
+func (s *ReadingService) Backlinks(ctx context.Context, world, path string) []domain.Ref {
+	return s.Neighborhood(ctx, world, path).In
 }
 
-// Neighborhood assembles the graph pane's data: the document plus its observed
-// outbound (Out) and inbound (In) edges. Store-only — no world reads — so it
-// renders cold in both transports (sparse until the documents are read).
-func (s *ReadingService) Neighborhood(world, path string) domain.Neighborhood {
+// Neighborhood assembles the graph pane's data: the document plus its
+// outbound (Out) and inbound (In) edges, the observed map unioned with the
+// hub's durable edges so a cold pod still draws what the hub knows.
+func (s *ReadingService) Neighborhood(ctx context.Context, world, path string) domain.Neighborhood {
 	center := domain.Ref{World: world, Path: path}
+	durable := s.hubGraph(ctx).edges
 	return domain.Neighborhood{
 		Center: center,
-		Out:    s.graph.links(center),
-		In:     s.graph.backlinks(center),
+		Out:    unionRefs(s.graph.links(center), durable.links(center)),
+		In:     unionRefs(s.graph.backlinks(center), durable.backlinks(center)),
 	}
+}
+
+// unionRefs merges two sorted ref lists, each once, sorted; nil when both are empty.
+func unionRefs(a, b []domain.Ref) []domain.Ref {
+	if len(b) == 0 {
+		return a
+	}
+	if len(a) == 0 {
+		return b
+	}
+	set := make(map[domain.Ref]struct{}, len(a)+len(b))
+	for _, r := range a {
+		set[r] = struct{}{}
+	}
+	for _, r := range b {
+		set[r] = struct{}{}
+	}
+	return sortedRefs(set)
 }
 
 // linkGraph is the render-time observed-links map (R3 decision; ADR 0005 §16):
@@ -51,11 +71,12 @@ func (s *ReadingService) Neighborhood(world, path string) domain.Neighborhood {
 const maxLinkGraphSources = 5000
 
 type linkGraph struct {
-	mu   sync.RWMutex
-	out  map[domain.Ref]map[domain.Ref]struct{} // source → targets it links to
-	in   map[domain.Ref]map[domain.Ref]struct{} // target → sources that link to it
-	seq  map[domain.Ref]uint64                  // last-observed tick per source, for LRU eviction
-	tick uint64
+	unbounded bool // no source cap: the hub's durable copy must stay whole
+	mu        sync.RWMutex
+	out       map[domain.Ref]map[domain.Ref]struct{} // source → targets it links to
+	in        map[domain.Ref]map[domain.Ref]struct{} // target → sources that link to it
+	seq       map[domain.Ref]uint64                  // last-observed tick per source, for LRU eviction
+	tick      uint64
 }
 
 // observe records that src links to exactly targets, replacing any previously
@@ -99,12 +120,20 @@ func (g *linkGraph) observe(src domain.Ref, targets []domain.Ref) {
 	g.evictLocked()
 }
 
+// observeAll records every source's edge set at once — how the hub's
+// resolved topology fills a fresh store.
+func (g *linkGraph) observeAll(bySource map[domain.Ref][]domain.Ref) {
+	for src, targets := range bySource {
+		g.observe(src, targets)
+	}
+}
+
 // evictLocked bounds the source count, dropping the least-recently-observed
 // source (and its edges) until within maxLinkGraphSources. Called under g.mu.
 // Re-observing an existing source replaces its edge set without growing the
 // map, so eviction only fires on genuinely new sources past the cap.
 func (g *linkGraph) evictLocked() {
-	for len(g.out) > maxLinkGraphSources {
+	for !g.unbounded && len(g.out) > maxLinkGraphSources {
 		var victim domain.Ref
 		var minSeq uint64
 		first := true
