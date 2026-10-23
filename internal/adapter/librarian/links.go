@@ -53,7 +53,7 @@ func (t *linksTool) Execute(ctx context.Context, call llm.ToolCall) nibagent.Too
 		return errResult(fmt.Errorf("links: %s is a listing, not a document — find its documents instead", ref.Path))
 	}
 
-	hood := t.graph.Neighborhood(ref.World, ref.Path)
+	hood := t.graph.Neighborhood(ctx, ref.World, ref.Path)
 	outbound, observed := hood.Out, true
 	if len(outbound) == 0 {
 		// Nothing observed yet: read the document's own links. A failed read

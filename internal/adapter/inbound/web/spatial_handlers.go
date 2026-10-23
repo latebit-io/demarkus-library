@@ -49,13 +49,13 @@ func (h *SpatialHandler) GraphPage(c *echo.Context) error {
 	// trail (from HX-Current-URL), and can re-centre again.
 	if c.QueryParam("overlay") == "1" {
 		t := currentTrail(c)
-		n := h.graph.Neighborhood(world, p)
+		n := h.graph.Neighborhood(c.Request().Context(), world, p)
 		return c.HTML(http.StatusOK, string(graphSVG(n, trailNodeURL(t, t.Focus), graphRecenterURL, trailDocRefs(t))))
 	}
 	if u := canvasTrailURL(c, paneAddr{Kind: paneGraph, World: world, Value: p}); u != "" {
 		return c.Redirect(http.StatusSeeOther, u)
 	}
-	n := h.graph.Neighborhood(world, p)
+	n := h.graph.Neighborhood(c.Request().Context(), world, p)
 	// Single-pane permalink: nodes link to /w/ document permalinks.
 	svg := graphSVG(n, trailNodeURL(trail{}, 0), nil, nil)
 	vm := page{

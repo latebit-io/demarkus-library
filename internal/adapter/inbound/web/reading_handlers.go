@@ -294,7 +294,7 @@ func (h *ReadingHandler) present(c *echo.Context, doc domain.Document, err error
 		// graph affordance point at /w/ permalinks rather than trail URLs.
 		// Gated on real references, like the canvas margin: no graph affordance
 		// where there is no graph.
-		if degree := h.spatial.graphDegree(opts.world, doc.Path); degree > 0 {
+		if degree := h.spatial.graphDegree(c.Request().Context(), opts.world, doc.Path); degree > 0 {
 			vm.GraphDegree = degree
 			vm.GraphURL = graphRoute(opts.world, doc.Path)
 		}
@@ -306,7 +306,7 @@ func (h *ReadingHandler) present(c *echo.Context, doc domain.Document, err error
 			vm.NewURL = "/w/" + vm.WorldPath + "/new?dir=" + url.QueryEscape(dirOf(doc.Path))
 			vm.AppendURL = "/w/" + vm.WorldPath + "/append" + doc.Path
 		}
-		vm.Backlinks = backlinkLinks(h.reading.Backlinks(opts.world, doc.Path), func(r domain.Ref) string {
+		vm.Backlinks = backlinkLinks(h.reading.Backlinks(c.Request().Context(), opts.world, doc.Path), func(r domain.Ref) string {
 			return docRoute(r.World, r.Path)
 		})
 	}

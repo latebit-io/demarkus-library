@@ -45,6 +45,84 @@ func (s *ReadingService) readHub(ctx context.Context, hub string) hubTopology {
 	return hubTopology{nodes: nodes, edges: edges}
 }
 
+// hostIndex resolves host-keyed hub refs to names the reader may open:
+// authorized world names, and host→name by each world's dial Address (what
+// the hub graph keys nodes by), falling back to URL for older brokers and QUIC.
+type hostIndex struct {
+	authorized map[string]bool
+	host2name  map[string]string
+}
+
+func indexHosts(worlds []domain.WorldInfo) hostIndex {
+	idx := hostIndex{authorized: make(map[string]bool, len(worlds)), host2name: make(map[string]string, len(worlds))}
+	for _, w := range worlds {
+		idx.authorized[w.Name] = true
+		joinAddr := w.Address
+		if joinAddr == "" {
+			joinAddr = w.URL
+		}
+		if h := hostOf(joinAddr); h != "" {
+			idx.host2name[hostKey(h)] = w.Name
+		}
+	}
+	return idx
+}
+
+// hubGraph is one read of the hub: the raw topology, the host index that
+// resolves it, and its reference edges in world-name space — the durable
+// edge layer under the render-time observed map.
+type hubGraph struct {
+	topo  hubTopology
+	hosts hostIndex
+	edges *linkGraph
+}
+
+// noHubEdges is the durable layer of a room without a hub: always empty.
+var noHubEdges = &linkGraph{}
+
+// hubTTL bounds how long one hub read serves every consumer (floor, world
+// map, palette, graph); the export only moves on the crawler's schedule.
+const hubTTL = floorTTL
+
+// hubGraph is the one hub reader: cached for hubTTL, best-effort throughout —
+// a failed read or world list caches empty, the degrade the floor applies.
+func (s *ReadingService) hubGraph(ctx context.Context) hubGraph {
+	if s.hub == "" {
+		return hubGraph{edges: noHubEdges}
+	}
+	if g, ok := s.hubs.getFresh(s.hub, hubTTL); ok {
+		return g
+	}
+	epoch := s.hubs.epoch(s.hub)
+	g := hubGraph{topo: s.readHub(ctx, s.hub), edges: &linkGraph{}}
+	if worlds, err := s.world.Worlds(ctx); err == nil {
+		g.hosts = indexHosts(worlds)
+	}
+	g.edges.observeAll(resolveHubEdges(g.topo.edges, g.hosts))
+	s.hubs.put(s.hub, epoch, g)
+	return g
+}
+
+// resolveHubEdges maps the hub's reference edges into world-name space,
+// grouped by source. An endpoint on an unauthorized host (a portal) drops the
+// edge: the reader could not open it, so it is not a navigable neighbor.
+func resolveHubEdges(edges []domain.Edge, hosts hostIndex) map[domain.Ref][]domain.Ref {
+	out := map[domain.Ref][]domain.Ref{}
+	for _, e := range edges {
+		if e.Type != domain.EdgeReference {
+			continue
+		}
+		from, fromPortal := hostName(e.From.World, hosts.host2name, hosts.authorized)
+		to, toPortal := hostName(e.To.World, hosts.host2name, hosts.authorized)
+		if fromPortal || toPortal {
+			continue
+		}
+		src := domain.Ref{World: from, Path: e.From.Path}
+		out[src] = append(out[src], domain.Ref{World: to, Path: e.To.Path})
+	}
+	return out
+}
+
 // hostName resolves a topology Ref's world to an authorized world name. The
 // graph export keys nodes by host; mark_worlds gives each authorized world's
 // host (its URL), so host→name joins the two. A ref whose world is already an

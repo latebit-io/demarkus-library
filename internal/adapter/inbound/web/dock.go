@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"slices"
 	"strings"
 
@@ -49,7 +50,7 @@ type dockChip struct {
 // buildDock assembles the dock from the parsed trail. Call it after the pane
 // loop so the focused doc's links are already observed (RecordLinks ran during
 // render), giving the connectors and chips something to read.
-func (h *ReadingHandler) buildDock(t trail) dockVM {
+func (h *ReadingHandler) buildDock(ctx context.Context, t trail) dockVM {
 	d := dockVM{Entries: make([]dockEntry, len(t.Panes))}
 	for i, p := range t.Panes {
 		label, _ := paneLabel(p, h.terms)
@@ -62,11 +63,11 @@ func (h *ReadingHandler) buildDock(t trail) dockVM {
 			ShowWorld: i == 0 || dockWorld(p, h.terms) != dockWorld(t.Panes[i-1], h.terms),
 		}
 		if i > 0 {
-			e.Walked = h.refEdgeBetween(t.Panes[i-1], p)
+			e.Walked = h.refEdgeBetween(ctx, t.Panes[i-1], p)
 		}
 		d.Entries[i] = e
 	}
-	d.Chips = h.dockChips(t)
+	d.Chips = h.dockChips(ctx, t)
 	return d
 }
 
@@ -81,18 +82,18 @@ func dockWorld(p paneAddr, terms Terms) string {
 
 // refEdgeBetween reports whether a reference edge joins two doc panes in the
 // observed graph (either direction) — the test for a "walk" vs a "jump".
-func (h *ReadingHandler) refEdgeBetween(a, b paneAddr) bool {
+func (h *ReadingHandler) refEdgeBetween(ctx context.Context, a, b paneAddr) bool {
 	if !isDocPane(a) || !isDocPane(b) {
 		return false
 	}
 	bref := domain.Ref{World: b.World, Path: b.Value}
-	n := h.reading.Neighborhood(a.World, a.Value)
+	n := h.reading.Neighborhood(ctx, a.World, a.Value)
 	return slices.Contains(n.Out, bref) || slices.Contains(n.In, bref)
 }
 
 // dockChips lists up to dockMaxChips one-hop reference neighbors of the active
 // doc that are not already on the trail.
-func (h *ReadingHandler) dockChips(t trail) []dockChip {
+func (h *ReadingHandler) dockChips(ctx context.Context, t trail) []dockChip {
 	if t.Focus < 0 || t.Focus >= len(t.Panes) {
 		return nil
 	}
@@ -106,7 +107,7 @@ func (h *ReadingHandler) dockChips(t trail) []dockChip {
 			onTrail[domain.Ref{World: p.World, Path: p.Value}] = true
 		}
 	}
-	n := h.reading.Neighborhood(f.World, f.Value)
+	n := h.reading.Neighborhood(ctx, f.World, f.Value)
 	var chips []dockChip
 	seen := map[domain.Ref]bool{}
 	for _, r := range append(append([]domain.Ref{}, n.Out...), n.In...) {

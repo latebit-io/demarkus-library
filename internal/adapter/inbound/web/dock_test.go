@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -21,7 +22,7 @@ func TestBuildDock(t *testing.T) {
 		{Kind: paneDoc, World: "world-a", Value: "/mission.md"},
 	}, Focus: 2, Reader: -1}
 
-	d := h.buildDock(tr)
+	d := h.buildDock(context.Background(), tr)
 
 	if len(d.Entries) != 3 {
 		t.Fatalf("entries = %d, want 3", len(d.Entries))
@@ -62,7 +63,7 @@ func TestBuildDockChipsSkipPanesAlreadyOnTrail(t *testing.T) {
 		{Kind: paneDoc, World: "world-a", Value: "/mission.md"},
 	}, Focus: 1, Reader: -1}
 
-	if d := h.buildDock(tr); len(d.Chips) != 0 {
+	if d := h.buildDock(context.Background(), tr); len(d.Chips) != 0 {
 		t.Errorf("chips = %+v, want none (only neighbor is already on the trail)", d.Chips)
 	}
 }

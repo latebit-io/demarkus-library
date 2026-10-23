@@ -108,7 +108,7 @@ func (h spatialPanes) floorPane(ctx context.Context, t trail, i int, mapView boo
 // graphPane builds the graph pane on the trail canvas: nodes link to
 // post-click trail URLs so a click continues the trail (decision 4). Like the
 // floor, the graph carries no margin — its signals are on the nodes.
-func (h spatialPanes) graphPane(t trail, i int, addr paneAddr) paneVM {
+func (h spatialPanes) graphPane(ctx context.Context, t trail, i int, addr paneAddr) paneVM {
 	mode := "spine"
 	switch i {
 	case t.Focus:
@@ -127,7 +127,7 @@ func (h spatialPanes) graphPane(t trail, i int, addr paneAddr) paneVM {
 	if mode == "spine" {
 		return vm
 	}
-	n := h.graph.Neighborhood(addr.World, addr.Value)
+	n := h.graph.Neighborhood(ctx, addr.World, addr.Value)
 	vm.Content = graphSVG(n, trailNodeURL(t, i), nil, trailDocRefs(t))
 	return vm
 }
@@ -135,8 +135,8 @@ func (h spatialPanes) graphPane(t trail, i int, addr paneAddr) paneVM {
 // graphOverlay builds the focused document's neighborhood for the on-demand
 // overlay (ADR 0006 §4). Node clicks jump from the focus, so it replaces the
 // in-trail graph pane rather than docking beside it.
-func (h spatialPanes) graphOverlay(t trail, addr paneAddr) graphOverlayVM {
-	n := h.graph.Neighborhood(addr.World, addr.Value)
+func (h spatialPanes) graphOverlay(ctx context.Context, t trail, addr paneAddr) graphOverlayVM {
+	n := h.graph.Neighborhood(ctx, addr.World, addr.Value)
 	degree := n.Degree()
 	return graphOverlayVM{
 		// A doc nothing links to or from has no graph worth summoning: the
@@ -168,6 +168,6 @@ func graphRecenterURL(r domain.Ref) string {
 
 // graphDegree is a doc's reference-edge count — the number the graph affordance
 // shows and the condition it appears on. Store-only, so it costs no world read.
-func (h spatialPanes) graphDegree(world, path string) int {
-	return h.graph.Neighborhood(world, path).Degree()
+func (h spatialPanes) graphDegree(ctx context.Context, world, path string) int {
+	return h.graph.Neighborhood(ctx, world, path).Degree()
 }

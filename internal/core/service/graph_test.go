@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"reflect"
 	"testing"
 
@@ -16,15 +17,15 @@ func TestRecordLinksAndBacklinks(t *testing.T) {
 	svc.RecordLinks("w", "/a.md", []domain.Ref{ref("w", "/target.md"), ref("w", "/other.md")})
 	svc.RecordLinks("w", "/b.md", []domain.Ref{ref("w", "/target.md")})
 
-	got := svc.Backlinks("w", "/target.md")
+	got := svc.Backlinks(context.Background(), "w", "/target.md")
 	want := []domain.Ref{ref("w", "/a.md"), ref("w", "/b.md")} // sorted
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("backlinks(target) = %v, want %v", got, want)
 	}
-	if got := svc.Backlinks("w", "/other.md"); !reflect.DeepEqual(got, []domain.Ref{ref("w", "/a.md")}) {
+	if got := svc.Backlinks(context.Background(), "w", "/other.md"); !reflect.DeepEqual(got, []domain.Ref{ref("w", "/a.md")}) {
 		t.Errorf("backlinks(other) = %v", got)
 	}
-	if got := svc.Backlinks("w", "/nobody.md"); got != nil {
+	if got := svc.Backlinks(context.Background(), "w", "/nobody.md"); got != nil {
 		t.Errorf("backlinks of unlinked doc = %v, want nil", got)
 	}
 }
@@ -36,10 +37,10 @@ func TestRecordLinksReplacesStaleEdges(t *testing.T) {
 	// backlink from x.md must not survive (fresh truth replaces it).
 	svc.RecordLinks("w", "/a.md", []domain.Ref{ref("w", "/y.md")})
 
-	if got := svc.Backlinks("w", "/x.md"); got != nil {
+	if got := svc.Backlinks(context.Background(), "w", "/x.md"); got != nil {
 		t.Errorf("stale backlink survived: %v", got)
 	}
-	if got := svc.Backlinks("w", "/y.md"); !reflect.DeepEqual(got, []domain.Ref{ref("w", "/a.md")}) {
+	if got := svc.Backlinks(context.Background(), "w", "/y.md"); !reflect.DeepEqual(got, []domain.Ref{ref("w", "/a.md")}) {
 		t.Errorf("new backlink missing: %v", got)
 	}
 }
@@ -47,7 +48,7 @@ func TestRecordLinksReplacesStaleEdges(t *testing.T) {
 func TestRecordLinksSkipsSelfLoops(t *testing.T) {
 	svc := NewReadingService(nil, nil, nil)
 	svc.RecordLinks("w", "/a.md", []domain.Ref{ref("w", "/a.md"), ref("w", "/b.md")})
-	if got := svc.Backlinks("w", "/a.md"); got != nil {
+	if got := svc.Backlinks(context.Background(), "w", "/a.md"); got != nil {
 		t.Errorf("self-loop recorded: %v", got)
 	}
 }
@@ -57,7 +58,7 @@ func TestNeighborhood(t *testing.T) {
 	svc.RecordLinks("w", "/center.md", []domain.Ref{ref("w", "/out1.md"), ref("w", "/out2.md")})
 	svc.RecordLinks("w", "/in1.md", []domain.Ref{ref("w", "/center.md")})
 
-	n := svc.Neighborhood("w", "/center.md")
+	n := svc.Neighborhood(context.Background(), "w", "/center.md")
 	if n.Center != ref("w", "/center.md") {
 		t.Errorf("center = %v", n.Center)
 	}
@@ -71,7 +72,7 @@ func TestNeighborhood(t *testing.T) {
 
 func TestNeighborhoodEmpty(t *testing.T) {
 	svc := NewReadingService(nil, nil, nil)
-	n := svc.Neighborhood("w", "/lonely.md")
+	n := svc.Neighborhood(context.Background(), "w", "/lonely.md")
 	if n.Out != nil || n.In != nil {
 		t.Errorf("unread doc has edges: %+v", n)
 	}

@@ -68,25 +68,18 @@ func (s *ReadingService) WorldMap(ctx context.Context, world string) (domain.Wor
 
 	// Enrichment (best-effort): the world's display identity (its mark:// URL)
 	// and the host→name join key for intra-world hub edges.
-	host2name := map[string]string{}
+	// The durable hub topology and its host join, from the shared hub read:
+	// both the orphan flag (nodes + edges) and the intra-world edges below.
+	hub := s.hubGraph(ctx)
+	host2name := hub.hosts.host2name
 	if worlds, werr := s.world.Worlds(ctx); werr == nil {
 		for _, w := range worlds {
 			if w.Name == world {
 				wm.World = w
 			}
-			joinAddr := w.Address
-			if joinAddr == "" {
-				joinAddr = w.URL
-			}
-			if h := hostOf(joinAddr); h != "" {
-				host2name[hostKey(h)] = w.Name
-			}
 		}
 	}
-
-	// The durable hub topology, read once: it sources both the orphan flag
-	// (nodes + edges) and the intra-world edges below.
-	topo := s.readHub(ctx, s.hub)
+	topo := hub.topo
 
 	// Orphan flag (ADR 0006 §0.2): mark each rendered doc the hub topology knows
 	// as a node but that has zero reference edges. Hub-only, so the flag is
@@ -166,28 +159,6 @@ func intraWorldEdges(world string, host2name map[string]string, all []domain.Edg
 		return out[i].To.Path < out[j].To.Path
 	})
 	return out
-}
-
-// host2name maps each authorized world's dial host to its world name — the join
-// key for hub-graph refs (keyed by host) against world names. A world-list read
-// failure propagates (outbound-port errors are never swallowed in the core); the
-// caller decides whether to degrade or surface it.
-func (s *ReadingService) host2name(ctx context.Context) (map[string]string, error) {
-	worlds, err := s.world.Worlds(ctx)
-	if err != nil {
-		return nil, err
-	}
-	m := make(map[string]string, len(worlds))
-	for _, w := range worlds {
-		addr := w.Address
-		if addr == "" {
-			addr = w.URL
-		}
-		if h := hostOf(addr); h != "" {
-			m[hostKey(h)] = w.Name
-		}
-	}
-	return m, nil
 }
 
 // worldMember reports whether a topology ref's world resolves to world — either

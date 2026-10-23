@@ -105,9 +105,9 @@ func (f *fakePorts) TagCached(context.Context, string, string) (domain.Document,
 
 // GraphService
 
-func (f *fakePorts) RecordLinks(string, string, []domain.Ref) {}
-func (f *fakePorts) Backlinks(string, string) []domain.Ref    { return f.hood.In }
-func (f *fakePorts) Neighborhood(world, path string) domain.Neighborhood {
+func (f *fakePorts) RecordLinks(string, string, []domain.Ref)               {}
+func (f *fakePorts) Backlinks(context.Context, string, string) []domain.Ref { return f.hood.In }
+func (f *fakePorts) Neighborhood(_ context.Context, world, path string) domain.Neighborhood {
 	n := f.hood
 	n.Center = domain.Ref{World: world, Path: path}
 	return n
