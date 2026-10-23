@@ -82,10 +82,9 @@ type GraphService interface {
 	// Backlinks returns the documents linking to (world, path) — the margin's
 	// "referenced by" block. Best-effort: empty when none is known, never an error.
 	Backlinks(ctx context.Context, world, path string) []domain.Ref
-	// Neighborhood assembles the graph pane's data (ADR 0005 decision 4): the
-	// document plus its outbound and inbound edges — the observed map unioned
-	// with the hub topology's reference edges, so a cold pod still shows the
-	// durable ones. ctx carries the reader for the hub read; never an error.
+	// Neighborhood is the graph pane's data (ADR 0005 decision 4): the document
+	// plus its outbound and inbound edges, observed map unioned with the hub's
+	// reference edges; ctx carries the reader for the hub read. Never an error.
 	Neighborhood(ctx context.Context, world, path string) domain.Neighborhood
 }
 

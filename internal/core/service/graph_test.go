@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"testing"
 
@@ -75,5 +76,22 @@ func TestNeighborhoodEmpty(t *testing.T) {
 	n := svc.Neighborhood(context.Background(), "w", "/lonely.md")
 	if n.Out != nil || n.In != nil {
 		t.Errorf("unread doc has edges: %+v", n)
+	}
+}
+
+func TestLinkGraphUnboundedKeepsEverySource(t *testing.T) {
+	bySource := make(map[domain.Ref][]domain.Ref, maxLinkGraphSources+5)
+	for i := range maxLinkGraphSources + 5 {
+		bySource[ref("w", fmt.Sprintf("/src-%d.md", i))] = []domain.Ref{ref("w", "/hub.md")}
+	}
+	durable := &linkGraph{unbounded: true}
+	durable.observeAll(bySource)
+	if got := len(durable.backlinks(ref("w", "/hub.md"))); got != maxLinkGraphSources+5 {
+		t.Errorf("durable store evicted: %d backlinks, want %d", got, maxLinkGraphSources+5)
+	}
+	bounded := &linkGraph{}
+	bounded.observeAll(bySource)
+	if got := len(bounded.backlinks(ref("w", "/hub.md"))); got != maxLinkGraphSources {
+		t.Errorf("observed store not capped: %d backlinks, want %d", got, maxLinkGraphSources)
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
+	"github.com/latebit-io/demarkus-library/internal/core/port"
 )
 
 // The hub topology reader (plans "Floor enrichment", decision 11). A hub is
@@ -84,22 +85,26 @@ var noHubEdges = &linkGraph{}
 // map, palette, graph); the export only moves on the crawler's schedule.
 const hubTTL = floorTTL
 
-// hubGraph is the one hub reader: cached for hubTTL, best-effort throughout —
-// a failed read or world list caches empty, the degrade the floor applies.
+// hubGraph is the one hub reader, cached per reader for hubTTL: the world
+// list is the reader's permission mask, so one reader's resolved graph must
+// never serve another. Best-effort — a failed read or world list caches empty.
 func (s *ReadingService) hubGraph(ctx context.Context) hubGraph {
 	if s.hub == "" {
 		return hubGraph{edges: noHubEdges}
 	}
-	if g, ok := s.hubs.getFresh(s.hub, hubTTL); ok {
+	reader := port.ReaderKey(ctx)
+	if g, ok := s.hubs.getFresh(reader, hubTTL); ok {
 		return g
 	}
-	epoch := s.hubs.epoch(s.hub)
-	g := hubGraph{topo: s.readHub(ctx, s.hub), edges: &linkGraph{}}
+	epoch := s.hubs.epoch(reader)
+	// The durable store is never evicted: a cold pod must hold the whole hub.
+	g := hubGraph{topo: s.readHub(ctx, s.hub), edges: &linkGraph{unbounded: true}}
 	if worlds, err := s.world.Worlds(ctx); err == nil {
 		g.hosts = indexHosts(worlds)
 	}
 	g.edges.observeAll(resolveHubEdges(g.topo.edges, g.hosts))
-	s.hubs.put(s.hub, epoch, g)
+	s.hubs.sweep(hubTTL) // readers come and go; keep only live windows
+	s.hubs.put(reader, epoch, g)
 	return g
 }
 

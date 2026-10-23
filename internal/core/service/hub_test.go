@@ -1,6 +1,7 @@
 package service
 
 import (
+	"github.com/latebit-io/demarkus-library/internal/core/port"
 	"reflect"
 	"testing"
 
@@ -272,5 +273,30 @@ func TestNeighborhoodUnionsHubEdgesOnAColdPod(t *testing.T) {
 	}
 	if called != "" {
 		t.Errorf("hub re-read inside the TTL: %s", called)
+	}
+}
+
+func TestHubGraphIsCachedPerReader(t *testing.T) {
+	// The world list is a permission mask: reader B must not be served the
+	// graph resolved for reader A, while A's own repeat read stays cached.
+	var called string
+	gw := fakeGateway{
+		worlds:    []domain.WorldInfo{{Name: "root", URL: "mark://root.svc:6309"}},
+		fetchBody: map[string]string{hubGraphPath: "stub"},
+		called:    &called,
+	}
+	svc := NewReadingService(gw, fakeRenderer{}, nil).WithHub("root", hubStubTopology)
+	a := port.WithReader(t.Context(), "session-a")
+	b := port.WithReader(t.Context(), "session-b")
+
+	svc.Neighborhood(a, "root", "/index.md")
+	called = ""
+	svc.Neighborhood(a, "root", "/index.md")
+	if called != "" {
+		t.Errorf("reader A re-read the hub inside the TTL: %s", called)
+	}
+	svc.Neighborhood(b, "root", "/index.md")
+	if called == "" {
+		t.Error("reader B was served reader A's cached hub graph")
 	}
 }

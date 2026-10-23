@@ -14,6 +14,7 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/latebit-io/demarkus-library/internal/adapter/bearer"
 	"github.com/latebit-io/demarkus-library/internal/adapter/inbound/web/session"
+	"github.com/latebit-io/demarkus-library/internal/core/port"
 )
 
 // fakeAuthority satisfies session.Authority for manager construction; the
@@ -73,6 +74,7 @@ type testRig struct {
 	flow     *fakeFlow
 
 	probeBearer string
+	probeReader string
 }
 
 func newTestRig(t *testing.T) *testRig {
@@ -95,6 +97,7 @@ func newTestRig(t *testing.T) *testRig {
 	AuthRoutes(rig.app, NewAuthHandler(rig.flow, rig.sessions, rig.pending, CookieConfig{TTL: time.Hour}))
 	rig.app.GET("/probe", func(c *echo.Context) error {
 		rig.probeBearer = bearer.FromContext(c.Request().Context())
+		rig.probeReader = port.ReaderKey(c.Request().Context())
 		return c.String(http.StatusOK, "ok")
 	}, RequireSession(rig.sessions))
 	return rig
@@ -211,6 +214,9 @@ func TestFullLoginFlow(t *testing.T) {
 	}
 	if rig.probeBearer != "id-tok" {
 		t.Errorf("probe bearer = %q, want id-tok", rig.probeBearer)
+	}
+	if rig.probeReader == "" {
+		t.Error("probe reader key empty; the session id should mark the request")
 	}
 }
 

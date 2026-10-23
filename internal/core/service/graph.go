@@ -71,11 +71,12 @@ func unionRefs(a, b []domain.Ref) []domain.Ref {
 const maxLinkGraphSources = 5000
 
 type linkGraph struct {
-	mu   sync.RWMutex
-	out  map[domain.Ref]map[domain.Ref]struct{} // source → targets it links to
-	in   map[domain.Ref]map[domain.Ref]struct{} // target → sources that link to it
-	seq  map[domain.Ref]uint64                  // last-observed tick per source, for LRU eviction
-	tick uint64
+	unbounded bool // no source cap: the hub's durable copy must stay whole
+	mu        sync.RWMutex
+	out       map[domain.Ref]map[domain.Ref]struct{} // source → targets it links to
+	in        map[domain.Ref]map[domain.Ref]struct{} // target → sources that link to it
+	seq       map[domain.Ref]uint64                  // last-observed tick per source, for LRU eviction
+	tick      uint64
 }
 
 // observe records that src links to exactly targets, replacing any previously
@@ -132,7 +133,7 @@ func (g *linkGraph) observeAll(bySource map[domain.Ref][]domain.Ref) {
 // Re-observing an existing source replaces its edge set without growing the
 // map, so eviction only fires on genuinely new sources past the cap.
 func (g *linkGraph) evictLocked() {
-	for len(g.out) > maxLinkGraphSources {
+	for !g.unbounded && len(g.out) > maxLinkGraphSources {
 		var victim domain.Ref
 		var minSeq uint64
 		first := true
