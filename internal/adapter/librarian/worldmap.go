@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
-	"github.com/latebit-io/demarkus-library/internal/core/port"
 	nibagent "github.com/latebit-io/nib/agent"
 	"github.com/latebit-io/nib/ai/llm"
 )
@@ -19,15 +18,19 @@ const (
 	mapMaxEdges = 40
 )
 
-// mapTool describes a world's shape (MapService.WorldMapCached): its
-// directory clusters with their leading documents, and the links observed
-// among the mapped documents.
+// worldMapper is the slice of port.MapService the map tool reads: the cached
+// map, so a model turn never forces a live rebuild.
+type worldMapper interface {
+	WorldMapCached(ctx context.Context, world string) (domain.WorldMap, error)
+}
+
+// mapTool describes a world's shape: its directory clusters with their
+// leading documents, and the links observed among the mapped documents.
 type mapTool struct {
-	maps         port.MapService
+	maps         worldMapper
 	defaultWorld string
 }
 
-// mapArgs are the map tool's arguments.
 type mapArgs struct {
 	World string `json:"world"`
 }

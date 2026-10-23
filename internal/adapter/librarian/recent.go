@@ -28,7 +28,6 @@ type recentTool struct {
 	now     func() time.Time
 }
 
-// recentArgs are the recent tool's arguments.
 type recentArgs struct {
 	Days  int    `json:"days"`
 	World string `json:"world"`
