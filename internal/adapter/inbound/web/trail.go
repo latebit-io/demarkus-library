@@ -355,11 +355,17 @@ func trailAfterClick(t trail, idx int, target paneAddr) trail {
 			return trail{Panes: t.Panes, Focus: i, Reader: -1, Meta: -1}
 		}
 	}
-	panes := append(slices.Clone(t.Panes[:idx+1]), target)
+	panes, focus := capPanes(append(slices.Clone(t.Panes[:idx+1]), target))
+	return trail{Panes: panes, Focus: focus, Reader: -1, Meta: -1}
+}
+
+// capPanes drops the oldest panes past the depth cap and returns the index
+// of the last pane — the focus every append lands on.
+func capPanes(panes []paneAddr) (kept []paneAddr, last int) {
 	if len(panes) > maxPanes {
 		panes = panes[len(panes)-maxPanes:]
 	}
-	return trail{Panes: panes, Focus: len(panes) - 1, Reader: -1, Meta: -1}
+	return panes, len(panes) - 1
 }
 
 // trailAskAbout opens the librarian beside pane idx: panes right of it drop
@@ -368,11 +374,31 @@ func trailAfterClick(t trail, idx int, target paneAddr) trail {
 // and it takes focus.
 func trailAskAbout(t trail, idx int) trail {
 	panes := slices.DeleteFunc(slices.Clone(t.Panes[:idx+1]), func(p paneAddr) bool { return p.Kind == paneLibrarian })
-	panes = append(panes, paneAddr{Kind: paneLibrarian})
-	if len(panes) > maxPanes {
-		panes = panes[len(panes)-maxPanes:]
+	panes, focus := capPanes(append(panes, paneAddr{Kind: paneLibrarian}))
+	return trail{Panes: panes, Focus: focus, Reader: -1, Meta: -1}
+}
+
+// trailLayout opens targets as panes right of pane idx, skipping any already
+// on the path up to it; focus lands on the first new pane so pane idx stays
+// expanded beside it. Nothing new to open yields an empty trail.
+func trailLayout(t trail, idx int, targets []paneAddr) trail {
+	panes := slices.Clone(t.Panes[:idx+1])
+	for _, target := range targets {
+		if len(panes) == idx+maxPanes {
+			break // fewer new panes than the cap keeps pane idx after the drop
+		}
+		if !slices.Contains(panes, target) {
+			panes = append(panes, target)
+		}
 	}
-	return trail{Panes: panes, Focus: len(panes) - 1, Reader: -1, Meta: -1}
+	if len(panes) == idx+1 {
+		return trail{}
+	}
+	focus := idx + 1
+	if drop := len(panes) - maxPanes; drop > 0 {
+		panes, focus = panes[drop:], focus-drop
+	}
+	return trail{Panes: panes, Focus: focus, Reader: -1, Meta: -1}
 }
 
 // trailFocused is the spine/header click: same path, attention moves.

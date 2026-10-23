@@ -82,6 +82,15 @@ type librarianSourceVM struct {
 	Label string
 }
 
+// librarianSourcesVM is an exchange's sources line: the grounding documents
+// and, when the answer cites documents not yet open, one link that lays them
+// all out as panes beside the librarian (OpenAll "" otherwise).
+type librarianSourcesVM struct {
+	Items   []librarianSourceVM
+	OpenAll string
+	Opened  int
+}
+
 // librarianExchangeVM renders one transcript exchange; Answer is the
 // document-pipeline-rendered HTML. A live exchange (htmx ask response)
 // carries StreamURL instead — the SSE block that fills in as the librarian
@@ -90,7 +99,7 @@ type librarianExchangeVM struct {
 	Question  string
 	Answer    template.HTML
 	Steps     []librarianStepVM
-	Sources   []librarianSourceVM
+	Sources   librarianSourcesVM
 	Stopped   bool
 	StreamURL string
 }
@@ -155,14 +164,32 @@ func (h librarianPanes) pane(c *echo.Context, t trail, i int) paneVM {
 // exchangeVM renders one finished exchange for pane i of trail t.
 func (h librarianPanes) exchangeVM(ex domain.LibrarianExchange, t trail, i int) librarianExchangeVM {
 	vm := librarianExchangeVM{Question: ex.Question, Stopped: ex.Stopped}
+	var cited []domain.Ref
 	if ex.Answer != "" {
-		vm.Answer = h.renderAnswer(ex.Answer, t, i)
+		vm.Answer, cited = h.renderAnswer(ex.Answer, t, i)
 	}
 	for _, step := range ex.Steps {
 		vm.Steps = append(vm.Steps, stepVM(step, t, i))
 	}
+	sources := make([]librarianSourceVM, 0, len(ex.Sources))
 	for _, src := range ex.Sources {
-		vm.Sources = append(vm.Sources, sourceVM(src, t, i))
+		sources = append(sources, sourceVM(src, t, i))
+	}
+	vm.Sources = sourcesVM(sources, cited, t, i)
+	return vm
+}
+
+// sourcesVM builds the sources line from pane i, with the open-all link when
+// the answer cites documents not yet on the path up to the librarian. The new
+// panes run from the laid-out trail's focus on, so their count falls out of it.
+func sourcesVM(sources []librarianSourceVM, cited []domain.Ref, t trail, i int) librarianSourcesVM {
+	vm := librarianSourcesVM{Items: sources}
+	targets := make([]paneAddr, 0, len(cited))
+	for _, ref := range cited {
+		targets = append(targets, paneAddr{Kind: paneDoc, World: ref.World, Value: ref.Path})
+	}
+	if next := trailLayout(t, i, targets); len(next.Panes) > 0 {
+		vm.OpenAll, vm.Opened = trailURL(next), len(next.Panes)-next.Focus
 	}
 	return vm
 }
@@ -231,16 +258,18 @@ func contextDoc(t trail, focus int) int {
 // renderAnswer runs an answer's markdown through the document pipeline:
 // render + sanitize (the model's output is untrusted input), resolve links to
 // in-app routes, wrap hover previews, and trailize so a cited document
-// continues the trail from the librarian pane.
-func (h librarianPanes) renderAnswer(markdown string, t trail, i int) template.HTML {
+// continues the trail from the librarian pane. The documents the answer
+// cites come back in citation order — the reading list the open-all link
+// lays out.
+func (h librarianPanes) renderAnswer(markdown string, t trail, i int) (template.HTML, []domain.Ref) {
 	rendered, err := h.reader.Preview(markdown)
 	if err != nil {
 		// Render failure degrades to escaped plain text — never raw model
 		// output into the page.
-		return template.HTML("<pre>" + template.HTMLEscapeString(markdown) + "</pre>") //nolint:gosec // explicitly escaped one line up
+		return template.HTML("<pre>" + template.HTMLEscapeString(markdown) + "</pre>"), nil //nolint:gosec // explicitly escaped one line up
 	}
-	content, _ := rewriteLinks(rendered.HTML, h.defaultWorld, "/")
-	return template.HTML(trailizeLinks(previewize(content), t, i, false)) //nolint:gosec // sanitized by Preview; the passes only rewrite/wrap links
+	content, cited := rewriteLinks(rendered.HTML, h.defaultWorld, "/")
+	return template.HTML(trailizeLinks(previewize(content), t, i, false)), cited //nolint:gosec // sanitized by Preview; the passes only rewrite/wrap links
 }
 
 // conversationKey names the reader's conversation: the session cookie in

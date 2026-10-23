@@ -222,11 +222,17 @@ func TestTrailAfterClickDedupsToFocus(t *testing.T) {
 	}
 }
 
-func TestTrailAfterClickDropsOldestPastCap(t *testing.T) {
-	full := trail{Focus: maxPanes - 1}
-	for i := range maxPanes {
-		full.Panes = append(full.Panes, doc("w", "/p"+strings.Repeat("x", i)+".md"))
+// docs mints n distinct document panes under prefix.
+func docs(prefix string, n int) []paneAddr {
+	panes := make([]paneAddr, 0, n)
+	for i := range n {
+		panes = append(panes, doc("w", prefix+strings.Repeat("x", i)+".md"))
 	}
+	return panes
+}
+
+func TestTrailAfterClickDropsOldestPastCap(t *testing.T) {
+	full := trail{Panes: docs("/p", maxPanes), Focus: maxPanes - 1}
 	got := trailAfterClick(full, maxPanes-1, doc("w", "/new.md"))
 	if len(got.Panes) != maxPanes {
 		t.Fatalf("len = %d, want %d", len(got.Panes), maxPanes)
@@ -236,6 +242,53 @@ func TestTrailAfterClickDropsOldestPastCap(t *testing.T) {
 	}
 	if got.Panes[maxPanes-1] != doc("w", "/new.md") || got.Focus != maxPanes-1 {
 		t.Errorf("append/focus wrong: %+v", got)
+	}
+}
+
+func TestTrailLayout(t *testing.T) {
+	lib := paneAddr{Kind: paneLibrarian}
+	// Librarian at the cap's last slot, beside maxPanes-1 documents.
+	full := trail{Panes: append(docs("/p", maxPanes-1), lib), Focus: maxPanes - 1}
+	cases := []struct {
+		name      string
+		start     trail
+		idx       int
+		targets   []paneAddr
+		wantPanes []paneAddr
+		wantFocus int
+	}{
+		{
+			// A is open, so B and C append; focus on B keeps the librarian expanded beside.
+			name:      "fresh targets append and focus the first",
+			start:     trail{Panes: []paneAddr{doc("w", "/a.md"), lib}, Focus: 1},
+			idx:       1,
+			targets:   []paneAddr{doc("w", "/a.md"), doc("w", "/b.md"), doc("w", "/c.md")},
+			wantPanes: []paneAddr{doc("w", "/a.md"), lib, doc("w", "/b.md"), doc("w", "/c.md")},
+			wantFocus: 2,
+		},
+		{
+			name:    "nothing fresh yields an empty trail",
+			start:   trail{Panes: []paneAddr{doc("w", "/a.md"), lib, doc("w", "/b.md")}, Focus: 2},
+			idx:     1,
+			targets: []paneAddr{doc("w", "/a.md")},
+		},
+		{
+			// More targets than the cap: the librarian survives at 0, maxPanes-1 open after it.
+			name:      "cap keeps the librarian",
+			start:     full,
+			idx:       maxPanes - 1,
+			targets:   docs("/n", maxPanes+2),
+			wantPanes: append([]paneAddr{lib}, docs("/n", maxPanes-1)...),
+			wantFocus: 1,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := trailLayout(tc.start, tc.idx, tc.targets)
+			if !slices.Equal(got.Panes, tc.wantPanes) || got.Focus != tc.wantFocus {
+				t.Errorf("got %+v\nwant panes %+v focus %d", got, tc.wantPanes, tc.wantFocus)
+			}
+		})
 	}
 }
 
