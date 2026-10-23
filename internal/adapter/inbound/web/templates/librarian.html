@@ -99,6 +99,8 @@
 {{define "librarian-step"}}<li>{{ .Text }}{{ if .Href }} <a href="{{ .Href }}">{{ .Label }}</a>{{ end }}</li>{{end}}
 
 {{/* The documents an answer was grounded in — every one the librarian opened,
-     cited in the prose or not. */}}
-{{define "librarian-sources"}}{{ if . }}<p class="ask-sources">sources:
-  {{- range $i, $src := . }}{{ if $i }} ·{{ end }} <a href="{{ $src.Href }}" title="{{ $src.Label }}">{{ $src.Title }}</a>{{ end }}</p>{{ end }}{{end}}
+     cited in the prose or not — and, when the prose cites documents not yet
+     open, one link that lays them out as panes. */}}
+{{define "librarian-sources"}}{{ if or .Items .OpenAll }}<p class="ask-sources">
+  {{- if .Items }}sources:{{ range $i, $src := .Items }}{{ if $i }} ·{{ end }} <a href="{{ $src.Href }}" title="{{ $src.Label }}">{{ $src.Title }}</a>{{ end }}{{ end }}
+  {{- if .OpenAll }}{{ if .Items }} — {{ end }}<a class="ask-open" href="{{ .OpenAll }}">open the {{ if eq .Opened 1 }}cited document as a pane{{ else }}{{ .Opened }} cited documents as panes{{ end }}</a>{{ end }}</p>{{ end }}{{end}}

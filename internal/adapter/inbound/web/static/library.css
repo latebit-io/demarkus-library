@@ -898,6 +898,7 @@ body.canvas-page { padding-bottom: 4.5rem; }
 .ask-sources { margin: .6rem 0 0; font-family: var(--font-ui); font-size: .8rem;
         color: var(--muted); font-variant-caps: all-small-caps; }
 .ask-sources a { font-variant-caps: normal; }
+.ask-open { white-space: nowrap; }
 .ask-notice { color: var(--muted); font-style: italic; }
 /* While an answer streams: a ticker beside a stop button. The dots step
    rather than fade, so an e-paper panel repaints a few times a second, not

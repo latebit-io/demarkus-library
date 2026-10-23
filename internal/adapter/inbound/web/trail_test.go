@@ -222,11 +222,17 @@ func TestTrailAfterClickDedupsToFocus(t *testing.T) {
 	}
 }
 
-func TestTrailAfterClickDropsOldestPastCap(t *testing.T) {
-	full := trail{Focus: maxPanes - 1}
-	for i := range maxPanes {
-		full.Panes = append(full.Panes, doc("w", "/p"+strings.Repeat("x", i)+".md"))
+// docs mints n distinct document panes under prefix.
+func docs(prefix string, n int) []paneAddr {
+	panes := make([]paneAddr, 0, n)
+	for i := range n {
+		panes = append(panes, doc("w", prefix+strings.Repeat("x", i)+".md"))
 	}
+	return panes
+}
+
+func TestTrailAfterClickDropsOldestPastCap(t *testing.T) {
+	full := trail{Panes: docs("/p", maxPanes), Focus: maxPanes - 1}
 	got := trailAfterClick(full, maxPanes-1, doc("w", "/new.md"))
 	if len(got.Panes) != maxPanes {
 		t.Fatalf("len = %d, want %d", len(got.Panes), maxPanes)
@@ -236,6 +242,32 @@ func TestTrailAfterClickDropsOldestPastCap(t *testing.T) {
 	}
 	if got.Panes[maxPanes-1] != doc("w", "/new.md") || got.Focus != maxPanes-1 {
 		t.Errorf("append/focus wrong: %+v", got)
+	}
+}
+
+func TestTrailLayoutAppendsFreshAndFocusesFirst(t *testing.T) {
+	// Librarian at 1 beside A; it cites A (open), B, C. B and C open to the
+	// right, focus on B so the librarian stays expanded beside.
+	start := trail{Panes: []paneAddr{doc("w", "/a.md"), {Kind: paneLibrarian}}, Focus: 1}
+	got := trailLayout(start, 1, []paneAddr{doc("w", "/a.md"), doc("w", "/b.md"), doc("w", "/c.md")})
+	want := []paneAddr{doc("w", "/a.md"), {Kind: paneLibrarian}, doc("w", "/b.md"), doc("w", "/c.md")}
+	if got.Focus != 2 || !slices.Equal(got.Panes, want) {
+		t.Errorf("got %+v, want focus 2 panes %+v", got, want)
+	}
+}
+
+func TestTrailLayoutNothingFreshIsEmpty(t *testing.T) {
+	start := trail{Panes: []paneAddr{doc("w", "/a.md"), {Kind: paneLibrarian}, doc("w", "/b.md")}, Focus: 2}
+	if got := trailLayout(start, 1, []paneAddr{doc("w", "/a.md")}); len(got.Panes) != 0 {
+		t.Errorf("got %+v; want no trail when every target is already open", got)
+	}
+}
+
+func TestTrailLayoutKeepsIdxPastCap(t *testing.T) {
+	full := trail{Panes: append(docs("/p", maxPanes-1), paneAddr{Kind: paneLibrarian}), Focus: maxPanes - 1}
+	got := trailLayout(full, maxPanes-1, docs("/n", maxPanes+2))
+	if len(got.Panes) != maxPanes || got.Panes[0].Kind != paneLibrarian || got.Focus != 1 {
+		t.Errorf("librarian should survive at 0 with focus on the first of %d new panes: %+v", maxPanes-1, got)
 	}
 }
 

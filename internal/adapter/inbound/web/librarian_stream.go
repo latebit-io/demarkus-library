@@ -231,10 +231,13 @@ func (h *LibrarianHandler) streamAsk(c *echo.Context, token string, pa pendingAs
 
 	var steps []librarianStepVM
 	var sources []librarianSourceVM
+	var cited []domain.Ref      // what the latest render cited; the final message's list wins
 	var pending strings.Builder // the message in progress, not yet rendered in full
 	var rendered time.Time
 	render := func(markdown string) {
-		out.send("rendered", string(h.renderAnswer(markdown, t, t.Focus)))
+		answer, refs := h.renderAnswer(markdown, t, t.Focus)
+		cited = refs
+		out.send("rendered", string(answer))
 		rendered = time.Now()
 	}
 	for ev := range events {
@@ -271,7 +274,7 @@ func (h *LibrarianHandler) streamAsk(c *echo.Context, token string, pa pendingAs
 	if pending.Len() > 0 {
 		render(pending.String()) // a stopped run ends mid-message
 	}
-	h.finish(c, out, steps, sources)
+	h.finish(c, out, steps, sourcesVM(sources, cited, t, t.Focus))
 }
 
 // resumeAsk serves a reconnect: the run's live events went to the first
@@ -307,7 +310,7 @@ func (h *LibrarianHandler) resumeAsk(c *echo.Context, pa pendingAsk, out *sseWri
 
 // finish settles a live exchange into its final markup: steps collapse,
 // sources appear, the stream closes.
-func (h *LibrarianHandler) finish(c *echo.Context, out *sseWriter, steps []librarianStepVM, sources []librarianSourceVM) {
+func (h *LibrarianHandler) finish(c *echo.Context, out *sseWriter, steps []librarianStepVM, sources librarianSourcesVM) {
 	out.send("steps", h.fragment(c, "librarian-steps", steps))
 	out.send("sources", h.fragment(c, "librarian-sources", sources))
 	settle(out)

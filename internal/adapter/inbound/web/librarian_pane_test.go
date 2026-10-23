@@ -96,7 +96,11 @@ func TestRenderAnswer_CitationsContinueTheTrail(t *testing.T) {
 	h := NewRoom(svc, "soul.demarkus.io", "/index.md").librarianPanes()
 	tr := trail{Panes: []paneAddr{{Kind: paneLibrarian}}, Focus: 0, Reader: -1}
 
-	got := string(h.renderAnswer(`<a href="mark://w.io/ops/run.md">the runbook</a>`, tr, 0))
+	rendered, cited := h.renderAnswer(`<a href="mark://w.io/ops/run.md">the runbook</a>`, tr, 0)
+	got := string(rendered)
+	if len(cited) != 1 || cited[0] != (domain.Ref{World: "w.io", Path: "/ops/run.md"}) {
+		t.Errorf("cited = %+v; want the one resolved citation", cited)
+	}
 	if !strings.Contains(got, `href="/t/a/~/w.io/d/ops/run.md"`) {
 		t.Errorf("citation not trailized:\n%s", got)
 	}
@@ -413,6 +417,44 @@ func TestLibrarianPane_ExchangeShowsWorkAndSources(t *testing.T) {
 	}
 	if strings.Contains(body, `class="ask-starters"`) {
 		t.Error("starters shown on a conversation already underway")
+	}
+}
+
+func TestLibrarianPane_CitationsOfferOpenAll(t *testing.T) {
+	t.Parallel()
+
+	// The fake Preview passes markdown through verbatim, so the answer
+	// carries anchored citations: one already open on the trail (x.md), two
+	// not. The sources line offers to lay out the two, focus on the first,
+	// with the librarian still open beside.
+	lib := &fakeLibrarian{history: []domain.LibrarianExchange{{
+		Question: "what next?",
+		Answer: `Read <a href="mark://w.io/ops/deploy.md">deploy</a>, then <a href="mark://w.io/ops/rollback.md">rollback</a>; ` +
+			`<a href="mark://w.io/x.md">this</a> you have.`,
+		Sources: []domain.LibrarianSource{{Ref: domain.Ref{World: "w.io", Path: "/ops/deploy.md"}, Title: "Deploy runbook"}},
+	}}}
+	e := librarianApp(t, lib)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/t/w.io/d/x.md/~/a", http.NoBody))
+	body := rec.Body.String()
+	want := `Deploy runbook</a> — <a class="ask-open" href="/t/w.io/d/x.md/~/a/~/w.io/d/ops/deploy.md/~/w.io/d/ops/rollback.md?focus=2">open the 2 cited documents as panes</a></p>`
+	if !strings.Contains(body, want) {
+		t.Errorf("sources line missing %q\nbody:\n%.4000s", want, body)
+	}
+}
+
+func TestLibrarianPane_NoOpenAllWhenCitedIsAlreadyOpen(t *testing.T) {
+	t.Parallel()
+
+	lib := &fakeLibrarian{history: []domain.LibrarianExchange{{
+		Question: "and this?",
+		Answer:   `<a href="mark://w.io/x.md">this one</a>.`,
+	}}}
+	e := librarianApp(t, lib)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/t/w.io/d/x.md/~/a", http.NoBody))
+	if body := rec.Body.String(); strings.Contains(body, "ask-open") {
+		t.Errorf("open-all offered for a document already on the trail:\n%.4000s", body)
 	}
 }
 
