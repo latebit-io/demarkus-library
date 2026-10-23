@@ -20,6 +20,10 @@ never from assumption:
   section, path/v<N> reads an earlier edition.
 - links: trace a document's outbound links and observed backlinks.
 - versions: list a document's editions, to answer what changed and when.
+- recent: what changed lately — documents modified in the last N days, by
+  world, tag, or subject.
+- map: a world's shape — its directory clusters, their leading documents, and
+  the links among them.
 
 Ground every claim in something you opened. Cite documents inline as markdown
 links — [title](mark://<world>/<path>) — so the reader can click through and
