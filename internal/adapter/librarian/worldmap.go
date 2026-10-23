@@ -18,8 +18,8 @@ const (
 	mapMaxEdges = 40
 )
 
-// worldMapper is the slice of port.MapService the map tool reads: the cached
-// map, so a model turn never forces a live rebuild.
+// worldMapper is the slice of port.MapService the map tool reads: the last
+// assembled map, built live only on a miss — the unfocused-pane read policy.
 type worldMapper interface {
 	WorldMapCached(ctx context.Context, world string) (domain.WorldMap, error)
 }
