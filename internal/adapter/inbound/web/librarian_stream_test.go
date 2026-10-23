@@ -205,8 +205,10 @@ func TestLibrarianStream_LibrarianPathMapsEvents(t *testing.T) {
 func TestLibrarianStream_SourcesFrameOffersOpenAll(t *testing.T) {
 	t.Parallel()
 
+	// Two messages in one run: only the final message's citations lay out.
 	deploy := domain.Ref{World: "w.io", Path: "/ops/deploy.md"}
 	lib := &fakeLibrarian{events: []domain.LibrarianEvent{
+		{Kind: domain.LibrarianAnswer, Text: `Checking <a href="mark://w.io/ops/draft.md">a draft</a>.`},
 		{Kind: domain.LibrarianSourceOpened, Text: "Deploy runbook", Ref: deploy},
 		{Kind: domain.LibrarianAnswer, Text: `See <a href="mark://w.io/ops/deploy.md">deploy</a>.`},
 		{Kind: domain.LibrarianDone},
@@ -215,11 +217,14 @@ func TestLibrarianStream_SourcesFrameOffersOpenAll(t *testing.T) {
 	streamURL := askToken(t, e, "what next")
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, streamURL, http.NoBody))
-	// The markup itself is pinned by the pane test; here only that the
-	// streamed sources frame carries the link the pane would.
-	want := `<a class="ask-open" href="/t/a/~/w.io/d/ops/deploy.md">`
-	if body := rec.Body.String(); !strings.Contains(body, want) {
+	body := rec.Body.String()
+	// The markup itself is pinned by the pane test; here only which link the
+	// streamed sources frame carries.
+	if want := `<a class="ask-open" href="/t/a/~/w.io/d/ops/deploy.md">`; !strings.Contains(body, want) {
 		t.Errorf("sources frame missing %q:\n%s", want, body)
+	}
+	if strings.Contains(body, `class="ask-open" href="/t/a/~/w.io/d/ops/draft.md`) {
+		t.Errorf("sources frame kept the earlier message's citation:\n%s", body)
 	}
 }
 

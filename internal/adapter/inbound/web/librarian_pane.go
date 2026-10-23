@@ -179,10 +179,9 @@ func (h librarianPanes) exchangeVM(ex domain.LibrarianExchange, t trail, i int) 
 	return vm
 }
 
-// sourcesVM builds the sources line from pane i: the grounding documents,
-// plus the open-all link when the answer cites documents not already on the
-// path up to the librarian. The laid-out trail's new panes all sit from its
-// focus on, so their count falls out of it.
+// sourcesVM builds the sources line from pane i, with the open-all link when
+// the answer cites documents not yet on the path up to the librarian. The new
+// panes run from the laid-out trail's focus on, so their count falls out of it.
 func sourcesVM(sources []librarianSourceVM, cited []domain.Ref, t trail, i int) librarianSourcesVM {
 	vm := librarianSourcesVM{Items: sources}
 	targets := make([]paneAddr, 0, len(cited))

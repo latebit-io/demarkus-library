@@ -378,11 +378,9 @@ func trailAskAbout(t trail, idx int) trail {
 	return trail{Panes: panes, Focus: focus, Reader: -1, Meta: -1}
 }
 
-// trailLayout lays targets out as panes to the right of pane idx — the
-// librarian's "open the cited" action. Targets already on the path up to idx
-// are skipped (the reader has them), the rest append in order, oldest panes
-// drop past the cap, and focus lands on the first new pane so the pane at
-// idx stays open beside it. Nothing new to open yields an empty trail.
+// trailLayout opens targets as panes right of pane idx, skipping any already
+// on the path up to it; focus lands on the first new pane so pane idx stays
+// expanded beside it. Nothing new to open yields an empty trail.
 func trailLayout(t trail, idx int, targets []paneAddr) trail {
 	panes := slices.Clone(t.Panes[:idx+1])
 	for _, target := range targets {

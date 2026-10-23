@@ -423,10 +423,8 @@ func TestLibrarianPane_ExchangeShowsWorkAndSources(t *testing.T) {
 func TestLibrarianPane_CitationsOfferOpenAll(t *testing.T) {
 	t.Parallel()
 
-	// The fake Preview passes markdown through verbatim, so the answer
-	// carries anchored citations: one already open on the trail (x.md), two
-	// not. The sources line offers to lay out the two, focus on the first,
-	// with the librarian still open beside.
+	// The fake Preview passes markdown through verbatim, so citations arrive
+	// anchored: x.md is already on the trail, the other two are not.
 	lib := &fakeLibrarian{history: []domain.LibrarianExchange{{
 		Question: "what next?",
 		Answer: `Read <a href="mark://w.io/ops/deploy.md">deploy</a>, then <a href="mark://w.io/ops/rollback.md">rollback</a>; ` +
