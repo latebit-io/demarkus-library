@@ -80,12 +80,13 @@
       });
       return window.mermaid
         .run({ nodes: targets.map(function (t) { return t.holder; }) })
-        .catch(function () {
+        .catch(function () { /* a parse failure is handled per holder below */ })
+        .then(function () {
+          // A diagram that failed to parse degrades back to the readable
+          // source block; a rendered one gets its popout button.
           targets.forEach(function (t) {
-            // A diagram that failed to parse degrades back to the
-            // readable source block (mermaid may have already replaced
-            // good ones; only restore holders without an svg).
-            if (!t.holder.querySelector("svg")) t.holder.replaceWith(t.orig);
+            if (t.holder.querySelector("svg")) dressDiagram(t.holder);
+            else t.holder.replaceWith(t.orig);
           });
         });
     }).catch(function (err) {
@@ -461,7 +462,7 @@
     if (!el) return;
     var previous = openOverlay();
     var returnTo = previous ? previous._restoreFocus : restore || document.activeElement;
-    if (previous && previous !== el) { hideOverlay(previous); previous.hidden = true; }
+    if (previous && previous !== el) { hideOverlay(previous); finishHide(previous); }
     releaseBackground();
     Array.from(document.body.children).forEach(function (child) {
       if (child !== el && !child.inert && !child.matches("script, style, link")) {
@@ -488,12 +489,17 @@
     releaseBackground();
     var r = el._restoreFocus;
     if (r && r.isConnected && r.focus) r.focus();
-    if (calm.matches) { el.hidden = true; return; }
+    if (calm.matches) { finishHide(el); return; }
     el.classList.add("closing");
-    el._closing = setTimeout(function () {
-      el.hidden = true;
-      el.classList.remove("closing");
-    }, overlayFade);
+    el._closing = setTimeout(function () { finishHide(el); }, overlayFade);
+  }
+  // The fade's end (or a skipped fade): the overlay is gone and says so, for
+  // a section that lent it content (the diagram popout).
+  function finishHide(el) {
+    clearTimeout(el._closing);
+    el.hidden = true;
+    el.classList.remove("closing");
+    el.dispatchEvent(new Event("overlay-hidden", { bubbles: true }));
   }
 
   // One keyboard scope: Tab stays in the workspace and Escape never also
@@ -729,6 +735,49 @@
   document.addEventListener("keydown", function (e) {
     var u = universeOverlay();
     if (e.key === "Escape" && shown(u)) { e.preventDefault(); closeUniverse(); return; }
+  });
+
+  // --- diagram overlay (mermaid popout) ---------------------------------
+  // A rendered diagram is a fixed picture in a 60ch column. Its button moves
+  // the SVG (not a clone: mermaid's marker ids must stay unique) into the
+  // overlay canvas, where the shared camera gives it zoom and pan; once the
+  // overlay has faded, the SVG goes home at fit.
+  function diagramOverlay() { return document.getElementById("diagram-overlay"); }
+  function dressDiagram(holder) {
+    var proto = document.getElementById("diagram-pop-proto");
+    if (!proto) return;
+    holder.querySelector("svg").classList.add("diagram");
+    holder.appendChild(proto.content.firstElementChild.cloneNode(true));
+  }
+  function diagramTitle(holder) {
+    var own = holder.querySelector("svg > title"), doc = holder.closest(".doc-body");
+    var h1 = doc && doc.querySelector("h1");
+    return (own && own.textContent.trim()) || (h1 && h1.textContent.trim()) || "";
+  }
+  function openDiagram(holder, restore) {
+    var el = diagramOverlay(), svg = holder.querySelector("svg"), canvas = el.querySelector(".graph-canvas");
+    parkDiagram(canvas);
+    el.querySelector(".graph-title").textContent = diagramTitle(holder);
+    svg._home = holder;
+    canvas.appendChild(svg);
+    // Hydrated before the reveal, so focus and the camera's measurement
+    // share one layout (showOverlay syncs every hydrated canvas SVG).
+    hydrateMaps(canvas);
+    showOverlay(el, restore);
+  }
+  function parkDiagram(canvas) {
+    var svg = canvas.querySelector("svg");
+    if (!svg) return;
+    dehydrate(svg);
+    if (svg._home.isConnected) svg._home.prepend(svg); else svg.remove();
+    svg._home = null;
+  }
+  document.addEventListener("overlay-hidden", function (e) {
+    if (e.target.id === "diagram-overlay") parkDiagram(e.target.querySelector(".graph-canvas"));
+  });
+  document.addEventListener("click", function (e) {
+    var button = e.target.closest && e.target.closest("button.diagram-pop");
+    if (button) openDiagram(button.parentElement, button);
   });
 
   // --- librarian (a) ---------------------------------------------------
@@ -999,10 +1048,10 @@
   // past wmDragSlop pans and swallows the click that would follow. Only a
   // drawing in an overlay canvas is zoomable (world map, universe, graph); a
   // trail-pane map keeps normal scrolling.
-  var zoomable = ".graph-canvas svg.floor:not(.wm-focus), .graph-canvas svg.graph";
+  var zoomable = ".graph-canvas svg.floor:not(.wm-focus), .graph-canvas svg.graph, .graph-canvas svg.diagram";
   function mapSVG(target) { return target.closest && target.closest(zoomable); }
   function openOverlay() {
-    return [graphOverlay(), mapOverlay(), universeOverlay()].filter(shown)[0] || null;
+    return Array.prototype.find.call(document.querySelectorAll(".graph-backdrop"), shown) || null;
   }
   function mapFilter(el) {
     var panel = el.closest(".graph-panel");
@@ -1319,6 +1368,21 @@
         if (i >= 0) pickMatch(svg, i);
       }
     });
+  }
+
+  // The inverse, for an SVG that leaves its canvas (the diagram popout):
+  // camera state, timers and the wheel listener go, the base view returns,
+  // and the next hydrateMaps starts it fresh.
+  function dehydrate(svg) {
+    var st = wmStates.get(svg);
+    if (!st) return;
+    cancelAnimationFrame(st.pending);
+    clearTimeout(st.cullTimer);
+    wmStates.delete(svg);
+    svg.removeEventListener("wheel", onWheel);
+    svg.classList.remove("zoomed", "panning");
+    svg.style.removeProperty("--wm-k");
+    svg.setAttribute("viewBox", st.base.join(" "));
   }
 
   document.addEventListener("DOMContentLoaded", function () {

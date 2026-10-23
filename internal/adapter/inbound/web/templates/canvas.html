@@ -51,6 +51,7 @@
   {{template "graph-overlay" .Graph}}
   {{template "map-overlay" .}}
   {{template "universe-overlay" .}}
+  {{template "diagram-overlay"}}
   {{template "palette" .}}
 </body>
 </html>{{end}}
@@ -120,6 +121,24 @@
   </div>
 </div>
 {{- end}}
+{{end}}
+
+{{/* The diagram overlay: a rendered mermaid drawing popped out full-viewport so
+     it can be zoomed and panned (islands.js moves the SVG in and back). Same
+     chrome and camera as the graphs. The proto is the expand button; islands.js
+     clones it into each rendered block, so JS off shows nothing. */}}
+{{define "diagram-overlay"}}
+<div id="diagram-overlay" class="graph-backdrop" hidden>
+  <div class="graph-panel" role="dialog" aria-modal="true" aria-labelledby="diagram-title">
+    <div class="graph-head">
+      <span class="graph-kind">Diagram</span><span id="diagram-title" class="graph-title"></span>
+      {{template "graph-controls"}}
+    </div>
+    <div class="graph-canvas"></div>
+    <p class="graph-foot" data-idle="Scroll to zoom · Drag to pan · 0 to fit · Esc to close"></p>
+  </div>
+</div>
+<template id="diagram-pop-proto"><button type="button" class="diagram-pop" title="Expand diagram" aria-label="Expand diagram"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M9.5 2.5h4v4M13.5 2.5 9 7M6.5 13.5h-4v-4M2.5 13.5 7 9"/></svg></button></template>
 {{end}}
 
 {{define "graph-controls"}}
