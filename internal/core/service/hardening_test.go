@@ -101,8 +101,8 @@ func TestTTLCachePutDropsDepartedReaders(t *testing.T) {
 	}
 	now = now.Add(floorRetain)
 	c.put(port.WithReader(t.Context(), "d"), universe, 0, domain.Floor{})
-	if len(c.all) != 1 {
-		t.Errorf("entries = %d, want 1 (departed readers dropped)", len(c.all))
+	if n := len(c.all[universe]); n != 1 {
+		t.Errorf("entries = %d, want 1 (departed readers dropped)", n)
 	}
 }
 

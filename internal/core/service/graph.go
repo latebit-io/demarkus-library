@@ -59,9 +59,9 @@ func unionRefs(a, b []domain.Ref) []domain.Ref {
 // when that document is next read.
 const maxLinkGraphSources = 5000
 
-// linkGraph is the render-time observed-links map (R3; ADR 0005 §16), fed by
-// RecordLinks as documents render: per pod, ephemeral, the same under QUIC and
-// broker. An internal struct; the service's edge methods are the seam.
+// linkGraph holds source→target edges. The service's instance is the render-time
+// observed map (R3; ADR 0005 §16): per pod, ephemeral, capped. hubGraph keeps an
+// unbounded one filled from the durable hub topology.
 type linkGraph struct {
 	unbounded bool // no source cap: the hub's durable copy must stay whole
 	mu        sync.RWMutex
