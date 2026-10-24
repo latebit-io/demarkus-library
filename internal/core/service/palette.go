@@ -14,7 +14,7 @@ const nameIndexMax = 1000
 // NameIndexCached serves a world's name index within the TTL, reading live on
 // a miss: the unfocused listing panes' read (ADR 0009, ADR 0005 decision 9).
 func (s *ReadingService) NameIndexCached(ctx context.Context, world string) ([]domain.IndexEntry, error) {
-	if entries, ok := s.names.getFresh(world, floorTTL); ok {
+	if entries, ok := s.names.getFresh(ctx, world, floorTTL); ok {
 		return entries, nil
 	}
 	epoch := s.names.epoch(world)
@@ -22,7 +22,7 @@ func (s *ReadingService) NameIndexCached(ctx context.Context, world string) ([]d
 	if err != nil {
 		return nil, err
 	}
-	s.names.put(world, epoch, entries)
+	s.names.put(ctx, world, epoch, entries)
 	return entries, nil
 }
 

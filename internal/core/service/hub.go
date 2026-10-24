@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
-	"github.com/latebit-io/demarkus-library/internal/core/port"
 )
 
 // The hub topology reader (plans "Floor enrichment", decision 11). A hub is
@@ -92,11 +91,10 @@ func (s *ReadingService) hubGraph(ctx context.Context) hubGraph {
 	if s.hub == "" {
 		return hubGraph{edges: noHubEdges}
 	}
-	reader := port.ReaderKey(ctx)
-	if g, ok := s.hubs.getFresh(reader, hubTTL); ok {
+	if g, ok := s.hubs.getFresh(ctx, universe, hubTTL); ok {
 		return g
 	}
-	epoch := s.hubs.epoch(reader)
+	epoch := s.hubs.epoch(universe)
 	// The durable store is never evicted: a cold pod must hold the whole hub.
 	g := hubGraph{topo: s.readHub(ctx, s.hub), edges: &linkGraph{unbounded: true}}
 	worlds, err := s.world.Worlds(ctx)
@@ -107,8 +105,7 @@ func (s *ReadingService) hubGraph(ctx context.Context) hubGraph {
 	if err != nil {
 		return g // no host index resolves nothing; serve it once, never cache it
 	}
-	s.hubs.sweep(hubTTL) // readers come and go; keep only live windows
-	s.hubs.put(reader, epoch, g)
+	s.hubs.put(ctx, universe, epoch, g)
 	return g
 }
 

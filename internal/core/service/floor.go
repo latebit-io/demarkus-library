@@ -7,7 +7,6 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
@@ -28,58 +27,10 @@ const floorSample = 200
 // agent re-crawls hourly).
 const floorTTL = 30 * time.Second
 
-// floorCache holds the last assembled floor. One universe per deployment,
-// so a single slot under a mutex — getFresh gates the focused rebuild on
-// floorTTL, get always returns the last value (the stale-fallback path).
-type floorCache struct {
-	mu       sync.Mutex
-	floor    *domain.Floor
-	storedAt time.Time
-	now      func() time.Time // nil ⇒ time.Now (overridable in tests)
-}
-
-func (f *floorCache) clockNow() time.Time {
-	if f.now != nil {
-		return f.now()
-	}
-	return time.Now()
-}
-
-func (f *floorCache) get() (domain.Floor, bool) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.floor == nil {
-		return domain.Floor{}, false
-	}
-	return *f.floor, true
-}
-
-// getFresh returns the cached floor only when it is younger than ttl — the
-// focused path skips its broker fan-out within the window.
-func (f *floorCache) getFresh(ttl time.Duration) (domain.Floor, bool) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.floor == nil || f.clockNow().Sub(f.storedAt) >= ttl {
-		return domain.Floor{}, false
-	}
-	return *f.floor, true
-}
-
-func (f *floorCache) put(floor domain.Floor) {
-	f.mu.Lock()
-	f.floor = &floor
-	f.storedAt = f.clockNow()
-	f.mu.Unlock()
-}
-
-// invalidate drops the cached floor so the next Floor rebuilds it — called after
-// a write so a just-published document shows on the universe view immediately
-// rather than at the next TTL expiry.
-func (f *floorCache) invalidate() {
-	f.mu.Lock()
-	f.floor = nil
-	f.mu.Unlock()
-}
+// floorRetain bounds how long a reader's last floor serves the stale fallback
+// and unfocused panes. The floor is the reader's permission mask, so it is
+// cached per reader and must age out.
+const floorRetain = 10 * time.Minute
 
 // Floor returns the universe view, rebuilding live only when the cached floor
 // has aged past floorTTL. The focused-live policy still applies — a focused
@@ -90,13 +41,14 @@ func (f *floorCache) invalidate() {
 // rather than erroring the whole page; ErrUnauthorized is exempt — the
 // reader's identity dying must surface as a re-login, never a stale render.
 func (s *ReadingService) Floor(ctx context.Context) (domain.Floor, error) {
-	if floor, ok := s.floor.getFresh(floorTTL); ok {
+	if floor, ok := s.floor.getFresh(ctx, universe, floorTTL); ok {
 		return floor, nil
 	}
+	epoch := s.floor.epoch(universe)
 	floor, err := s.buildFloor(ctx)
 	if err != nil {
 		if !errors.Is(err, domain.ErrUnauthorized) {
-			if stale, ok := s.floor.get(); ok {
+			if stale, ok := s.floor.getFresh(ctx, universe, floorRetain); ok {
 				// Serve stale, but never silently — a persistent rebuild
 				// failure (not just a rate-limit blip) would otherwise hide
 				// behind a frozen floor with no operator signal.
@@ -106,7 +58,7 @@ func (s *ReadingService) Floor(ctx context.Context) (domain.Floor, error) {
 		}
 		return domain.Floor{}, err
 	}
-	s.floor.put(floor)
+	s.floor.put(ctx, universe, epoch, floor)
 	return floor, nil
 }
 
@@ -173,11 +125,11 @@ func (s *ReadingService) buildFloor(ctx context.Context) (domain.Floor, error) {
 	return floor, nil
 }
 
-// FloorCached serves the last assembled floor, building live when none
-// exists yet. Unfocused floor panes read here — same focused-live policy
-// as every other pane.
+// FloorCached serves the reader's last floor within floorRetain, building live
+// on a miss. Unfocused floor panes read here — same focused-live policy as
+// every other pane.
 func (s *ReadingService) FloorCached(ctx context.Context) (domain.Floor, error) {
-	if floor, ok := s.floor.get(); ok {
+	if floor, ok := s.floor.getFresh(ctx, universe, floorRetain); ok {
 		return floor, nil
 	}
 	return s.Floor(ctx)
