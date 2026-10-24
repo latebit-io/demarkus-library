@@ -22,8 +22,9 @@ reports whether the local golangci-lint matches the version CI pins.
 
 ## Hard rules (from the demarkus coding guidelines)
 
-- Never return more than two values unless one is `error`. Several values that
-  belong together get a result struct with named fields.
+- Never return more than two values unless one is `error` or a trailing
+  comma-ok `bool`. Several values that belong together get a result struct
+  with named fields.
 - More than four parameters means a parameter struct.
 - Do not duplicate logic. Extract to the package that owns it, update every
   caller, delete the copies, test once at the owning layer.

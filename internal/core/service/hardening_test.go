@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
+	"github.com/latebit-io/demarkus-library/internal/core/port"
 )
 
 // TestOpenDispatchesByPathShape: Open routes a document path to Read (Fetch) and
@@ -37,18 +38,28 @@ func TestOpenDispatchesByPathShape(t *testing.T) {
 	}
 }
 
-// A live read that began before a write's invalidation must not repopulate
-// the cache with what it read; a read that began after it may.
-func TestTTLCacheDropsReadStartedBeforeInvalidate(t *testing.T) {
+// A write drops its scope for every reader, and a live read that began before
+// it, for any reader, must not repopulate the cache; a read begun after may.
+func TestTTLCacheInvalidateAcrossReaders(t *testing.T) {
 	var c ttlCache[string]
+	readerA := port.WithReader(t.Context(), "a")
+	readerB := port.WithReader(t.Context(), "b")
+	c.put(readerA, "w", c.epoch("w"), "a's catalog")
+	c.put(readerA, "v", c.epoch("v"), "other world")
 	stale := c.epoch("w")
-	c.invalidate("w") // a publish lands while the read is in flight
-	c.put("w", stale, "old catalog")
-	if v, ok := c.getFresh("w", time.Minute); ok {
-		t.Fatalf("stale read was cached: %q", v)
+	c.invalidate("w") // a publish lands while B's read is in flight
+	if _, ok := c.getFresh(readerA, "w", time.Minute); ok {
+		t.Error("reader A's entry survived the write")
 	}
-	c.put("w", c.epoch("w"), "new catalog")
-	if v, ok := c.getFresh("w", time.Minute); !ok || v != "new catalog" {
+	c.put(readerB, "w", stale, "b's stale catalog")
+	if v, ok := c.getFresh(readerB, "w", time.Minute); ok {
+		t.Errorf("stale read was cached: %q", v)
+	}
+	if _, ok := c.getFresh(readerA, "v", time.Minute); !ok {
+		t.Error("a write to w dropped another world's entry")
+	}
+	c.put(readerB, "w", c.epoch("w"), "new catalog")
+	if v, ok := c.getFresh(readerB, "w", time.Minute); !ok || v != "new catalog" {
 		t.Errorf("a read begun after the write should cache, got %q %v", v, ok)
 	}
 }
@@ -56,26 +67,42 @@ func TestTTLCacheDropsReadStartedBeforeInvalidate(t *testing.T) {
 // TestWorldMapCacheTTLAndInvalidate covers the cache primitive directly: a put
 // is fresh within the TTL, stale at/after it, and invalidate drops it outright.
 func TestWorldMapCacheTTLAndInvalidate(t *testing.T) {
+	ctx := t.Context()
 	now := time.Unix(1_000_000, 0)
-	c := worldMapCache{now: func() time.Time { return now }}
+	c := ttlCache[domain.WorldMap]{now: func() time.Time { return now }}
 	wm := domain.WorldMap{World: domain.WorldInfo{Name: "w"}}
 
-	c.put("w", c.epoch("w"), wm)
-	if _, ok := c.getFresh("w", worldMapTTL); !ok {
+	c.put(ctx, "w", c.epoch("w"), wm)
+	if _, ok := c.getFresh(ctx, "w", worldMapTTL); !ok {
 		t.Fatal("a fresh put must hit")
 	}
 	now = now.Add(worldMapTTL) // exactly TTL ⇒ stale (>=)
-	if _, ok := c.getFresh("w", worldMapTTL); ok {
+	if _, ok := c.getFresh(ctx, "w", worldMapTTL); ok {
 		t.Fatal("an entry at the TTL boundary must be stale")
 	}
 
-	c.put("w", c.epoch("w"), wm) // re-prime at the advanced clock
-	if _, ok := c.getFresh("w", worldMapTTL); !ok {
+	c.put(ctx, "w", c.epoch("w"), wm) // re-prime at the advanced clock
+	if _, ok := c.getFresh(ctx, "w", worldMapTTL); !ok {
 		t.Fatal("re-put must be fresh again")
 	}
 	c.invalidate("w")
-	if _, ok := c.getFresh("w", worldMapTTL); ok {
+	if _, ok := c.getFresh(ctx, "w", worldMapTTL); ok {
 		t.Fatal("invalidate must drop the entry")
+	}
+}
+
+// Keys carry the reader, so put drops entries past retain rather than keep one
+// per session the pod has ever served.
+func TestTTLCachePutDropsDepartedReaders(t *testing.T) {
+	now := time.Unix(1_000_000, 0)
+	c := ttlCache[domain.Floor]{retain: floorRetain, now: func() time.Time { return now }}
+	for _, reader := range []string{"a", "b", "c"} {
+		c.put(port.WithReader(t.Context(), reader), universe, 0, domain.Floor{})
+	}
+	now = now.Add(floorRetain)
+	c.put(port.WithReader(t.Context(), "d"), universe, 0, domain.Floor{})
+	if len(c.all) != 1 {
+		t.Errorf("entries = %d, want 1 (departed readers dropped)", len(c.all))
 	}
 }
 
@@ -84,17 +111,18 @@ func TestWorldMapCacheTTLAndInvalidate(t *testing.T) {
 // merge candidate (nothing written) leaves the caches intact.
 func TestWriteInvalidatesTopology(t *testing.T) {
 	raw := domain.RawDocument{Path: "/p.md", Body: "x", Metadata: map[string]string{"version": "2"}}
+	ctx := t.Context()
 
 	prime := func(s *ReadingService) {
-		s.floor.put(domain.Floor{Worlds: []domain.FloorWorld{{World: domain.WorldInfo{Name: "w"}}}})
-		s.worldMaps.put("w", s.worldMaps.epoch("w"), domain.WorldMap{World: domain.WorldInfo{Name: "w"}})
+		s.floor.put(ctx, universe, 0, domain.Floor{Worlds: []domain.FloorWorld{{World: domain.WorldInfo{Name: "w"}}}})
+		s.worldMaps.put(ctx, "w", s.worldMaps.epoch("w"), domain.WorldMap{World: domain.WorldInfo{Name: "w"}})
 	}
 	cachesCleared := func(t *testing.T, s *ReadingService) {
 		t.Helper()
-		if _, ok := s.floor.get(); ok {
+		if _, ok := s.floor.getFresh(ctx, universe, floorRetain); ok {
 			t.Error("floor cache not invalidated on write")
 		}
-		if _, ok := s.worldMaps.getFresh("w", worldMapTTL); ok {
+		if _, ok := s.worldMaps.getFresh(ctx, "w", worldMapTTL); ok {
 			t.Error("world map cache not invalidated on write")
 		}
 	}
@@ -125,7 +153,7 @@ func TestWriteInvalidatesTopology(t *testing.T) {
 		if err != nil || merge == nil {
 			t.Fatalf("expected a merge candidate: merge=%v err=%v", merge, err)
 		}
-		if _, ok := s.floor.get(); !ok {
+		if _, ok := s.floor.getFresh(ctx, universe, floorRetain); !ok {
 			t.Error("a merge candidate (nothing written) must not invalidate the floor")
 		}
 	})

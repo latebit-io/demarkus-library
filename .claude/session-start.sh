@@ -24,7 +24,7 @@ and mark://latebit/projects/demarkus/patterns.md in the knowledge system. Projec
 context is in the soul at /demarkus-library/ (index.md, roadmap.md tail, adr/, debt.md).
 CLAUDE.md carries the same hard rules inline if MCP is unavailable.
 
-Load-bearing rules: at most two return values unless one is error; a parameter
+Load-bearing rules: at most two return values unless one is error or comma-ok; a parameter
 struct past four arguments; no duplicated logic; every error handled or wrapped;
 comments one to three lines saying why; narrow interfaces; smallest correct increment.
 

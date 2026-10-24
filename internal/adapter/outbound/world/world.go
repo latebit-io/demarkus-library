@@ -70,8 +70,8 @@ func (g *Gateway) Versions(ctx context.Context, world, path string) (domain.RawD
 
 // Lookup queries the world's catalog for req.Query under req.Scope, optionally
 // narrowed by a comma-separated key=value filter (tag pages use tag=<tag>).
-// q.Match is not sent yet, so the answer is the catalog match with no match
-// echo, which callers read as catalog fallback.
+// A server without body match answers q.Match=body from the catalog and omits
+// the match echo, which callers read as catalog fallback.
 func (g *Gateway) Lookup(ctx context.Context, world string, q domain.LookupQuery) (domain.RawDocument, error) {
 	host := NormalizeHost(world)
 	res, err := g.client.Lookup(ctx, fetch.LookupRequest{
@@ -81,6 +81,7 @@ func (g *Gateway) Lookup(ctx context.Context, world string, q domain.LookupQuery
 		Token:  g.tokenFor(host),
 		Filter: q.Filter,
 		Limit:  q.Limit,
+		Match:  q.Match,
 	})
 	return g.toRawDocument(res, host, q.Scope, err)
 }

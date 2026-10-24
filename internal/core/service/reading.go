@@ -20,12 +20,12 @@ type ReadingService struct {
 	world     port.WorldGateway
 	renderer  port.Renderer
 	cache     port.DocumentCache
-	floor     floorCache
-	worldMaps worldMapCache
+	floor     ttlCache[domain.Floor]
+	worldMaps ttlCache[domain.WorldMap]
 	names     ttlCache[[]domain.IndexEntry] // per-world name index, for unfocused listings
 	graph     linkGraph
 	hub       string             // topology-source world (DEMARKUS_HUB); "" disables hub enrichment
-	hubs      ttlCache[hubGraph] // one hub read per hubTTL, shared by every consumer
+	hubs      ttlCache[hubGraph] // one hub read per reader per hubTTL, shared by every consumer
 	// graphParser decodes the hub's published /graph.md; nil (like hub "")
 	// leaves the floor on its mark_worlds + observed-links baseline.
 	graphParser port.GraphExportParser
@@ -39,7 +39,13 @@ var _ port.Catalog = (*ReadingService)(nil)
 
 // NewReadingService wires the outbound ports into the core. cache may be nil.
 func NewReadingService(world port.WorldGateway, renderer port.Renderer, cache port.DocumentCache) *ReadingService {
-	return &ReadingService{world: world, renderer: renderer, cache: cache}
+	return &ReadingService{
+		world: world, renderer: renderer, cache: cache,
+		floor:     ttlCache[domain.Floor]{retain: floorRetain},
+		worldMaps: ttlCache[domain.WorldMap]{retain: worldMapTTL},
+		names:     ttlCache[[]domain.IndexEntry]{retain: floorTTL},
+		hubs:      ttlCache[hubGraph]{retain: hubTTL},
+	}
 }
 
 // WithHub sets the topology-source world for floor enrichment (DEMARKUS_HUB)
@@ -82,7 +88,7 @@ func (s *ReadingService) Read(ctx context.Context, world, path string) (domain.D
 		User:        raw.Metadata["user"],
 		Meta:        otherMeta(raw.Metadata),
 	}
-	s.cachePut(docKey(world, path), doc)
+	s.cachePut(docKey(ctx, world, path), doc)
 	return doc, nil
 }
 
@@ -111,7 +117,7 @@ func (s *ReadingService) OpenCached(ctx context.Context, world, path string) (do
 // goes through Read, which refreshes the entry (focused-live policy).
 func (s *ReadingService) ReadCached(ctx context.Context, world, path string) (domain.Document, error) {
 	if s.cache != nil {
-		if doc, ok := s.cache.Get(docKey(world, path)); ok {
+		if doc, ok := s.cache.Get(docKey(ctx, world, path)); ok {
 			return doc, nil
 		}
 	}
@@ -121,7 +127,7 @@ func (s *ReadingService) ReadCached(ctx context.Context, world, path string) (do
 // TagCached is ReadCached for tag-page panes.
 func (s *ReadingService) TagCached(ctx context.Context, world, tag string) (domain.Document, error) {
 	if s.cache != nil {
-		if doc, ok := s.cache.Get(tagKey(world, tag)); ok {
+		if doc, ok := s.cache.Get(tagKey(ctx, world, tag)); ok {
 			return doc, nil
 		}
 	}
@@ -134,11 +140,15 @@ func (s *ReadingService) cachePut(key string, doc domain.Document) {
 	}
 }
 
-// Cache keys are kind-prefixed so a document and a tag page can never
-// collide. The world is delimited with a NUL-adjacent separator that cannot
-// appear in either world names or paths/tags as routed.
-func docKey(world, path string) string { return "d\x00" + world + "\x00" + path }
-func tagKey(world, tag string) string  { return "t\x00" + world + "\x00" + tag }
+// Cache keys are kind-prefixed so a document and a tag page can never collide,
+// and lead with the reader: the cache is shared by every session on the pod,
+// and one reader's render must never serve a reader who cannot read it.
+func docKey(ctx context.Context, world, path string) string { return renderKey(ctx, "d", world, path) }
+func tagKey(ctx context.Context, world, tag string) string  { return renderKey(ctx, "t", world, tag) }
+
+func renderKey(ctx context.Context, kind, world, name string) string {
+	return kind + "\x00" + port.ReaderKey(ctx) + "\x00" + world + "\x00" + name
+}
 
 // Browse renders a directory listing (the stacks) at path.
 func (s *ReadingService) Browse(ctx context.Context, world, path string) (domain.Document, error) {
@@ -150,7 +160,7 @@ func (s *ReadingService) Browse(ctx context.Context, world, path string) (domain
 	if err != nil {
 		return domain.Document{}, err
 	}
-	s.cachePut(docKey(world, path), doc)
+	s.cachePut(docKey(ctx, world, path), doc)
 	return doc, nil
 }
 
@@ -159,7 +169,7 @@ func (s *ReadingService) Browse(ctx context.Context, world, path string) (domain
 // without collisions.
 func (s *ReadingService) BrowseCached(ctx context.Context, world, path string) (domain.Document, error) {
 	if s.cache != nil {
-		if doc, ok := s.cache.Get(docKey(world, path)); ok {
+		if doc, ok := s.cache.Get(docKey(ctx, world, path)); ok {
 			return doc, nil
 		}
 	}
@@ -196,7 +206,7 @@ func (s *ReadingService) Tag(ctx context.Context, world, tag string) (domain.Doc
 	if err != nil {
 		return domain.Document{}, err
 	}
-	s.cachePut(tagKey(world, tag), doc)
+	s.cachePut(tagKey(ctx, world, tag), doc)
 	return doc, nil
 }
 

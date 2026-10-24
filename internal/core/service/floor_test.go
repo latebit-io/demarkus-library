@@ -215,7 +215,7 @@ func TestFloorServesStaleThroughTransientError(t *testing.T) {
 		fakeRenderer{}, nil)
 	clk := time.Unix(1000, 0)
 	svc.floor.now = func() time.Time { return clk }
-	svc.floor.put(domain.Floor{Worlds: []domain.FloorWorld{{World: domain.WorldInfo{Name: "last-good"}}}})
+	svc.floor.put(t.Context(), universe, 0, domain.Floor{Worlds: []domain.FloorWorld{{World: domain.WorldInfo{Name: "last-good"}}}})
 	clk = clk.Add(floorTTL + time.Second) // force a rebuild attempt, which fails
 
 	floor, err := svc.Floor(t.Context())
@@ -233,7 +233,7 @@ func TestFloorUnauthorizedNeverServesStale(t *testing.T) {
 	svc := NewReadingService(fakeGateway{worldsErr: domain.ErrUnauthorized}, fakeRenderer{}, nil)
 	clk := time.Unix(1000, 0)
 	svc.floor.now = func() time.Time { return clk }
-	svc.floor.put(domain.Floor{Worlds: []domain.FloorWorld{{World: domain.WorldInfo{Name: "last-good"}}}})
+	svc.floor.put(t.Context(), universe, 0, domain.Floor{Worlds: []domain.FloorWorld{{World: domain.WorldInfo{Name: "last-good"}}}})
 	clk = clk.Add(floorTTL + time.Second)
 
 	if _, err := svc.Floor(t.Context()); !errors.Is(err, domain.ErrUnauthorized) {

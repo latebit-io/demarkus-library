@@ -52,17 +52,6 @@ func unionRefs(a, b []domain.Ref) []domain.Ref {
 	return sortedRefs(set)
 }
 
-// linkGraph is the render-time observed-links map (R3 decision; ADR 0005 §16):
-// the edge source for backlinks and the graph pane. It is populated as a
-// side-effect of normal reading — rewriteLinks already resolves every link in
-// every rendered document to a (world, path) target, and the web adapter feeds
-// those edges here via RecordLinks. Pure in-memory state, per-pod and
-// ephemeral, identical under QUIC and broker (no broker graph store, so
-// decision 16 holds). It is the always-available baseline; the durable
-// hub-sourced topology (plans addendum 2) layers in front of it later.
-//
-// Mirrors floorCache: an internal struct, not a port — the service's public
-// edge methods are the seam a future hub/broker strategy slots behind.
 // maxLinkGraphSources bounds the observed-links map so a long-lived pod does not
 // grow without limit as distinct documents are read. When exceeded, the
 // least-recently-observed source (and its edges) is evicted; the graph is
@@ -70,6 +59,9 @@ func unionRefs(a, b []domain.Ref) []domain.Ref {
 // when that document is next read.
 const maxLinkGraphSources = 5000
 
+// linkGraph is the render-time observed-links map (R3; ADR 0005 §16), fed by
+// RecordLinks as documents render: per pod, ephemeral, the same under QUIC and
+// broker. An internal struct; the service's edge methods are the seam.
 type linkGraph struct {
 	unbounded bool // no source cap: the hub's durable copy must stay whole
 	mu        sync.RWMutex
