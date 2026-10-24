@@ -146,23 +146,3 @@ func TestLookupAllPrefersBrokerUniverse(t *testing.T) {
 		t.Fatalf("direct LookupAll = (%+v, %v)", raw, err)
 	}
 }
-
-func TestIsHostShaped(t *testing.T) {
-	cases := []struct {
-		in   string
-		want bool
-	}{
-		{"root", false},
-		{"team-a", false},
-		{"soul.demarkus.io", true},
-		{"soul.demarkus.io:6309", true},
-		{"localhost:6309", true},
-		{"localhost", true},
-		{"2001:db8::1", true},
-	}
-	for _, tc := range cases {
-		if got := IsHostShaped(tc.in); got != tc.want {
-			t.Errorf("IsHostShaped(%q) = %v, want %v", tc.in, got, tc.want)
-		}
-	}
-}

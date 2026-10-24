@@ -49,12 +49,13 @@ func (s *ReadingService) readHub(ctx context.Context, hub string) hubTopology {
 // authorized world names, and host→name by each world's dial Address (what
 // the hub graph keys nodes by), falling back to URL for older brokers and QUIC.
 type hostIndex struct {
+	worlds     []domain.WorldInfo // the list it indexes; shared through the cache, read-only
 	authorized map[string]bool
 	host2name  map[string]string
 }
 
 func indexHosts(worlds []domain.WorldInfo) hostIndex {
-	idx := hostIndex{authorized: make(map[string]bool, len(worlds)), host2name: make(map[string]string, len(worlds))}
+	idx := hostIndex{worlds: worlds, authorized: make(map[string]bool, len(worlds)), host2name: make(map[string]string, len(worlds))}
 	for _, w := range worlds {
 		idx.authorized[w.Name] = true
 		joinAddr := w.Address
@@ -68,12 +69,11 @@ func indexHosts(worlds []domain.WorldInfo) hostIndex {
 	return idx
 }
 
-// hubGraph is one read of the hub: the raw topology, the host index that
-// resolves it, and its reference edges in world-name space — the durable
-// edge layer under the render-time observed map.
+// hubGraph is one read of the hub: the raw topology and its reference edges
+// resolved into the reader's world names — the durable edge layer under the
+// render-time observed map.
 type hubGraph struct {
 	topo  hubTopology
-	hosts hostIndex
 	edges *linkGraph
 }
 
@@ -97,11 +97,8 @@ func (s *ReadingService) hubGraph(ctx context.Context) hubGraph {
 	epoch := s.hubs.epoch(universe)
 	// The durable store is never evicted: a cold pod must hold the whole hub.
 	g := hubGraph{topo: s.readHub(ctx, s.hub), edges: &linkGraph{unbounded: true}}
-	worlds, err := s.world.Worlds(ctx)
-	if err == nil {
-		g.hosts = indexHosts(worlds)
-	}
-	g.edges.observeAll(resolveHubEdges(g.topo.edges, g.hosts))
+	hosts, err := s.readerHosts(ctx)
+	g.edges.observeAll(resolveHubEdges(g.topo.edges, hosts))
 	if err != nil {
 		return g // no host index resolves nothing; serve it once, never cache it
 	}
@@ -213,6 +210,9 @@ func hostKey(h string) string {
 // they are never a navigable portal. (Private IPs are NOT dropped — a LAN
 // federation deployment names real worlds by them; and an authorized world on a
 // cluster-internal address never reaches here — hostName matches it first.)
+//
+// Hide: a label that is not host-shaped ("secret", from a crawler-normalized
+// mark://secret link) names a knowledge-system world the reader may not read.
 func portalLabel(host string) (string, bool) {
 	hk := hostKey(host)
 	h, hp, err := net.SplitHostPort(hk)
@@ -222,10 +222,14 @@ func portalLabel(host string) (string, bool) {
 	if isLocalHost(h) {
 		return "", false
 	}
-	if hp == "" || hp == defaultHostPort {
-		return h, true
+	label := h
+	if hp != "" && hp != defaultHostPort {
+		label = net.JoinHostPort(h, hp)
 	}
-	return net.JoinHostPort(h, hp), true
+	if !domain.IsHostShaped(label) {
+		return "", false
+	}
+	return label, true
 }
 
 // isLocalHost reports whether a host is loopback, link-local, unspecified,

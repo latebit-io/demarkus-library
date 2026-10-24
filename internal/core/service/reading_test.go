@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
+	"github.com/latebit-io/demarkus-library/internal/core/port"
 )
 
 // fakeGateway and fakeRenderer stand in for the outbound adapters. When called
@@ -20,7 +21,11 @@ type fakeGateway struct {
 	limit     *int    // records the Lookup limit argument
 	worlds    []domain.WorldInfo
 	worldsErr error
-	fetchBody map[string]string // path → body for Fetch (e.g. the hub /graph.md); falls back to raw
+	// worldsByReader, when set, answers Worlds per port.ReaderKey, as
+	// mark_worlds does; worldsCalls counts Worlds calls when non-nil.
+	worldsByReader map[string][]domain.WorldInfo
+	worldsCalls    *int
+	fetchBody      map[string]string // path → body for Fetch (e.g. the hub /graph.md); falls back to raw
 
 	publishVersion int
 	publishMerge   *domain.MergeCandidate // when set, Publish returns a merge candidate
@@ -68,8 +73,14 @@ func (f fakeGateway) LookupAll(_ context.Context, q domain.LookupQuery) (domain.
 	}
 	return f.raw, f.err
 }
-func (f fakeGateway) Worlds(context.Context) ([]domain.WorldInfo, error) {
+func (f fakeGateway) Worlds(ctx context.Context) ([]domain.WorldInfo, error) {
 	f.record("Worlds")
+	if f.worldsCalls != nil {
+		*f.worldsCalls++
+	}
+	if f.worldsByReader != nil {
+		return f.worldsByReader[port.ReaderKey(ctx)], f.worldsErr
+	}
 	return f.worlds, f.worldsErr
 }
 func (f fakeGateway) Publish(_ context.Context, _ domain.PublishRequest) (domain.PublishResult, error) {

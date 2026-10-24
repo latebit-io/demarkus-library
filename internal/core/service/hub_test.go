@@ -1,11 +1,11 @@
 package service
 
 import (
-	"github.com/latebit-io/demarkus-library/internal/core/port"
 	"reflect"
 	"testing"
 
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
+	"github.com/latebit-io/demarkus-library/internal/core/port"
 )
 
 // stubGraphParser returns a fixed domain topology, keeping core tests
@@ -115,6 +115,9 @@ func TestPortalLabel(t *testing.T) {
 		{"cache.svc.cluster.local:6309", "", false}, // cluster-internal
 		{"10.0.0.5:6309", "10.0.0.5", true},         // private IP KEPT (LAN federation)
 		{"[2001:db8::5]:6309", "2001:db8::5", true}, // routable IPv6 KEPT
+		{"secret:6309", "", false},                  // unauthorized world name, crawler-normalized → hidden
+		{"secret", "", false},
+		{"secret:6401", "secret:6401", true}, // explicit port: a direct host link
 	}
 	for _, c := range cases {
 		got, ok := portalLabel(c.in)
@@ -137,6 +140,8 @@ func TestWorldEdgesCanonicalizesAndFiltersPortals(t *testing.T) {
 		{From: domain.Ref{World: "root", Path: "/f.md"}, To: domain.Ref{World: "cache.svc.cluster.local:6309", Path: "/z.md"}},
 		// an explicit non-default port is a distinct, navigable portal → kept.
 		{From: domain.Ref{World: "root", Path: "/g.md"}, To: domain.Ref{World: "dev.example.org:6401", Path: "/z.md"}},
+		// a world name the reader may not read, as the hub export writes it → hidden.
+		{From: domain.Ref{World: "root", Path: "/h.md"}, To: domain.Ref{World: "secret:6309", Path: "/plan.md"}},
 	}
 	gotEdges, portals := worldEdges(edges, nil, authorized)
 
@@ -298,6 +303,59 @@ func TestHubGraphIsCachedPerReader(t *testing.T) {
 	svc.Neighborhood(b, "root", "/index.md")
 	if called == "" {
 		t.Error("reader B was served reader A's cached hub graph")
+	}
+}
+
+// TestNeighborhoodRemasksDurableEdges: the hub's edges are resolved when its
+// cache fills, but the reader's world list refreshes on its own clock. A world
+// revoked in between must drop from the durable layer with the new list.
+func TestNeighborhoodRemasksDurableEdges(t *testing.T) {
+	worlds := map[string][]domain.WorldInfo{"a": {
+		{Name: "root", URL: "mark://root.svc:6309"},
+		{Name: "world-a", URL: "mark://world-a.svc:6309"},
+	}}
+	gw := fakeGateway{worldsByReader: worlds, fetchBody: map[string]string{hubGraphPath: "stub"}}
+	svc := NewReadingService(gw, fakeRenderer{}, nil).WithHub("root", hubStubTopology)
+	ctx := port.WithReader(t.Context(), "a")
+	guide := domain.Ref{World: "world-a", Path: "/guide.md"}
+
+	if n := svc.Neighborhood(ctx, "root", "/index.md"); !reflect.DeepEqual(n.Out, []domain.Ref{guide}) {
+		t.Fatalf("durable out = %+v, want [%+v]", n.Out, guide)
+	}
+
+	// world-a is revoked; the list refreshes while the hub graph stays cached.
+	worlds["a"] = worlds["a"][:1]
+	svc.hosts.invalidate(universe)
+	if n := svc.Neighborhood(ctx, "root", "/index.md"); n.Out != nil {
+		t.Errorf("revoked world still a durable neighbor: %+v", n.Out)
+	}
+	if in := svc.Backlinks(ctx, "world-a", "/guide.md"); in != nil {
+		t.Errorf("revoked center still has durable backlinks: %+v", in)
+	}
+}
+
+// TestWorldListReadOncePerReader: the floor, the world map, the hub join and
+// the graph mask all need the reader's world list; inside hubTTL it costs
+// one broker read, not one per consumer.
+func TestWorldListReadOncePerReader(t *testing.T) {
+	var lists int
+	gw := fakeGateway{
+		worlds:      []domain.WorldInfo{{Name: "root", URL: "mark://root.svc:6309"}},
+		fetchBody:   map[string]string{hubGraphPath: "stub"},
+		worldsCalls: &lists,
+	}
+	svc := NewReadingService(gw, fakeRenderer{}, nil).WithHub("root", hubStubTopology)
+	ctx := port.WithReader(t.Context(), "session-a")
+
+	if _, err := svc.Floor(ctx); err != nil {
+		t.Fatalf("Floor: %v", err)
+	}
+	if _, err := svc.WorldMap(ctx, "root"); err != nil {
+		t.Fatalf("WorldMap: %v", err)
+	}
+	svc.Neighborhood(ctx, "root", "/index.md")
+	if lists != 1 {
+		t.Errorf("world list read %d times, want 1", lists)
 	}
 }
 

@@ -13,7 +13,7 @@ const universe = ""
 
 // ttlCache holds one timestamped value per scope and reader: the focused path
 // reads live and puts, unfocused panes read through getFresh. Backs the floor,
-// world map, name index and hub.
+// world map, name index, hub and the reader's world list.
 type ttlCache[T any] struct {
 	mu     sync.Mutex
 	all    map[string]map[string]ttlEntry[T] // scope → reader → entry
