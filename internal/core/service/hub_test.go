@@ -301,6 +301,34 @@ func TestHubGraphIsCachedPerReader(t *testing.T) {
 	}
 }
 
+// TestNeighborhoodRemasksDurableEdges: the hub's edges are resolved when its
+// cache fills, but the reader's world list refreshes on its own clock. A world
+// revoked in between must drop from the durable layer with the new list.
+func TestNeighborhoodRemasksDurableEdges(t *testing.T) {
+	worlds := map[string][]domain.WorldInfo{"a": {
+		{Name: "root", URL: "mark://root.svc:6309"},
+		{Name: "world-a", URL: "mark://world-a.svc:6309"},
+	}}
+	gw := fakeGateway{worldsByReader: worlds, fetchBody: map[string]string{hubGraphPath: "stub"}}
+	svc := NewReadingService(gw, fakeRenderer{}, nil).WithHub("root", hubStubTopology)
+	ctx := port.WithReader(t.Context(), "a")
+	guide := domain.Ref{World: "world-a", Path: "/guide.md"}
+
+	if n := svc.Neighborhood(ctx, "root", "/index.md"); !reflect.DeepEqual(n.Out, []domain.Ref{guide}) {
+		t.Fatalf("durable out = %+v, want [%+v]", n.Out, guide)
+	}
+
+	// world-a is revoked; the list refreshes while the hub graph stays cached.
+	worlds["a"] = worlds["a"][:1]
+	svc.hosts.invalidate(universe)
+	if n := svc.Neighborhood(ctx, "root", "/index.md"); n.Out != nil {
+		t.Errorf("revoked world still a durable neighbor: %+v", n.Out)
+	}
+	if in := svc.Backlinks(ctx, "world-a", "/guide.md"); in != nil {
+		t.Errorf("revoked center still has durable backlinks: %+v", in)
+	}
+}
+
 // TestWorldListReadOncePerReader: the floor, the world map, the hub join and
 // the graph mask all need the reader's world list; inside hubTTL it costs
 // one broker read, not one per consumer.

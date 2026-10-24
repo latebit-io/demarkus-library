@@ -29,14 +29,19 @@ func (s *ReadingService) Neighborhood(ctx context.Context, world, path string) d
 	// A failed world list hides every knowledge-system name (fail closed: the
 	// pane is enrichment) and resolves no hub edge, so the hub read is skipped.
 	hosts, err := s.readerHosts(ctx)
+	if !hosts.visible(world) {
+		return domain.Neighborhood{Center: center}
+	}
 	durable := noHubEdges
 	if err == nil {
 		durable = s.hubGraph(ctx).edges
 	}
+	// The hub's edges were resolved against the list cached when they were:
+	// mask them with the current one, so a revoked world drops with it.
 	return domain.Neighborhood{
 		Center: center,
-		Out:    unionRefs(s.graph.links(hosts, center), durable.links(center)),
-		In:     unionRefs(s.graph.backlinks(hosts, center), durable.backlinks(center)),
+		Out:    unionRefs(s.graph.links(hosts, center), hosts.visibleRefs(durable.links(center))),
+		In:     unionRefs(s.graph.backlinks(hosts, center), hosts.visibleRefs(durable.backlinks(center))),
 	}
 }
 
