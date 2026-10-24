@@ -226,9 +226,8 @@ func (g *Gateway) LookupAll(ctx context.Context, q domain.LookupQuery) (domain.R
 
 // Publish writes a document through mark_publish — the cataloging desk's write
 // path (Phase 3). Metadata travels in the tool's metadata object (never a body
-// fence; ADR 0005 decision 11). on_conflict is "fail" so an expected_version
-// mismatch returns a strict conflict the desk surfaces as a reload prompt
-// (the structural-merge flow is a later slice). Returns the new version.
+// fence; ADR 0005 decision 11). The result carries the new version, or a merge
+// candidate when an edit raced a newer version.
 func (g *Gateway) Publish(ctx context.Context, req domain.PublishRequest) (domain.PublishResult, error) {
 	token := bearer.FromContext(ctx)
 	if token == "" {

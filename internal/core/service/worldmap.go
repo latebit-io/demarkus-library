@@ -30,10 +30,6 @@ const (
 // document would never appear there.
 const worldMapTTL = floorTTL
 
-// worldMapCache holds the last assembled map per world: the focused path
-// (WorldMap) rebuilds live and puts, unfocused panes read within the TTL.
-type worldMapCache = ttlCache[domain.WorldMap]
-
 // WorldMap assembles one world's map live: its whole catalog ("*", importance
 // order) grouped into top-level directory clusters, plus the intra-world edges
 // among the rendered documents (observed-links map ∪ hub graph). The world
@@ -106,7 +102,7 @@ func (s *ReadingService) WorldMap(ctx context.Context, world string) (domain.Wor
 	wm.Edges = intraWorldEdges(world, host2name,
 		append(topo.edges, s.graph.allEdges()...), labeled)
 
-	s.worldMaps.put(world, epoch, wm)
+	s.worldMaps.put(ctx, world, epoch, wm)
 	return wm, nil
 }
 
@@ -114,7 +110,7 @@ func (s *ReadingService) WorldMap(ctx context.Context, world string) (domain.Wor
 // miss. Unfocused world-map panes read here — the focused-live policy every
 // other pane follows.
 func (s *ReadingService) WorldMapCached(ctx context.Context, world string) (domain.WorldMap, error) {
-	if wm, ok := s.worldMaps.getFresh(world, worldMapTTL); ok {
+	if wm, ok := s.worldMaps.getFresh(ctx, world, worldMapTTL); ok {
 		return wm, nil
 	}
 	return s.WorldMap(ctx, world)

@@ -444,7 +444,7 @@ func TestTagCachedReadsThroughAndCaches(t *testing.T) {
 }
 
 func TestDocAndTagKeysNeverCollide(t *testing.T) {
-	if docKey("w", "/adr") == tagKey("w", "/adr") {
+	if docKey(t.Context(), "w", "/adr") == tagKey(t.Context(), "w", "/adr") {
 		t.Error("doc and tag cache keys collide")
 	}
 }

@@ -109,6 +109,26 @@ func TestLookupAllUsesHomeWorld(t *testing.T) {
 	}
 }
 
+// TestLookupSendsMatch pins body match over QUIC: the mode reaches the
+// client and the server's match echo reaches the caller unchanged.
+func TestLookupSendsMatch(t *testing.T) {
+	rc := &recordingClient{fakeClient: fakeClient{res: fetch.Result{Response: protocol.Response{
+		Status:   protocol.StatusOK,
+		Metadata: map[string]string{"match": domain.MatchBody},
+	}}}}
+	g := NewGateway(rc, "soul.demarkus.io", "")
+	raw, err := g.Lookup(t.Context(), "soul.demarkus.io", domain.LookupQuery{Scope: "/", Query: "quic", Match: domain.MatchBody})
+	if err != nil {
+		t.Fatalf("Lookup: %v", err)
+	}
+	if rc.gotLookup.Match != fetch.MatchBody {
+		t.Errorf("request match = %q, want %q", rc.gotLookup.Match, fetch.MatchBody)
+	}
+	if raw.Metadata["match"] != domain.MatchBody {
+		t.Errorf("match echo = %q, want %q", raw.Metadata["match"], domain.MatchBody)
+	}
+}
+
 func TestNormalizeHost(t *testing.T) {
 	cases := []struct{ in, want string }{
 		{"soul.demarkus.io", "soul.demarkus.io:6309"}, // bare host → default port
@@ -124,10 +144,17 @@ func TestNormalizeHost(t *testing.T) {
 	}
 }
 
-// recordingClient captures the host and token of each dial.
+// recordingClient captures the host and token of each dial, and the last
+// LOOKUP request.
 type recordingClient struct {
 	fakeClient
 	gotHost, gotToken string
+	gotLookup         fetch.LookupRequest
+}
+
+func (r *recordingClient) Lookup(_ context.Context, req fetch.LookupRequest) (fetch.Result, error) {
+	r.gotLookup = req
+	return r.res, r.err
 }
 
 func (r *recordingClient) Fetch(_ context.Context, req fetch.FetchRequest) (fetch.Result, error) {

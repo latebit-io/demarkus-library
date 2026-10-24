@@ -70,7 +70,7 @@ func (s *ReadingService) Publish(ctx context.Context, req domain.PublishRequest)
 // rendered-document LRU is refreshed by the live re-read; the link graph
 // re-records when the document next renders.
 func (s *ReadingService) invalidateTopology(world string) {
-	s.floor.invalidate()
+	s.floor.invalidate(universe)
 	s.worldMaps.invalidate(world)
 	s.names.invalidate(world)
 }
