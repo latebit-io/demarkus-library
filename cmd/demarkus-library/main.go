@@ -187,7 +187,7 @@ func main() {
 
 		web.AuthRoutes(app, web.NewAuthHandler(auth, sessions, session.NewPendingLogins(sealer), cookies))
 		turnstile = append(turnstile, web.RequireSession(sessions, cookies))
-		themeBearer = append(themeBearer, web.SessionBearer(sessions, cookies))
+		themeBearer = append(themeBearer, web.SessionBearer(sessions))
 
 		brokerHTTP := routedClient(route, broker.DefaultTimeout)
 		bg := broker.NewGateway(config.BrokerURL, brokerHTTP)

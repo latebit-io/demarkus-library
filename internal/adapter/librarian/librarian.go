@@ -169,8 +169,11 @@ func (l *Librarian) Ask(ctx context.Context, ask domain.LibrarianAsk) (<-chan do
 	if ask.Question == "" {
 		return nil, errors.New("librarian: empty question")
 	}
-	conv, err := l.acquire(ask)
+	// The run keeps the reader's bearer but not the request's lifetime.
+	runCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), l.cfg.RunTimeout)
+	conv, err := l.acquire(ask, cancel)
 	if err != nil {
+		cancel()
 		return nil, err
 	}
 
@@ -179,9 +182,6 @@ func (l *Librarian) Ask(ctx context.Context, ask domain.LibrarianAsk) (<-chan do
 	current := conv.run
 	l.mu.Unlock()
 
-	// The run keeps the reader's bearer but not the request's lifetime.
-	runCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), l.cfg.RunTimeout)
-	current.cancel = cancel
 	if err := conv.agent.PromptWithMessages(withRun(runCtx, current), msgs); err != nil {
 		cancel()
 		l.release(conv, current)
@@ -235,7 +235,8 @@ func replay(ex domain.LibrarianExchange) <-chan domain.LibrarianEvent {
 // acquire returns the ask's conversation with a fresh run for it in its
 // slot, or ErrLibrarianBusy, or a *LibrarianLimitError past the hourly
 // budget. Creating a conversation may evict the least-recently-used idle one.
-func (l *Librarian) acquire(ask domain.LibrarianAsk) (*conversation, error) {
+// The run is complete, cancel included, before Attach can see it.
+func (l *Librarian) acquire(ask domain.LibrarianAsk, cancel context.CancelFunc) (*conversation, error) {
 	key, id, question := ask.Conversation, ask.ID, ask.Question
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -265,7 +266,9 @@ func (l *Librarian) acquire(ask domain.LibrarianAsk) (*conversation, error) {
 		return nil, &domain.LibrarianLimitError{RetryAfter: conv.asks[0].Add(budgetWindow).Sub(now)}
 	}
 	conv.asks = append(conv.asks, now)
-	conv.run = newRun(id, question, now, l.cfg.ReconnectGrace)
+	r := newRun(id, question, now, l.cfg.ReconnectGrace)
+	r.cancel = cancel
+	conv.run = r
 	conv.lastUsed = now
 	return conv, nil
 }

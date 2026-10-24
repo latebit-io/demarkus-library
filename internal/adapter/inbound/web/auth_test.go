@@ -382,6 +382,28 @@ func TestLogout(t *testing.T) {
 	}
 }
 
+// TestSessionBearerNeverSetsCookies: a public route lends a refreshed bearer
+// but leaves the cookie alone, so no cacheable response carries a Set-Cookie.
+func TestSessionBearerNeverSetsCookies(t *testing.T) {
+	rig := newTestRig(t)
+	var lent string
+	rig.app.GET("/asset", func(c *echo.Context) error {
+		lent = bearer.FromContext(c.Request().Context())
+		return c.String(http.StatusOK, "css")
+	}, SessionBearer(rig.sessions))
+	cookie := rig.loginWith(t, session.Tokens{IDToken: "id-tok", RefreshToken: "ref-tok", Expiry: time.Now().Add(10 * time.Second)})
+
+	req := httptest.NewRequest(http.MethodGet, "/asset", http.NoBody)
+	req.AddCookie(cookie)
+	rec := rig.do(req)
+	if lent != "refreshed" {
+		t.Errorf("bearer = %q, want the refreshed token", lent)
+	}
+	if got := rec.Header().Values("Set-Cookie"); len(got) != 0 {
+		t.Errorf("public route set cookies: %v", got)
+	}
+}
+
 // TestTurnstileRenewsRefreshedCookie: a refresh re-seals the session into a
 // new cookie; the reader key survives it, and the new cookie needs no refresh.
 func TestTurnstileRenewsRefreshedCookie(t *testing.T) {

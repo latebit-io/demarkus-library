@@ -25,7 +25,7 @@ type run struct {
 	question string
 	started  time.Time
 	grace    time.Duration
-	cancel   context.CancelFunc // ends the run; set by Ask before it starts
+	cancel   context.CancelFunc // ends the run; set before the run is published
 
 	mu          sync.Mutex
 	steps       []domain.LibrarianStep

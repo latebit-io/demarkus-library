@@ -139,15 +139,14 @@ func RequireSession(mgr *session.Manager, cookies CookieConfig) echo.MiddlewareF
 // SessionBearer is the lenient turnstile for public routes that read better
 // with a reader's identity (theme assets of a private hub): a live session
 // lends its bearer, anything else passes anonymous.
-func SessionBearer(mgr *session.Manager, cookies CookieConfig) echo.MiddlewareFunc {
+func SessionBearer(mgr *session.Manager) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
 			if cookie, err := c.Cookie(sessionCookie); err == nil && cookie.Value != "" {
-				// Best effort: a stale session is the turnstile's problem
-				// on the next page, not this asset's. No reader marks: the
-				// asset renders no page, so the id token stays unparsed.
+				// Best effort, and never a Set-Cookie: these responses are
+				// cacheable, and a shared cache could replay one. The next
+				// page through the turnstile renews a refreshed card.
 				if live, err := mgr.Resolve(c.Request().Context(), cookie.Value); err == nil {
-					renewSessionCookie(c, live, cookies.Secure)
 					withBearer(c, live.Session.ID, live.Session.IDToken)
 				}
 			}

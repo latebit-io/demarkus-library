@@ -770,3 +770,20 @@ func TestAttach_MatchesOnlyTheAsk(t *testing.T) {
 		t.Error("Attach reached a run the next ask replaced")
 	}
 }
+
+// TestAcquire_PublishesACompleteRun: the slot never holds a run without its
+// cancel, so a reconnect's grace timer can always end it.
+func TestAcquire_PublishesACompleteRun(t *testing.T) {
+	t.Parallel()
+
+	l := newTestLibrarian(t, &scriptedProvider{}, newFakePorts())
+	conv, err := l.acquire(domain.LibrarianAsk{ID: "ask-1", Conversation: "conv-1", Question: "q"}, func() {})
+	if err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if conv.run == nil || conv.run.cancel == nil {
+		t.Errorf("published run = %+v; want its cancel set", conv.run)
+	}
+}
