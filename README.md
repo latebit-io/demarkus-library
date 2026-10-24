@@ -62,7 +62,7 @@ internal/core/
                              trails, floor/graph, caches
 internal/adapter/
   inbound/web/               Echo handlers/routes/views/templates (driving adapter)
-    session/                 in-memory session + pending-login stores (broker mode)
+    session/                 sealed session + pending-login cookies (broker mode)
   librarian/                 nib agent → Librarian port
   outbound/world/            direct demarkus QUIC fetch → WorldGateway port
   outbound/broker/           broker MCP gateway → WorldGateway port
@@ -81,7 +81,7 @@ are identical in both modes.
   client, no login. The demo/dev path.
 - **`broker`** — reads go through the broker's MCP gateway with the reader's
   bearer; the reading room sits behind the org-login turnstile (OAuth code +
-  PKCE as a registered confidential web client, tokens server-side, opaque
+  PKCE as a registered confidential web client, tokens sealed in an HttpOnly
   session cookie, CSRF on every state-changing request).
 
 ### Front-end philosophy (ADR 0003)
@@ -165,6 +165,7 @@ required; startup fails loudly on a missing one.
 | `DEMARKUS_WORLD` | — | world name for `mark://<world>/<path>` reads |
 | `DEMARKUS_SCOPES` | `mark.read` | OAuth scopes (space-separated) |
 | `DEMARKUS_SESSION_TTL` | `720h` | absolute session lifetime |
+| `DEMARKUS_SESSION_KEY` | — | base64 of 32 bytes sealing the session cookie; every replica needs the same one. Unset mints a per-process key: sessions end at restart |
 | `DEMARKUS_FORWARD_READER_IP` | `false` | send the reader's IP (`X-Real-IP`, verbatim) as `X-Forwarded-For` on token exchange, refresh and revoke; only behind a proxy that overwrites `X-Real-IP` |
 | `DEMARKUS_COOKIE_SECURE` | `true` | Secure flag on the session cookie (`false` only for localhost dev) |
 
@@ -185,9 +186,10 @@ pod IP, and all readers share one bucket.
 
 ## Deploy
 
-`Dockerfile` + Helm chart at `deploy/helm/demarkus-library`. Sessions and the
-rendered-document cache are in-memory and per-pod — the chart's
-`replicaCount: 1` + `Recreate` posture assumes single-pod state.
+`Dockerfile` + Helm chart at `deploy/helm/demarkus-library`. Sessions ride in
+the reader's sealed cookie, so with a shared `library.broker.sessionKey` any
+replica serves any reader and updates roll; see the chart's `values.yaml` for
+running more than one.
 
 ## Docs
 

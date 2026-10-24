@@ -15,15 +15,19 @@ import (
 // broker mode — and it can see exactly what the reader can see (plan D1). The
 // web adapter depends on this interface, never on the agent machinery.
 type Librarian interface {
-	// Ask streams the librarian's work on ask.Question within its
-	// conversation. The channel closes after a LibrarianDone or
-	// LibrarianError event. ctx bounds the run: cancelling it (the client
-	// left) stops the agent and ends the stream.
+	// Ask starts a run on ask.Question and subscribes to it, as Attach does.
+	// The run keeps ctx's values (the reader's bearer), not its cancellation:
+	// it outlives the subscription, within the implementation's bounds.
 	//
 	// One ask at a time per conversation: a second Ask while one is in
 	// flight returns domain.ErrLibrarianBusy; an ask past the conversation's
 	// hourly budget returns a *domain.LibrarianLimitError.
 	Ask(ctx context.Context, ask domain.LibrarianAsk) (<-chan domain.LibrarianEvent, error)
+
+	// Attach subscribes to the run of the ask with id askID: what it has done
+	// so far, then live events; the channel closes after LibrarianDone or when
+	// ctx ends. False when the conversation holds no such ask.
+	Attach(ctx context.Context, conversation, askID string) (<-chan domain.LibrarianEvent, bool)
 
 	// History returns the conversation's completed exchanges in order — the
 	// transcript the librarian pane renders. Memory-only (no world read, no

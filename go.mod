@@ -15,6 +15,7 @@ require (
 	github.com/yuin/goldmark-highlighting/v2 v2.0.0-20230729083705-37449abec8cc
 	github.com/zmtcreative/gm-alert-callouts v0.8.0
 	golang.org/x/net v0.60.0
+	golang.org/x/sync v0.23.0
 )
 
 require (
@@ -22,7 +23,6 @@ require (
 	github.com/google/jsonschema-go v0.4.2 // indirect
 	github.com/jeandeaual/go-locale v0.0.0-20250612000132-0ef82f21eade // indirect
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2 // indirect
-	golang.org/x/sync v0.23.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
 )
 

@@ -13,7 +13,7 @@
 //   - broker: the Phase 1b library card (ADR 0004) — reads go through the
 //     broker's MCP gateway with the reader's bearer; the reading room sits
 //     behind the org-login turnstile (OAuth code + PKCE as a registered
-//     confidential web client, tokens server-side, opaque session cookie).
+//     confidential web client, tokens sealed in an HttpOnly session cookie).
 //
 // The core and the reading-room web handlers are identical in both modes —
 // only the adapters wired here change.
@@ -50,11 +50,6 @@ import (
 	"github.com/latebit-io/nib/ai/llmconfig"
 	niboauth "github.com/latebit-io/nib/ai/oauth"
 )
-
-// sweepInterval is how often expired sessions and abandoned logins are
-// collected in broker mode. Lazy expiry keeps correctness regardless; the
-// sweep just bounds memory.
-const sweepInterval = time.Hour
 
 const (
 	// maxBodyBytes caps request bodies — generous for markdown source (the
@@ -113,9 +108,7 @@ func main() {
 	}
 	// Bound handler latency: a wedged outbound read returns 503 instead of
 	// pinning the goroutine. Covers the turnstile's token refresh too. The
-	// librarian's SSE stream and no-JS ask are exempt — an agent run
-	// legitimately outlives the 30s bound; their lifetimes are the client
-	// connection plus the run's own caps (plan D4/D7).
+	// librarian paths are exempt; see web.LibrarianStreamPath.
 	app.Use(middleware.ContextTimeoutWithConfig(middleware.ContextTimeoutConfig{
 		Timeout: handlerTimeout,
 		Skipper: func(c *echo.Context) bool {
@@ -184,16 +177,17 @@ func main() {
 			OnIssuerHost: issuerHostHook(route),
 		}, routedClient(route, oauth.DefaultTimeout))}
 
-		store := session.NewMemoryStore(config.SessionTTL)
-		pending := session.NewPendingStore()
-		sessions := session.NewManager(store, auth, 0)
+		sealer, err := sessionSealer(logger, config.SessionKey)
+		if err != nil {
+			logger.Error("DEMARKUS_SESSION_KEY invalid", "err", err)
+			os.Exit(1)
+		}
+		sessions := session.NewManager(sealer, auth, session.Config{TTL: config.SessionTTL})
+		cookies := web.CookieConfig{Secure: config.CookieSecure}
 
-		web.AuthRoutes(app, web.NewAuthHandler(auth, sessions, pending, web.CookieConfig{
-			Secure: config.CookieSecure,
-			TTL:    config.SessionTTL,
-		}))
-		turnstile = append(turnstile, web.RequireSession(sessions))
-		themeBearer = append(themeBearer, web.SessionBearer(sessions))
+		web.AuthRoutes(app, web.NewAuthHandler(auth, sessions, session.NewPendingLogins(sealer), cookies))
+		turnstile = append(turnstile, web.RequireSession(sessions, cookies))
+		themeBearer = append(themeBearer, web.SessionBearer(sessions, cookies))
 
 		brokerHTTP := routedClient(route, broker.DefaultTimeout)
 		bg := broker.NewGateway(config.BrokerURL, brokerHTTP)
@@ -208,9 +202,7 @@ func main() {
 		}
 		defaultWorld = config.World
 		gateway = federated.New(fcfg)
-		stopSweeper := startSweeper(store, pending)
 		shutdown = func() {
-			stopSweeper()
 			bg.Close()
 			if fclient != nil {
 				fclient.Close()
@@ -400,26 +392,14 @@ func buildLibrarian(logger *slog.Logger, reading *service.ReadingService, settin
 	return lib
 }
 
-// startSweeper collects expired sessions and abandoned pending logins on a
-// ticker; the returned stop function halts it on shutdown.
-func startSweeper(store *session.MemoryStore, pending *session.PendingStore) func() {
-	ticker := time.NewTicker(sweepInterval)
-	done := make(chan struct{})
-	go func() {
-		for {
-			select {
-			case <-ticker.C:
-				store.Sweep()
-				pending.Sweep()
-			case <-done:
-				return
-			}
-		}
-	}()
-	return func() {
-		ticker.Stop()
-		close(done)
+// sessionSealer seals cookies under the configured key. Without one it mints
+// a per-process key: sessions then end at restart and never cross replicas.
+func sessionSealer(logger *slog.Logger, key []byte) (*session.Sealer, error) {
+	if len(key) == 0 {
+		logger.Warn("DEMARKUS_SESSION_KEY unset: sessions sealed with a per-process key end at restart and do not cross replicas")
+		return session.NewEphemeralSealer(), nil
 	}
+	return session.NewSealer(key)
 }
 
 // worldLabel names the world being served for the startup log line.

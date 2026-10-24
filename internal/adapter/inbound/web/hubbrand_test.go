@@ -335,7 +335,7 @@ func TestWorldBrandsColdTransientErrorIsNotCached(t *testing.T) {
 func TestThemeAssetsCarryTheReadersBearer(t *testing.T) {
 	rig := newTestRig(t)
 	brands := NewWorldBrands(&gatedReading{fakeReading: hubSvc()}).WithHub(hubWorld)
-	WorldThemeRoutes(rig.app, DefaultBranding(), brands, SessionBearer(rig.sessions))
+	WorldThemeRoutes(rig.app, DefaultBranding(), brands, SessionBearer(rig.sessions, rig.cookies))
 	anon := func() *http.Request {
 		return httptest.NewRequest(http.MethodGet, "/theme/worlds/root/site.css", http.NoBody)
 	}

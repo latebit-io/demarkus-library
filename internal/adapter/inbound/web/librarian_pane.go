@@ -272,12 +272,12 @@ func (h librarianPanes) renderAnswer(markdown string, t trail, i int) (template.
 	return template.HTML(trailizeLinks(previewize(content), t, i, false)), cited //nolint:gosec // sanitized by Preview; the passes only rewrite/wrap links
 }
 
-// conversationKey names the reader's conversation: the session cookie in
-// broker mode (the conversation follows the login), one shared local key in
-// quic mode. The key is server-side only — it never appears in a URL.
+// conversationKey names the reader's conversation: the session id in broker
+// mode (stable across refreshes, so the conversation follows the login), one
+// shared local key in quic mode. Server-side only — never in a URL.
 func conversationKey(c *echo.Context) string {
-	if cookie, err := c.Cookie(sessionCookie); err == nil && cookie.Value != "" {
-		return cookie.Value
+	if key := port.ReaderKey(c.Request().Context()); key != "" {
+		return key
 	}
 	return "local"
 }

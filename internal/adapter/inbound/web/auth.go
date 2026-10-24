@@ -15,9 +15,29 @@ import (
 	"github.com/latebit-io/demarkus-library/internal/core/port"
 )
 
-// sessionCookie is the browser's only piece of auth state: the opaque session
-// id. Tokens stay server-side (ADR 0004).
+// sessionCookie carries the reader's sealed session; HttpOnly, so page script
+// never sees the tokens inside (ADR 0004).
 const sessionCookie = "demarkus_library_session"
+
+// loginCookie carries one sealed in-flight login from /login/start to the
+// callback, scoped to the callback path.
+const (
+	loginCookie     = "demarkus_library_login"
+	loginCookiePath = "/auth/callback"
+)
+
+// maxReturnTo bounds a post-login target; a longer one lands on /, keeping the
+// login URL and the sealed login cookie small.
+const maxReturnTo = 2048
+
+// authCookie is one of the turnstile's HttpOnly, Lax cookies. Lax still rides
+// the broker's top-level redirect back to the callback.
+type authCookie struct{ name, path string }
+
+var (
+	sessionCard  = authCookie{name: sessionCookie, path: "/"}
+	pendingLogin = authCookie{name: loginCookie, path: loginCookiePath}
+)
 
 // authedKey marks a request that passed the turnstile, so templates can show
 // the sign-out affordance without the handlers knowing about auth.
@@ -79,11 +99,9 @@ type LoginFlow interface {
 
 // CookieConfig carries the deployment's cookie posture into the auth surface.
 type CookieConfig struct {
-	// Secure marks the session cookie HTTPS-only. True in production;
+	// Secure marks the auth cookies HTTPS-only. True in production;
 	// false only for localhost development over plain HTTP.
 	Secure bool
-	// TTL is the cookie lifetime, matched to the session store's TTL.
-	TTL time.Duration
 }
 
 // RequireSession is the turnstile: requests with a live session pass through
@@ -92,19 +110,20 @@ type CookieConfig struct {
 //
 // htmx requests get an HX-Redirect instead of a 302 — otherwise htmx would
 // swap the login page into the #main fragment of a stale shell.
-func RequireSession(mgr *session.Manager) echo.MiddlewareFunc {
+func RequireSession(mgr *session.Manager, cookies CookieConfig) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
 			cookie, err := c.Cookie(sessionCookie)
 			if err != nil || cookie.Value == "" {
 				return redirectToLogin(c)
 			}
-			err = attachSession(c, mgr, cookie.Value)
+			live, err := mgr.Resolve(c.Request().Context(), cookie.Value)
 			switch {
 			case err == nil:
+				attachSession(c, live, cookies)
 				return next(c)
 			case errors.Is(err, session.ErrLoginRequired):
-				clearSessionCookie(c)
+				sessionCard.clear(c)
 				return redirectToLogin(c)
 			default:
 				// Transient (broker unreachable mid-refresh): the
@@ -120,15 +139,16 @@ func RequireSession(mgr *session.Manager) echo.MiddlewareFunc {
 // SessionBearer is the lenient turnstile for public routes that read better
 // with a reader's identity (theme assets of a private hub): a live session
 // lends its bearer, anything else passes anonymous.
-func SessionBearer(mgr *session.Manager) echo.MiddlewareFunc {
+func SessionBearer(mgr *session.Manager, cookies CookieConfig) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c *echo.Context) error {
 			if cookie, err := c.Cookie(sessionCookie); err == nil && cookie.Value != "" {
 				// Best effort: a stale session is the turnstile's problem
 				// on the next page, not this asset's. No reader marks: the
 				// asset renders no page, so the id token stays unparsed.
-				if token, err := mgr.Token(c.Request().Context(), cookie.Value); err == nil {
-					withBearer(c, cookie.Value, token)
+				if live, err := mgr.Resolve(c.Request().Context(), cookie.Value); err == nil {
+					renewSessionCookie(c, live, cookies.Secure)
+					withBearer(c, live.Session.ID, live.Session.IDToken)
 				}
 			}
 			return next(c)
@@ -136,20 +156,15 @@ func SessionBearer(mgr *session.Manager) echo.MiddlewareFunc {
 	}
 }
 
-// attachSession resolves the session's bearer and marks the request as the
-// reader's; the error is the manager's, untouched, so callers can tell a
-// dead session from a transient refresh failure.
-func attachSession(c *echo.Context, mgr *session.Manager, sessionID string) error {
-	token, err := mgr.Token(c.Request().Context(), sessionID)
-	if err != nil {
-		return err
-	}
+// attachSession marks the request as the resolved reader's and hands a
+// refreshed session back to the browser.
+func attachSession(c *echo.Context, live session.Live, cookies CookieConfig) {
+	renewSessionCookie(c, live, cookies.Secure)
 	c.Set(authedKey, true)
-	if email := emailFromIDToken(token); email != "" {
+	if email := emailFromIDToken(live.Session.IDToken); email != "" {
 		c.Set(userEmailKey, email)
 	}
-	withBearer(c, sessionID, token)
-	return nil
+	withBearer(c, live.Session.ID, live.Session.IDToken)
 }
 
 // withBearer marks the request as the reader's: the bearer for outbound calls
@@ -176,7 +191,7 @@ func redirectToLogin(c *echo.Context) error {
 // site-relative path or nothing. Anything else ("//evil.example", absolute
 // URLs, schemes) is an open-redirect attempt and collapses to "".
 func sanitizeReturnTo(raw string) string {
-	if raw == "" || !strings.HasPrefix(raw, "/") || strings.HasPrefix(raw, "//") {
+	if raw == "" || len(raw) > maxReturnTo || !strings.HasPrefix(raw, "/") || strings.HasPrefix(raw, "//") {
 		return ""
 	}
 	if strings.Contains(raw, "\\") || strings.Contains(raw, "://") {
@@ -185,27 +200,36 @@ func sanitizeReturnTo(raw string) string {
 	return raw
 }
 
-// setSessionCookie hands the browser its library card: the opaque id only.
-func setSessionCookie(c *echo.Context, id string, cfg CookieConfig) {
+// set hands the browser value until expires.
+func (k authCookie) set(c *echo.Context, value string, expires time.Time, secure bool) {
 	c.SetCookie(&http.Cookie{
-		Name:     sessionCookie,
-		Value:    id,
-		Path:     "/",
-		MaxAge:   int(cfg.TTL.Seconds()),
+		Name:  k.name,
+		Value: value,
+		Path:  k.path,
+		// At least a second: MaxAge 0 would drop the attribute and turn
+		// the cookie into a browser-session one.
+		MaxAge:   max(int(time.Until(expires).Seconds()), 1),
 		HttpOnly: true,
-		Secure:   cfg.Secure,
+		Secure:   secure,
 		SameSite: http.SameSiteLaxMode,
 	})
 }
 
-// clearSessionCookie expires the cookie on logout or a dead session.
-func clearSessionCookie(c *echo.Context) {
+// clear expires the cookie.
+func (k authCookie) clear(c *echo.Context) {
 	c.SetCookie(&http.Cookie{
-		Name:     sessionCookie,
+		Name:     k.name,
 		Value:    "",
-		Path:     "/",
+		Path:     k.path,
 		MaxAge:   -1,
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
 	})
+}
+
+// renewSessionCookie re-sets the cookie when a refresh re-sealed the session.
+func renewSessionCookie(c *echo.Context, live session.Live, secure bool) {
+	if live.Cookie != "" {
+		sessionCard.set(c, live.Cookie, live.Expires, secure)
+	}
 }

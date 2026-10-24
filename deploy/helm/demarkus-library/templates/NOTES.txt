@@ -36,6 +36,12 @@ demarkus-library installed as release {{ .Release.Name | quote }} in namespace {
   library.broker.existingSecretRef pointing at an externally-managed Secret
   (External Secrets / Sealed Secrets / Vault).
 {{- end }}
+{{- if not (include "demarkus-library.sharedSessions" .) }}
+- library.broker.sessionKey is unset: each pod seals cookies with its own
+  key, so every restart signs every reader out. Point
+  library.broker.sessionKey.existingSecretRef at a Secret holding
+  `openssl rand -base64 32`.
+{{- end }}
 {{- if not .Values.library.broker.cookieSecure }}
 - library.broker.cookieSecure=false: the session cookie travels over plain
   http. Dev/port-forward only — never expose this posture publicly.
@@ -55,7 +61,7 @@ demarkus-library installed as release {{ .Release.Name | quote }} in namespace {
 {{- end }}
 {{- if gt (int .Values.replicaCount) 1 }}
 
-WARNING: replicaCount={{ .Values.replicaCount }} but sessions are in-memory — readers will flap
-between logged-in and the login turnstile depending on which replica serves
-them. Keep replicaCount at 1 until a shared session store ships.
+NOTE: replicaCount={{ .Values.replicaCount }}. Sessions cross replicas; the librarian's
+conversations do not. Pin readers to a pod with Ingress cookie affinity (see
+ingress.annotations in values.yaml).
 {{- end }}

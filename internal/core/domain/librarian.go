@@ -24,6 +24,9 @@ func (e *LibrarianLimitError) Error() string {
 
 // LibrarianAsk is one question put to the librarian.
 type LibrarianAsk struct {
+	// ID names this ask's run so a reconnecting stream can Attach to it;
+	// "" leaves the run unattachable.
+	ID string
 	// Conversation keys the server-side conversation: a session-scoped
 	// identifier that never carries content.
 	Conversation string
@@ -69,7 +72,7 @@ const (
 	// LibrarianDone ends the stream; the answer is complete (or the run was
 	// stopped by its turn cap or the reader — a trace line says so first).
 	LibrarianDone LibrarianEventKind = "done"
-	// LibrarianError reports a failed run; the stream ends after it.
+	// LibrarianError reports a failed run; done follows.
 	LibrarianError LibrarianEventKind = "error"
 )
 

@@ -12,10 +12,11 @@ image:
 
 imagePullSecrets: []
 
-# Sessions are in-memory (session.MemoryStore): a reader's opaque session
-# cookie is only valid against the replica that minted it. Until a shared
-# session store (or sticky sessions at the Ingress) ships, more than one
-# replica produces login loops — keep this at 1.
+# Sessions live in the reader's cookie, sealed under
+# library.broker.sessionKey; replicas sharing that key serve any reader.
+# Broker mode refuses replicaCount > 1 without it. The librarian's
+# conversations and in-flight answers stay per pod, so more than one replica
+# also wants Ingress cookie affinity (see ingress.annotations).
 replicaCount: 1
 
 library:
@@ -153,6 +154,16 @@ library:
     # broker refreshes the underlying bearer server-side, so this only
     # bounds how long a reader goes without re-touching the IdP.
     sessionTTL: 720h
+    # Cookie sealing key (DEMARKUS_SESSION_KEY): base64 of 32 random bytes
+    # (`openssl rand -base64 32`) in an operator-managed Secret; no
+    # cleartext path by design. Every replica must hold the same key. Unset,
+    # each pod mints its own: sessions end at every restart and the chart
+    # keeps one replica with the Recreate strategy. Rotating the key signs
+    # every reader out.
+    sessionKey:
+      existingSecretRef:
+        name: ""
+        key: sessionKey
     # Secure flag on the session cookie (DEMARKUS_COOKIE_SECURE). The
     # Ingress serves https so this stays true; false only for local /
     # port-forward dev over plain http.
@@ -215,8 +226,7 @@ networkPolicy:
   quicEgressPort: 6309
 
 # Default-off: with replicaCount 1 a minAvailable:1 budget would block
-# every node drain. Enable alongside a multi-replica posture once a
-# shared session store lands.
+# every node drain. Enable with replicaCount >= 2.
 podDisruptionBudget:
   enabled: false
   minAvailable: 1
@@ -234,7 +244,12 @@ ingress:
   # library.example.com. Required when ingress.enabled is true.
   host: ""
   # Controller-specific annotations (e.g. proxy-body-size,
-  # cert-manager.io/cluster-issuer).
+  # cert-manager.io/cluster-issuer). With replicaCount > 1, pin readers to
+  # a pod so the librarian keeps their conversation; for ingress-nginx:
+  #   nginx.ingress.kubernetes.io/affinity: cookie
+  #   nginx.ingress.kubernetes.io/affinity-mode: persistent
+  #   nginx.ingress.kubernetes.io/session-cookie-name: demarkus_library_route
+  #   nginx.ingress.kubernetes.io/session-cookie-samesite: Lax
   annotations: {}
   # Path to expose. Defaults to the whole reading room at /.
   path: /

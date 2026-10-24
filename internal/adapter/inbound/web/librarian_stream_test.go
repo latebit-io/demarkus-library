@@ -37,27 +37,33 @@ func librarianApp(t *testing.T, lib *fakeLibrarian) *echo.Echo {
 	return app
 }
 
-// fakeLibrarian scripts one Ask stream, records the questions asked, and
-// serves a canned history.
+// fakeLibrarian scripts one Ask stream and one Attach stream, records the
+// questions asked and the runs attached to, and serves a canned history.
 type fakeLibrarian struct {
-	mu       sync.Mutex // guards history: a resume polls it from the handler goroutine
 	events   []domain.LibrarianEvent
 	history  []domain.LibrarianExchange
 	askErr   error
 	resetErr error
 	asked    []string
+	askIDs   []string
 	contexts []string
 	personas []domain.LibrarianPersona
 	stopped  []string
 	resets   []string
 	// ctxs receives each Ask's context when set; release, when set, holds
-	// the stream open (run in flight) until closed.
+	// the stream open (run in flight) until closed or the subscription's
+	// context ends, as the adapter's subscriptions do.
 	ctxs    chan context.Context
 	release chan struct{}
+	// attachEvents is what Attach replays; nil means it finds no run.
+	// attached records each conversation/ask pair it was called with.
+	attachEvents []domain.LibrarianEvent
+	attached     []string
 }
 
 func (f *fakeLibrarian) Ask(ctx context.Context, ask domain.LibrarianAsk) (<-chan domain.LibrarianEvent, error) {
 	f.asked = append(f.asked, ask.Question)
+	f.askIDs = append(f.askIDs, ask.ID)
 	f.contexts = append(f.contexts, ask.Context)
 	f.personas = append(f.personas, ask.Persona)
 	if f.ctxs != nil {
@@ -66,32 +72,40 @@ func (f *fakeLibrarian) Ask(ctx context.Context, ask domain.LibrarianAsk) (<-cha
 	if f.askErr != nil {
 		return nil, f.askErr
 	}
-	ch := make(chan domain.LibrarianEvent, len(f.events))
-	for _, ev := range f.events {
+	return f.subscription(ctx, f.events), nil
+}
+
+func (f *fakeLibrarian) Attach(ctx context.Context, conversation, askID string) (<-chan domain.LibrarianEvent, bool) {
+	f.attached = append(f.attached, conversation+"/"+askID)
+	if f.attachEvents == nil {
+		return nil, false
+	}
+	return f.subscription(ctx, f.attachEvents), true
+}
+
+// subscription serves events, then closes: at once after a done or when no
+// run is held, else on release or ctx's end.
+func (f *fakeLibrarian) subscription(ctx context.Context, events []domain.LibrarianEvent) <-chan domain.LibrarianEvent {
+	ch := make(chan domain.LibrarianEvent, len(events))
+	for _, ev := range events {
 		ch <- ev
 	}
-	if f.release == nil {
+	if f.release == nil || (len(events) > 0 && events[len(events)-1].Kind == domain.LibrarianDone) {
 		close(ch)
-		return ch, nil
+		return ch
 	}
 	go func() {
-		<-f.release
-		close(ch)
+		defer close(ch)
+		select {
+		case <-f.release:
+		case <-ctx.Done():
+		}
 	}()
-	return ch, nil
+	return ch
 }
 
-func (f *fakeLibrarian) History(string) []domain.LibrarianExchange {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.history
-}
+func (f *fakeLibrarian) History(string) []domain.LibrarianExchange { return f.history }
 
-func (f *fakeLibrarian) setHistory(history []domain.LibrarianExchange) {
-	f.mu.Lock()
-	f.history = history
-	f.mu.Unlock()
-}
 func (f *fakeLibrarian) Stop(conversation string) { f.stopped = append(f.stopped, conversation) }
 func (f *fakeLibrarian) Reset(conversation string) error {
 	f.resets = append(f.resets, conversation)
@@ -171,34 +185,79 @@ func TestLibrarianStream_LibrarianPathMapsEvents(t *testing.T) {
 		t.Errorf("echo fallback ran despite a wired librarian:\n%s", body)
 	}
 
-	// A token starts one run: the same URL again (hx-sse reconnecting after
-	// a drop) resumes it — never re-runs the ask — and renders the finished
-	// exchange from History.
-	lib.setHistory([]domain.LibrarianExchange{{
-		Question: "where is it",
-		Answer:   "It lives in ops.",
-		Steps:    []domain.LibrarianStep{{Text: "opened", Ref: deploy}},
-		Sources:  []domain.LibrarianSource{{Ref: deploy, Title: "Deploy <runbook>"}},
-	}})
+	if len(lib.askIDs) != 1 || lib.askIDs[0] == "" {
+		t.Errorf("ask ids = %v; want the token as the run's id", lib.askIDs)
+	}
+	// A settled stream forgets its token: nothing is left to attach to.
 	rec = httptest.NewRecorder()
 	e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, streamURL, http.NoBody))
-	if len(lib.asked) != 1 {
-		t.Errorf("replayed token re-ran the ask: %v", lib.asked)
+	if !strings.Contains(rec.Body.String(), "expired") || len(lib.attached) != 0 {
+		t.Errorf("settled token was still attachable:\n%s", rec.Body.String())
 	}
+}
+
+// dropFirstStream opens the ask's stream and drops the connection while its
+// run is held in flight, leaving the token attachable.
+func dropFirstStream(t *testing.T, e *echo.Echo, lib *fakeLibrarian, streamURL string) {
+	t.Helper()
+	reqCtx, drop := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		e.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, streamURL, http.NoBody).WithContext(reqCtx))
+		close(done)
+	}()
+	<-lib.ctxs
+	drop()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("stream handler did not return after the connection dropped")
+	}
+}
+
+func TestLibrarianStream_ReconnectAttaches(t *testing.T) {
+	t.Parallel()
+
+	deploy := domain.Ref{World: "w.io", Path: "/ops/deploy.md"}
+	lib := &fakeLibrarian{
+		events:  []domain.LibrarianEvent{{Kind: domain.LibrarianToken, Text: "working"}},
+		ctxs:    make(chan context.Context, 1),
+		release: make(chan struct{}),
+		attachEvents: []domain.LibrarianEvent{
+			{Kind: domain.LibrarianTrace, Text: "opened", Ref: deploy},
+			{Kind: domain.LibrarianSourceOpened, Text: "Deploy <runbook>", Ref: deploy},
+			{Kind: domain.LibrarianAnswer, Text: "It lives in ops."},
+			{Kind: domain.LibrarianDone},
+		},
+	}
+	defer close(lib.release)
+	e := librarianApp(t, lib)
+	streamURL := askToken(t, e, "where is it")
+	dropFirstStream(t, e, lib, streamURL)
+
+	// The same URL again (hx-sse reconnecting) attaches to the run — never
+	// re-runs the ask — clears the steps already shown, and streams the replay.
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, streamURL, http.NoBody))
+	if len(lib.asked) != 1 {
+		t.Errorf("reconnect re-ran the ask: %v", lib.asked)
+	}
+	if len(lib.attached) != 1 || !strings.HasSuffix(lib.attached[0], "/"+lib.askIDs[0]) {
+		t.Errorf("attached = %v; want the run of ask %q", lib.attached, lib.askIDs[0])
+	}
+	link := `<a href="/t/a/~/w.io/d/ops/deploy.md">w.io/ops/deploy.md</a>`
 	replay := rec.Body.String()
 	for _, want := range []string{
-		"reconnected",
+		`<hx-partial hx-target="find .ask-trace" hx-swap="innerHTML"></hx-partial>`,
+		`<hx-partial hx-target="find .ask-trace" hx-swap="beforeend"><li>opened ` + link + "</li></hx-partial>",
 		`<hx-partial hx-target="find .ask-answer" hx-swap="innerHTML"><p>It lives in ops.</p></hx-partial>`,
 		`<summary>1 step</summary>`,
 		`Deploy &lt;runbook&gt;</a></p></hx-partial>`,
 		"event: done",
 	} {
 		if !strings.Contains(replay, want) {
-			t.Errorf("resumed stream missing %q:\n%s", want, replay)
+			t.Errorf("attached stream missing %q:\n%s", want, replay)
 		}
-	}
-	if strings.Contains(replay, "expired") {
-		t.Errorf("resumed stream reported the ask expired:\n%s", replay)
 	}
 }
 
@@ -243,80 +302,39 @@ func TestLibrarianStream_UnknownTokenExpires(t *testing.T) {
 	}
 }
 
-func TestLibrarianStream_RunOutlivesDroppedConnection(t *testing.T) {
+func TestLibrarianStream_DroppedConnectionReturns(t *testing.T) {
 	t.Parallel()
 
-	// The run's context is detached from the request: a dropped stream is
-	// a reconnect in waiting, not the reader leaving.
+	// The subscription is scoped to the request: a drop ends the handler
+	// while the run, the librarian's concern, carries on.
 	lib := &fakeLibrarian{
 		events:  []domain.LibrarianEvent{{Kind: domain.LibrarianToken, Text: "working"}},
 		ctxs:    make(chan context.Context, 1),
 		release: make(chan struct{}),
 	}
+	defer close(lib.release)
 	e := librarianApp(t, lib)
-	streamURL := askToken(t, e, "slow one")
-
-	reqCtx, drop := context.WithCancel(context.Background())
-	done := make(chan struct{})
-	go func() {
-		e.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, streamURL, http.NoBody).WithContext(reqCtx))
-		close(done)
-	}()
-	runCtx := <-lib.ctxs
-	drop()
-	time.Sleep(50 * time.Millisecond)
-	if runCtx.Err() != nil {
-		t.Fatalf("run ended with the connection: %v", runCtx.Err())
-	}
-	close(lib.release)
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("stream handler did not return after the run ended")
-	}
+	dropFirstStream(t, e, lib, askToken(t, e, "slow one"))
 }
 
-func TestLibrarianStream_ResumeWaitsForTheExchange(t *testing.T) {
+func TestLibrarianStream_ReconnectWithoutRunSettles(t *testing.T) {
 	t.Parallel()
 
-	// A reconnect while the run is still working waits for it to end, then
-	// renders the exchange History gained.
-	lib := &fakeLibrarian{
-		events:  []domain.LibrarianEvent{{Kind: domain.LibrarianToken, Text: "working"}},
-		ctxs:    make(chan context.Context, 1),
-		release: make(chan struct{}),
-	}
+	lib := &fakeLibrarian{ctxs: make(chan context.Context, 1), release: make(chan struct{})}
+	defer close(lib.release)
 	e := librarianApp(t, lib)
 	streamURL := askToken(t, e, "q")
-	first := make(chan struct{})
-	go func() {
-		e.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, streamURL, http.NoBody))
-		close(first)
-	}()
-	<-lib.ctxs // the first stream owns the run before the reconnect arrives
+	dropFirstStream(t, e, lib, streamURL)
 
+	// The librarian no longer holds the run (evicted, or a newer ask took
+	// its place): the reconnect says so and closes.
 	rec := httptest.NewRecorder()
-	resumed := make(chan struct{})
-	go func() {
-		e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, streamURL, http.NoBody))
-		close(resumed)
-	}()
-	select {
-	case <-resumed:
-		t.Fatalf("resume settled before the run ended:\n%s", rec.Body.String())
-	case <-time.After(50 * time.Millisecond):
+	e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, streamURL, http.NoBody))
+	if body := rec.Body.String(); !strings.Contains(body, "lost track of this answer") || !strings.Contains(body, "event: done") {
+		t.Errorf("reconnect without a run did not settle:\n%s", body)
 	}
-	lib.setHistory([]domain.LibrarianExchange{{Question: "q", Answer: "late answer"}})
-	close(lib.release)
-	for _, done := range []chan struct{}{first, resumed} {
-		select {
-		case <-done:
-		case <-time.After(2 * time.Second):
-			t.Fatal("stream did not settle once the run ended")
-		}
-	}
-	if body := rec.Body.String(); !strings.Contains(body, "<p>late answer</p>") || !strings.Contains(body, "event: done") {
-		t.Errorf("resume did not render the exchange:\n%s", body)
+	if len(lib.attached) != 1 {
+		t.Errorf("attached = %v; want one attempt", lib.attached)
 	}
 }
 

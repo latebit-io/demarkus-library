@@ -44,7 +44,7 @@ func TestPresentError_Unauthorized_AuthedReLogins(t *testing.T) {
 		if loc := rec.Header().Get("Location"); !strings.HasPrefix(loc, "/login") {
 			t.Fatalf("Location = %q, want /login...", loc)
 		}
-		if !sessionCookieCleared(rec) {
+		if !cookieCleared(rec, sessionCookie) {
 			t.Fatal("session cookie not cleared on re-login")
 		}
 	})
@@ -60,7 +60,7 @@ func TestPresentError_Unauthorized_AuthedReLogins(t *testing.T) {
 		if loc := rec.Header().Get("HX-Redirect"); !strings.HasPrefix(loc, "/login") {
 			t.Fatalf("HX-Redirect = %q, want /login...", loc)
 		}
-		if !sessionCookieCleared(rec) {
+		if !cookieCleared(rec, sessionCookie) {
 			t.Fatal("session cookie not cleared on htmx re-login")
 		}
 	})
@@ -85,13 +85,4 @@ func TestPresentError_Unauthorized_NoSessionStays401(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), "<h1>Not authorized</h1>") {
 		t.Errorf("body should name the refusal: %s", rec.Body.String())
 	}
-}
-
-func sessionCookieCleared(rec *httptest.ResponseRecorder) bool {
-	for _, c := range rec.Result().Cookies() {
-		if c.Name == sessionCookie && c.MaxAge < 0 {
-			return true
-		}
-	}
-	return false
 }

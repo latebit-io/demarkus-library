@@ -6,11 +6,11 @@ package web
 // settled steps, sources, and done. On the wire (htmx 4) the swapping frames
 // are unnamed <hx-partial> events aimed at the block's regions; done stays a
 // named event (see sseFrame). A real ask arrives only as a token from POST
-// /a/ask; the run it starts outlives the connection, so hx-sse's
-// reconnect // after a drop resumes it (resumeAsk) rather than finding it expired. ?slow= is the one survivor of the transport spike that
-// proved this path (build order step 1): a once-a-second soak, kept as the
-// operational diagnostic for the timeout/proxy/ingress questions every new
-// environment re-asks.
+// /a/ask; the run it starts outlives the connection, so hx-sse's reconnect
+// after a drop attaches to it and replays it. ?slow= is the one survivor of
+// the transport spike that proved this path (build order step 1): a
+// once-a-second soak, kept as the operational diagnostic for the
+// timeout/proxy/ingress questions every new environment re-asks.
 
 import (
 	"context"
@@ -28,13 +28,9 @@ import (
 )
 
 // LibrarianStreamPath is the SSE endpoint and LibrarianAskPath the pane's
-// form target. The composition root exempts both from the ContextTimeout
-// middleware: a stream is expected to outlive the 30s handler bound, and the
-// no-JS ask runs the same agent loop synchronously — at 30s the middleware
-// would cancel the run mid-answer (silently: a ctx cancel is not an error
-// event, so the transcript just ends without an answer). Their lifetimes are
-// governed by the client connection and the run's own caps (MaxTurns,
-// provider timeouts).
+// form target. Both hold a run subscription for the whole answer, so the
+// composition root exempts them from the 30s ContextTimeout; the run's own
+// bounds live in the librarian (port.Librarian.Ask).
 const (
 	LibrarianStreamPath = "/a/stream"
 	LibrarianAskPath    = "/a/ask"
@@ -55,7 +51,7 @@ const keepaliveInterval = 15 * time.Second
 // LibrarianStream is the SSE endpoint. A real ask arrives only as a
 // pending-ask token from POST /a/ask (?ask=<token>) — the question never
 // rides a GET URL — and streams trace, tokens, the reconciling
-// answer/rendered events, done; the same token again resumes the run after
+// answer/rendered events, done; the same token again attaches to the run after
 // a dropped connection. ?slow=N is the transport soak (one tick per
 // second for N seconds): the diagnostic that proves streams outlive
 // handlerTimeout and survive proxies/ingress between client and pod —
@@ -107,18 +103,19 @@ func (h *LibrarianHandler) LibrarianStream(c *echo.Context) error {
 	// of an opaque HTTP error.
 	if token != "" {
 		pa, state := h.asks.take(token, conversationKey(c))
-		if state == askGone {
-			out.send("trace", traceNote("this ask expired — try again"))
+		events, refusal := h.askEvents(c, token, pa, state)
+		if refusal != "" {
+			// SSE shape even so: the EventSource gets its close signal.
+			out.send("trace", traceNote(refusal))
 			settle(out)
 			return nil
 		}
-		// The stream dropping (not the handler returning) is what detaches:
-		// a fresh stream keeps draining its run after the reader left.
-		defer context.AfterFunc(out.ctx, func() { h.asks.detach(token) })()
-		if state == askFresh {
-			h.streamAsk(c, token, pa, out)
-		} else {
-			h.resumeAsk(c, pa, out)
+		if state == askAttach {
+			out.send("retrace", "") // the attachment replays every step; clear the shown ones
+		}
+		h.streamAnswer(c, pa.t, events, out)
+		if out.ctx.Err() == nil {
+			h.asks.forget(token)
 		}
 		return nil
 	}
@@ -208,27 +205,38 @@ func streamSoak(slow int, out *sseWriter) {
 	settle(out)
 }
 
-// streamAsk runs one real librarian ask and maps the domain events onto the
-// SSE vocabulary; links continue the pane's trail. The run's context is
-// detached from the connection so a dropped stream can reconnect and resume.
-func (h *LibrarianHandler) streamAsk(c *echo.Context, token string, pa pendingAsk, out *sseWriter) {
-	defer close(pa.done)
-	t := pa.t
-	runCtx, stop := context.WithTimeout(context.WithoutCancel(out.ctx), askRunTimeout)
-	defer stop()
-	events, err := h.lib.Ask(runCtx, domain.LibrarianAsk{
-		Conversation: pa.convKey,
-		Question:     pa.question,
-		Context:      pa.context,
-		Persona:      h.identity.persona(runCtx),
-	})
-	if err != nil {
-		out.send("trace", traceNote(askRefusal(c, err)))
-		settle(out)
-		return
+// askEvents subscribes the stream to its ask: the first stream starts the
+// run, a reconnect attaches to it. A refusal is the reader-facing reason why
+// there is nothing to stream.
+func (h *LibrarianHandler) askEvents(c *echo.Context, token string, pa pendingAsk, state askState) (events <-chan domain.LibrarianEvent, refusal string) {
+	ctx := c.Request().Context()
+	switch state {
+	case askFresh:
+		stream, err := h.lib.Ask(ctx, domain.LibrarianAsk{
+			ID:           token,
+			Conversation: pa.convKey,
+			Question:     pa.question,
+			Context:      pa.context,
+			Persona:      h.identity.persona(ctx),
+		})
+		if err != nil {
+			return nil, askRefusal(c, err)
+		}
+		return stream, ""
+	case askAttach:
+		if stream, ok := h.lib.Attach(ctx, pa.convKey, token); ok {
+			return stream, ""
+		}
+		return nil, "lost track of this answer — reload to see it"
+	default:
+		return nil, "this ask expired — try again"
 	}
-	h.asks.hold(token, stop)
+}
 
+// streamAnswer maps one subscription's events onto the SSE vocabulary; links
+// continue the pane's trail. The subscription closes when the run is done or
+// the reader's connection drops; the run itself carries on without it.
+func (h *LibrarianHandler) streamAnswer(c *echo.Context, t trail, events <-chan domain.LibrarianEvent, out *sseWriter) {
 	var steps []librarianStepVM
 	var sources []librarianSourceVM
 	var cited []domain.Ref      // what the latest render cited; the final message's list wins
@@ -241,9 +249,6 @@ func (h *LibrarianHandler) streamAsk(c *echo.Context, token string, pa pendingAs
 		rendered = time.Now()
 	}
 	for ev := range events {
-		if out.ctx.Err() != nil {
-			continue // the reader left: drain so the run ends on its own terms, render nothing
-		}
 		switch ev.Kind {
 		case domain.LibrarianToken:
 			pending.WriteString(ev.Text)
@@ -275,37 +280,6 @@ func (h *LibrarianHandler) streamAsk(c *echo.Context, token string, pa pendingAs
 		render(pending.String()) // a stopped run ends mid-message
 	}
 	h.finish(c, out, steps, sourcesVM(sources, cited, t, t.Focus))
-}
-
-// resumeAsk serves a reconnect: the run's live events went to the first
-// stream, so this one waits for the run to end and renders its exchange
-// whole (the markup a reload shows).
-func (h *LibrarianHandler) resumeAsk(c *echo.Context, pa pendingAsk, out *sseWriter) {
-	out.send("trace", traceNote("reconnected — picking the answer back up"))
-	deadline := time.NewTimer(time.Until(pa.expires))
-	defer deadline.Stop()
-	select {
-	case <-out.ctx.Done():
-		return
-	case <-deadline.C:
-		out.send("trace", traceNote("lost track of this answer — reload to see it"))
-		settle(out)
-		return
-	case <-pa.done:
-	}
-	history := h.lib.History(pa.convKey)
-	if len(history) <= pa.historyLen {
-		out.send("trace", traceNote("the answer was interrupted — ask again"))
-		settle(out)
-		return
-	}
-	vm := h.exchangeVM(history[pa.historyLen], pa.t, pa.t.Focus)
-	if vm.Answer == "" {
-		out.send("trace", traceNote("the answer was interrupted — ask again"))
-	} else {
-		out.send("rendered", string(vm.Answer))
-	}
-	h.finish(c, out, vm.Steps, vm.Sources)
 }
 
 // finish settles a live exchange into its final markup: steps collapse,
@@ -349,6 +323,7 @@ func (h *LibrarianHandler) fragment(c *echo.Context, name string, data any) stri
 // the stream via hx-sse:close.
 var sseRegions = map[string]struct{ target, swap string }{
 	"trace":    {"find .ask-trace", "beforeend"},
+	"retrace":  {"find .ask-trace", "innerHTML"},
 	"rendered": {"find .ask-answer", "innerHTML"},
 	"steps":    {"find .ask-steps", "outerHTML"},
 	"sources":  {"find .ask-sources", "outerHTML"},
