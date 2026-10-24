@@ -31,8 +31,8 @@ const (
 	// defaultMaxTurns caps LLM turns per ask (plan D7) via nib's
 	// Options.MaxTurns — the guard against tool-call ping-pong.
 	defaultMaxTurns = 15
-	// defaultMaxConversations LRU-bounds the per-process conversation store
-	// (the linkGraph pattern: fine at replicaCount 1, Tier-4 concern later).
+	// defaultMaxConversations LRU-bounds the per-process conversation store;
+	// across replicas, Ingress affinity keeps a reader on one pod.
 	defaultMaxConversations = 256
 	// defaultHistoryExchanges is how many past exchanges ride into the next
 	// ask: enough for a follow-up, few enough that cost stays flat.
@@ -45,10 +45,16 @@ const (
 	// The translator drains continuously during a run; the buffer just
 	// absorbs token bursts so nib never drops MessageUpdate deltas casually.
 	eventBufferSize = 128
-	// outBufferSize is the domain-event channel capacity handed to the
-	// caller (the SSE handler); sends select against ctx so a gone consumer
-	// never wedges the translator.
+	// outBufferSize is one subscription's channel capacity. Each
+	// subscription reads the run's log at its own pace, so a slow consumer
+	// never holds up the run.
 	outBufferSize = 64
+	// defaultRunTimeout bounds a run now that it outlives its subscribers.
+	defaultRunTimeout = 10 * time.Minute
+	// defaultReconnectGrace is how long a run keeps working with nobody
+	// attached: an SSE client reconnects within seconds; past this the
+	// reader left.
+	defaultReconnectGrace = 30 * time.Second
 )
 
 // Config assembles a Librarian. Provider and the four ports are required;
@@ -79,6 +85,11 @@ type Config struct {
 	HistoryExchanges int
 	// AsksPerHour caps each conversation's asks (default defaultAsksPerHour).
 	AsksPerHour int
+	// RunTimeout bounds one run (default defaultRunTimeout).
+	RunTimeout time.Duration
+	// ReconnectGrace is how long a run outlives its last subscription
+	// (default defaultReconnectGrace).
+	ReconnectGrace time.Duration
 }
 
 // Librarian implements port.Librarian on a per-conversation nib agent.
@@ -101,7 +112,8 @@ type conversation struct {
 	events    chan nibevent.Event
 	exchanges []domain.LibrarianExchange
 	asks      []time.Time
-	run       *run // the run in flight; nil when idle
+	run       *run   // the run in flight; nil when idle
+	lastAskID string // the ask behind the last exchange, replayable from it
 	lastUsed  time.Time
 }
 
@@ -118,6 +130,8 @@ func New(cfg Config) (*Librarian, error) {
 	cfg.MaxConversations = positiveOr(cfg.MaxConversations, defaultMaxConversations)
 	cfg.HistoryExchanges = positiveOr(cfg.HistoryExchanges, defaultHistoryExchanges)
 	cfg.AsksPerHour = positiveOr(cfg.AsksPerHour, defaultAsksPerHour)
+	cfg.RunTimeout = positiveOr(cfg.RunTimeout, defaultRunTimeout)
+	cfg.ReconnectGrace = positiveOr(cfg.ReconnectGrace, defaultReconnectGrace)
 	if cfg.Logger == nil {
 		cfg.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
@@ -142,7 +156,7 @@ func New(cfg Config) (*Librarian, error) {
 }
 
 // positiveOr applies a cap default: zero or negative takes fallback.
-func positiveOr(value, fallback int) int {
+func positiveOr[T int | time.Duration](value, fallback T) T {
 	if value <= 0 {
 		return fallback
 	}
@@ -155,8 +169,11 @@ func (l *Librarian) Ask(ctx context.Context, ask domain.LibrarianAsk) (<-chan do
 	if ask.Question == "" {
 		return nil, errors.New("librarian: empty question")
 	}
-	conv, err := l.acquire(ask.Conversation, ask.Question)
+	// The run keeps the reader's bearer but not the request's lifetime.
+	runCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), l.cfg.RunTimeout)
+	conv, err := l.acquire(ask, cancel)
 	if err != nil {
+		cancel()
 		return nil, err
 	}
 
@@ -165,31 +182,62 @@ func (l *Librarian) Ask(ctx context.Context, ask domain.LibrarianAsk) (<-chan do
 	current := conv.run
 	l.mu.Unlock()
 
-	// The run's emitter is set before the agent starts so a provider retry
-	// can narrate from nib's goroutine; sends select against ctx so a gone
-	// consumer never wedges anyone.
-	out := make(chan domain.LibrarianEvent, outBufferSize)
-	current.emit = func(ev domain.LibrarianEvent) {
-		select {
-		case out <- ev:
-		case <-ctx.Done():
-		}
-	}
-	if err := conv.agent.PromptWithMessages(withRun(ctx, current), msgs); err != nil {
+	if err := conv.agent.PromptWithMessages(withRun(runCtx, current), msgs); err != nil {
+		cancel()
 		l.release(conv, current)
 		if errors.Is(err, nibagent.ErrRunInProgress) {
 			return nil, domain.ErrLibrarianBusy
 		}
 		return nil, fmt.Errorf("librarian: prompt: %w", err)
 	}
-	go l.translate(ctx, conv, out)
-	return out, nil
+	go l.translate(runCtx, conv, current)
+	return current.subscribe(ctx), nil
 }
 
-// acquire returns the conversation for key with a fresh run for question in
-// its slot, or ErrLibrarianBusy, or a *LibrarianLimitError past the hourly
+// Attach implements port.Librarian: subscribe to the conversation's run for
+// askID in flight, or replay its exchange once finished.
+func (l *Librarian) Attach(ctx context.Context, conversation, askID string) (<-chan domain.LibrarianEvent, bool) {
+	if askID == "" {
+		return nil, false
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	conv, ok := l.convs[conversation]
+	switch {
+	case !ok:
+		return nil, false
+	case conv.run != nil && conv.run.id == askID:
+		return conv.run.subscribe(ctx), true
+	case conv.lastAskID == askID && len(conv.exchanges) > 0:
+		return replay(conv.exchanges[len(conv.exchanges)-1]), true
+	}
+	return nil, false
+}
+
+// replay streams a finished exchange as its run would have ended: the markup
+// a reload renders, then done.
+func replay(ex domain.LibrarianExchange) <-chan domain.LibrarianEvent {
+	out := make(chan domain.LibrarianEvent, len(ex.Steps)+len(ex.Sources)+2)
+	for _, step := range ex.Steps {
+		out <- domain.LibrarianEvent{Kind: domain.LibrarianTrace, Text: step.Text, Ref: step.Ref}
+	}
+	for _, src := range ex.Sources {
+		out <- domain.LibrarianEvent{Kind: domain.LibrarianSourceOpened, Text: src.Title, Ref: src.Ref}
+	}
+	if ex.Answer != "" {
+		out <- domain.LibrarianEvent{Kind: domain.LibrarianAnswer, Text: ex.Answer}
+	}
+	out <- domain.LibrarianEvent{Kind: domain.LibrarianDone}
+	close(out)
+	return out
+}
+
+// acquire returns the ask's conversation with a fresh run for it in its
+// slot, or ErrLibrarianBusy, or a *LibrarianLimitError past the hourly
 // budget. Creating a conversation may evict the least-recently-used idle one.
-func (l *Librarian) acquire(key, question string) (*conversation, error) {
+// The run is complete, cancel included, before Attach can see it.
+func (l *Librarian) acquire(ask domain.LibrarianAsk, cancel context.CancelFunc) (*conversation, error) {
+	key, id, question := ask.Conversation, ask.ID, ask.Question
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
@@ -218,7 +266,9 @@ func (l *Librarian) acquire(key, question string) (*conversation, error) {
 		return nil, &domain.LibrarianLimitError{RetryAfter: conv.asks[0].Add(budgetWindow).Sub(now)}
 	}
 	conv.asks = append(conv.asks, now)
-	conv.run = newRun(question, now)
+	r := newRun(id, question, now, l.cfg.ReconnectGrace)
+	r.cancel = cancel
+	conv.run = r
 	conv.lastUsed = now
 	return conv, nil
 }
@@ -283,6 +333,6 @@ func (l *Librarian) Reset(conversation string) error {
 	if conv.run != nil {
 		return domain.ErrLibrarianBusy
 	}
-	conv.exchanges = nil
+	conv.exchanges, conv.lastAskID = nil, ""
 	return nil
 }

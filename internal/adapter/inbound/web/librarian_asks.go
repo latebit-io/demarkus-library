@@ -7,10 +7,9 @@ package web
 // intermediary URL limits — so the POST parks the accepted ask under a
 // short-lived opaque token and the stream URL carries only that. A token
 // starts one run; the same token again (hx-sse reconnecting after a drop)
-// resumes it. The store is per-pod memory like the conversations it feeds.
+// attaches to it. The store is per-pod memory like the conversations it feeds.
 
 import (
-	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -22,14 +21,10 @@ const (
 	// askTokenTTL is how long an accepted ask waits for its stream to
 	// connect — htmx connects immediately; a minute absorbs slow clients.
 	askTokenTTL = time.Minute
-	// askResumeTTL is how long a started ask stays resumable: the run's
-	// own bound plus room for a late reconnect to collect the answer.
-	askResumeTTL = askRunTimeout + time.Minute
-	// askRunTimeout bounds a run now that it outlives its SSE connection.
-	askRunTimeout = 10 * time.Minute
-	// reconnectGrace is how long a run keeps working with no stream
-	// attached: hx-sse reconnects within seconds; past this the reader left.
-	reconnectGrace = 30 * time.Second
+	// askAttachTTL keeps a started ask's token for reconnects. Hygiene only:
+	// the librarian's Attach decides whether the run is still there, so this
+	// stays well past any run bound; a stream that settles forgets its token.
+	askAttachTTL = time.Hour
 	// maxPendingAsks bounds the store against a flood of POSTs that never
 	// connect their stream.
 	maxPendingAsks = 1024
@@ -43,35 +38,27 @@ type pendingAsk struct {
 	context  string // the reader's trail context, built at POST time; cleared likewise
 	convKey  string
 	t        trail
-	// historyLen counts the conversation's exchanges at POST time; a resume
-	// renders the one this ask appends.
-	historyLen int
-	expires    time.Time
-	done       chan struct{}      // closed when the run has ended
-	started    bool               // a stream took it; later takes resume
-	attached   int                // streams on this ask; the grace runs only at zero
-	stop       context.CancelFunc // ends the run; nil until the stream holds it
-	abandon    *time.Timer        // the grace countdown while no stream is attached
+	expires  time.Time
+	started  bool // a stream took it; later takes attach
 }
 
 // askState is what a take found for a token.
 type askState int
 
 const (
-	askGone    askState = iota // unknown, expired, or another session's
-	askFresh                   // first connect: start the run
-	askResumed                 // a reconnect: pick the run back up
+	askGone   askState = iota // unknown, expired, or another session's
+	askFresh                  // first connect: start the run
+	askAttach                 // a reconnect: attach to the run
 )
 
 // pendingAsks is the token → ask store.
 type pendingAsks struct {
-	mu    sync.Mutex
-	m     map[string]*pendingAsk
-	grace time.Duration
+	mu sync.Mutex
+	m  map[string]*pendingAsk
 }
 
 func newPendingAsks() *pendingAsks {
-	return &pendingAsks{m: make(map[string]*pendingAsk), grace: reconnectGrace}
+	return &pendingAsks{m: make(map[string]*pendingAsk)}
 }
 
 var errAskFlood = errors.New("too many pending asks")
@@ -91,24 +78,19 @@ func (p *pendingAsks) put(a pendingAsk) (string, error) {
 	now := time.Now()
 	for k, v := range p.m {
 		if now.After(v.expires) {
-			if v.abandon != nil {
-				v.abandon.Stop()
-			}
 			delete(p.m, k)
 		}
 	}
 	if len(p.m) >= maxPendingAsks {
 		return "", errAskFlood
 	}
-	a.done = make(chan struct{})
 	p.m[token] = &a
 	return token, nil
 }
 
 // take claims a token for a stream presenting convKey. The first take
 // starts the ask (and extends its life to the run's bound); a later take
-// resumes it and cancels any abandon countdown. Expired, unknown, or
-// another session's tokens are gone.
+// attaches to it. Expired, unknown, or another session's tokens are gone.
 func (p *pendingAsks) take(token, convKey string) (pendingAsk, askState) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -121,46 +103,19 @@ func (p *pendingAsks) take(token, convKey string) (pendingAsk, askState) {
 		delete(p.m, token)
 		return pendingAsk{}, askGone
 	}
-	a.attached++
 	if a.started {
-		if a.abandon != nil {
-			a.abandon.Stop()
-			a.abandon = nil
-		}
-		return *a, askResumed
+		return *a, askAttach
 	}
 	a.started = true
-	a.expires = now.Add(askResumeTTL)
+	a.expires = now.Add(askAttachTTL)
 	fresh := *a
 	a.question, a.context = "", "" // up to 12KB per entry; the run owns them now
 	return fresh, askFresh
 }
 
-// hold records the run's cancel so detach can end it.
-func (p *pendingAsks) hold(token string, stop context.CancelFunc) {
+// forget drops a token whose stream settled: nothing is left to attach to.
+func (p *pendingAsks) forget(token string) {
 	p.mu.Lock()
-	defer p.mu.Unlock()
-	if a, ok := p.m[token]; ok {
-		a.stop = stop
-	}
-}
-
-// detach records a dropped stream. With none left attached the grace
-// countdown starts: the run ends when it fires unless a reconnect takes the
-// token first.
-func (p *pendingAsks) detach(token string) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	a, ok := p.m[token]
-	if !ok || a.attached == 0 {
-		return
-	}
-	a.attached--
-	if a.attached > 0 || a.stop == nil {
-		return
-	}
-	if a.abandon != nil {
-		a.abandon.Stop()
-	}
-	a.abandon = time.AfterFunc(p.grace, a.stop)
+	delete(p.m, token)
+	p.mu.Unlock()
 }

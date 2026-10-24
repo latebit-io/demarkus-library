@@ -95,6 +95,14 @@ checks: a whitespace-only value must fail here, not at pod startup.
 {{- if and (trim $b.existingSecretRef.name) (not (trim $b.existingSecretRef.key)) -}}
 {{- fail "library.broker.existingSecretRef.key is required when library.broker.existingSecretRef.name is set" -}}
 {{- end -}}
+{{- if and (trim $b.sessionKey.existingSecretRef.name) (not (trim $b.sessionKey.existingSecretRef.key)) -}}
+{{- fail "library.broker.sessionKey.existingSecretRef.key is required when its name is set" -}}
+{{- end -}}
+{{- /* Replicas on per-pod keys cannot open each other's cookies: readers
+       would flap between signed in and the login page. */ -}}
+{{- if and (gt (int $.Values.replicaCount) 1) (not (include "demarkus-library.sharedSessions" $)) -}}
+{{- fail "replicaCount > 1 requires library.broker.sessionKey.existingSecretRef.name: replicas must share the cookie sealing key" -}}
+{{- end -}}
 {{- else -}}
 {{- if not (trim .Values.library.quic.host) -}}
 {{- fail "library.quic.host is required when library.transport is \"quic\"" -}}
@@ -111,6 +119,16 @@ checks: a whitespace-only value must fail here, not at pod startup.
 {{- /* themeCSSKey is deliberately absent: it ships a non-empty default, so a
        set value cannot be told from the default and every ConfigMap-less
        install would fail to render. */ -}}
+{{- end -}}
+
+{{/*
+True (non-empty string) when every replica seals cookies under one
+operator-managed key — broker transport with sessionKey.existingSecretRef.
+*/}}
+{{- define "demarkus-library.sharedSessions" -}}
+{{- if and (eq .Values.library.transport "broker") (trim .Values.library.broker.sessionKey.existingSecretRef.name) -}}
+true
+{{- end -}}
 {{- end -}}
 
 {{/*

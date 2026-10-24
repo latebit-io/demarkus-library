@@ -63,14 +63,12 @@ func (h *LibrarianHandler) AskLibrarian(c *echo.Context) error {
 		// question and trail stay out of the URL (history/log/Referer
 		// hygiene + URL length limits); the token binds to this session.
 		// t carries the CLAMPED focus, so a junk idx can't leak through.
-		convKey := conversationKey(c)
 		token, err := h.asks.put(pendingAsk{
-			question:   question,
-			context:    trailContext,
-			convKey:    convKey,
-			t:          t,
-			historyLen: len(h.lib.History(convKey)),
-			expires:    time.Now().Add(askTokenTTL),
+			question: question,
+			context:  trailContext,
+			convKey:  conversationKey(c),
+			t:        t,
+			expires:  time.Now().Add(askTokenTTL),
 		})
 		if err != nil {
 			c.Logger().Error("librarian ask handoff failed", "err", err)

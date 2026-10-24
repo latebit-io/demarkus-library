@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"fmt"
 	"os"
 	"strconv"
@@ -99,6 +100,7 @@ type AppConfig struct {
 	World             string        // world name for mark://<world>/<path> reads
 	Scopes            []string      // OAuth scopes (default mark.read)
 	SessionTTL        time.Duration // absolute session lifetime (default 720h)
+	SessionKey        []byte        // cookie sealing key shared by replicas; nil mints a per-process key
 	CookieSecure      bool          // Secure flag on the session cookie (false only for localhost dev)
 	ForwardReaderIP   bool          // forward the reader IP to the broker on token calls
 }
@@ -136,6 +138,10 @@ func NewAppConfig() (*AppConfig, error) {
 		if asksPerHour, err = strconv.Atoi(v); err != nil || asksPerHour <= 0 {
 			return nil, fmt.Errorf("DEMARKUS_LIBRARIAN_ASKS_PER_HOUR must be a positive integer, got %q", v)
 		}
+	}
+	sessionKey, err := parseSessionKey(os.Getenv("DEMARKUS_SESSION_KEY"))
+	if err != nil {
+		return nil, err
 	}
 	if sessionTTL <= 0 {
 		// A non-positive TTL would mint sessions that expire on arrival —
@@ -184,6 +190,7 @@ func NewAppConfig() (*AppConfig, error) {
 		World:             getEnv("DEMARKUS_WORLD", ""),
 		Scopes:            strings.Fields(getEnv("DEMARKUS_SCOPES", "mark.read")),
 		SessionTTL:        sessionTTL,
+		SessionKey:        sessionKey,
 		CookieSecure:      getEnvAsBool("DEMARKUS_COOKIE_SECURE", true),
 		// Off by default: X-Real-IP is trusted verbatim when on.
 		ForwardReaderIP: getEnvAsBool("DEMARKUS_FORWARD_READER_IP", false),
@@ -246,6 +253,20 @@ func NewAppConfig() (*AppConfig, error) {
 			TransportQUIC, TransportBroker, cfg.Transport)
 	}
 	return cfg, nil
+}
+
+// parseSessionKey decodes DEMARKUS_SESSION_KEY, standard base64 as
+// `openssl rand -base64 32` prints it; session.NewSealer judges the length.
+func parseSessionKey(raw string) ([]byte, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, nil
+	}
+	key, err := base64.StdEncoding.DecodeString(raw)
+	if err != nil {
+		return nil, fmt.Errorf("DEMARKUS_SESSION_KEY is not standard base64: %w", err)
+	}
+	return key, nil
 }
 
 func getEnv(key, fallback string) string {

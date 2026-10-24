@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -108,7 +109,7 @@ func newTestLibrarian(t *testing.T, p llm.Provider, ports *fakePorts) *Librarian
 	return l
 }
 
-func TestAsk_StreamsTraceTokensAnswerDone(t *testing.T) {
+func TestAsk_StreamsTraceAnswerDone(t *testing.T) {
 	t.Parallel()
 
 	provider := &scriptedProvider{turns: [][]llm.StreamEvent{
@@ -122,14 +123,14 @@ func TestAsk_StreamsTraceTokensAnswerDone(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Ask: %v", err)
 	}
-	evs := collect(t, ch)
+	// Tokens are best-effort: a subscription that falls a whole message
+	// behind gets the reconciling answer alone.
+	evs := slices.DeleteFunc(collect(t, ch), func(ev domain.LibrarianEvent) bool { return ev.Kind == domain.LibrarianToken })
 
 	got := kinds(evs)
 	want := []domain.LibrarianEventKind{
 		domain.LibrarianTrace,        // opened /ops/deploy.md
 		domain.LibrarianSourceOpened, // the open succeeded
-		domain.LibrarianToken,        // "The runbook "
-		domain.LibrarianToken,        // "is at hand."
 		domain.LibrarianAnswer,       // reconciled full message
 		domain.LibrarianDone,
 	}
@@ -148,8 +149,8 @@ func TestAsk_StreamsTraceTokensAnswerDone(t *testing.T) {
 	if evs[1].Text != "Deploy runbook" || evs[1].Ref != deploy {
 		t.Errorf("source = %+v; want the opened document with its title", evs[1])
 	}
-	if evs[4].Text != "The runbook is at hand." {
-		t.Errorf("answer = %q; want the assembled message", evs[4].Text)
+	if evs[2].Text != "The runbook is at hand." {
+		t.Errorf("answer = %q; want the assembled message", evs[2].Text)
 	}
 	if got := ports.rawCalls(); len(got) != 1 || got[0] != "root:/ops/deploy.md" {
 		t.Errorf("Raw calls = %v; want one read of root:/ops/deploy.md (default world applied)", got)
@@ -306,14 +307,20 @@ func mustAsk(t *testing.T, l *Librarian, conv, q string) <-chan domain.Librarian
 	return ch
 }
 
-// blockingProvider parks Stream until released, then answers with one text
-// turn. Exercises the busy path and client-cancel unwinding.
-type blockingProvider struct{ release <-chan struct{} }
+// blockingProvider streams lead (if any), parks until released, then
+// finishes with one text token: a run held in flight, mid-message with lead.
+type blockingProvider struct {
+	release <-chan struct{}
+	lead    string
+}
 
 func (p *blockingProvider) Stream(ctx context.Context, _ []llm.Message, _ []llm.ToolDef) (<-chan llm.StreamEvent, error) {
-	ch := make(chan llm.StreamEvent, 2)
+	ch := make(chan llm.StreamEvent, 3)
 	go func() {
 		defer close(ch)
+		if p.lead != "" {
+			ch <- llm.StreamEvent{Token: p.lead}
+		}
 		select {
 		case <-p.release:
 			ch <- llm.StreamEvent{Token: "released"}
@@ -597,4 +604,186 @@ func (lw *lockedWriter) Write(p []byte) (int, error) {
 	lw.mu.Lock()
 	defer lw.mu.Unlock()
 	return lw.w.Write(p)
+}
+
+// eventually polls cond until it holds or the deadline passes.
+func eventually(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for !cond() {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for %s", what)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+func TestAsk_RunOutlivesSubscription(t *testing.T) {
+	t.Parallel()
+
+	release := make(chan struct{})
+	l := newTestLibrarian(t, &blockingProvider{release: release}, newFakePorts())
+	ctx, cancel := context.WithCancel(context.Background())
+	ch, err := l.Ask(ctx, domain.LibrarianAsk{ID: "ask-1", Conversation: "conv-1", Question: "slow"})
+	if err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+	cancel()
+	collect(t, ch) // the subscription ends with its context
+
+	again, ok := l.Attach(context.Background(), "conv-1", "ask-1")
+	if !ok {
+		t.Fatal("Attach found no run after the subscription dropped")
+	}
+	close(release)
+	evs := collect(t, again)
+	if evs[len(evs)-1].Kind != domain.LibrarianDone {
+		t.Errorf("events = %+v; want done last", evs)
+	}
+	if hist := l.History("conv-1"); len(hist) != 1 || hist[0].Answer != "released" {
+		t.Errorf("History = %+v; want the run answered, not abandoned", hist)
+	}
+}
+
+func TestAsk_AbandonedAfterGrace(t *testing.T) {
+	t.Parallel()
+
+	release := make(chan struct{})
+	defer close(release)
+	ports := newFakePorts()
+	l, err := New(Config{
+		Provider: &blockingProvider{release: release}, Reader: ports, Catalog: ports, Graph: ports, Map: ports,
+		ReconnectGrace: 20 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	ch, err := l.Ask(ctx, domain.LibrarianAsk{ID: "ask-1", Conversation: "conv-1", Question: "left behind"})
+	if err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+	cancel()
+	collect(t, ch)
+
+	// Nobody reattaches: the grace ends the run and frees the conversation.
+	eventually(t, "the abandoned exchange", func() bool { return len(l.History("conv-1")) == 1 })
+	if hist := l.History("conv-1"); hist[0].Answer != "" {
+		t.Errorf("abandoned exchange = %+v; want no answer", hist[0])
+	}
+	if _, err := l.Ask(t.Context(), domain.LibrarianAsk{Conversation: "conv-1", Question: "back again"}); err != nil {
+		t.Errorf("Ask after abandonment = %v; want the slot free", err)
+	}
+}
+
+func TestAsk_RunTimeoutIsNarrated(t *testing.T) {
+	t.Parallel()
+
+	release := make(chan struct{})
+	defer close(release)
+	ports := newFakePorts()
+	l, err := New(Config{
+		Provider: &blockingProvider{release: release}, Reader: ports, Catalog: ports, Graph: ports, Map: ports,
+		RunTimeout: 20 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	evs := collect(t, mustAsk(t, l, "conv-1", "too slow"))
+	var narrated bool
+	for _, ev := range evs {
+		narrated = narrated || (ev.Kind == domain.LibrarianTrace && strings.Contains(ev.Text, "time limit"))
+	}
+	if !narrated || evs[len(evs)-1].Kind != domain.LibrarianDone {
+		t.Errorf("events = %+v; want the timeout narrated, then done", evs)
+	}
+}
+
+func TestAttach_ReplaysThenFollows(t *testing.T) {
+	t.Parallel()
+
+	release := make(chan struct{})
+	l := newTestLibrarian(t, &blockingProvider{release: release, lead: "half "}, newFakePorts())
+	first, err := l.Ask(context.Background(), domain.LibrarianAsk{ID: "ask-1", Conversation: "conv-1", Question: "q"})
+	if err != nil {
+		t.Fatalf("Ask: %v", err)
+	}
+	if ev := <-first; ev.Kind != domain.LibrarianToken || ev.Text != "half " {
+		t.Fatalf("first event = %+v; want the streamed token", ev)
+	}
+
+	second, ok := l.Attach(context.Background(), "conv-1", "ask-1")
+	if !ok {
+		t.Fatal("Attach found no run in flight")
+	}
+	// The message so far replays as one token before anything live.
+	if ev := <-second; ev.Kind != domain.LibrarianToken || ev.Text != "half " {
+		t.Fatalf("replayed event = %+v; want the message so far", ev)
+	}
+	close(release)
+	rest := collect(t, second)
+	collect(t, first)
+	var answer string
+	for _, ev := range rest {
+		if ev.Kind == domain.LibrarianAnswer {
+			answer = ev.Text
+		}
+	}
+	if answer != "half released" || rest[len(rest)-1].Kind != domain.LibrarianDone {
+		t.Errorf("attached events = %+v; want the live answer, then done", rest)
+	}
+}
+
+func TestAttach_MatchesOnlyTheAsk(t *testing.T) {
+	t.Parallel()
+
+	l := newTestLibrarian(t, &scriptedProvider{}, newFakePorts())
+	ask := func(id string) {
+		ch, err := l.Ask(context.Background(), domain.LibrarianAsk{ID: id, Conversation: "conv-1", Question: "q " + id})
+		if err != nil {
+			t.Fatalf("Ask(%s): %v", id, err)
+		}
+		collect(t, ch)
+	}
+	ask("ask-1")
+
+	// A finished run still replays whole for a late reconnect.
+	ch, ok := l.Attach(context.Background(), "conv-1", "ask-1")
+	if !ok {
+		t.Fatal("Attach refused the run that just finished")
+	}
+	if evs := collect(t, ch); !slices.ContainsFunc(evs, func(ev domain.LibrarianEvent) bool { return ev.Kind == domain.LibrarianAnswer }) {
+		t.Errorf("replay = %+v; want the answer", evs)
+	}
+
+	for _, tt := range []struct{ conversation, id string }{
+		{"conv-1", "other"},
+		{"conv-2", "ask-1"},
+		{"conv-1", ""},
+	} {
+		if _, ok := l.Attach(context.Background(), tt.conversation, tt.id); ok {
+			t.Errorf("Attach(%q, %q) succeeded", tt.conversation, tt.id)
+		}
+	}
+	ask("ask-2")
+	if _, ok := l.Attach(context.Background(), "conv-1", "ask-1"); ok {
+		t.Error("Attach reached a run the next ask replaced")
+	}
+}
+
+// TestAcquire_PublishesACompleteRun: the slot never holds a run without its
+// cancel, so a reconnect's grace timer can always end it.
+func TestAcquire_PublishesACompleteRun(t *testing.T) {
+	t.Parallel()
+
+	l := newTestLibrarian(t, &scriptedProvider{}, newFakePorts())
+	conv, err := l.acquire(domain.LibrarianAsk{ID: "ask-1", Conversation: "conv-1", Question: "q"}, func() {})
+	if err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if conv.run == nil || conv.run.cancel == nil {
+		t.Errorf("published run = %+v; want its cancel set", conv.run)
+	}
 }

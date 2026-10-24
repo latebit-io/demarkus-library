@@ -6,8 +6,7 @@
 // Plain LRU, no TTL: freshness is the service's focused-live policy (the
 // pane being read is always fetched and re-cached), so age alone never
 // matters — an unfocused pane shows at worst what the reader already saw.
-// Per-pod, like the session store; the chart's replicaCount 1 + Recreate
-// posture already assumes per-pod state.
+// Per-pod: a replica that misses re-reads the world, so no sharing needed.
 package cache
 
 import (

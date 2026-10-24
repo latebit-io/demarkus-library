@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -16,22 +17,36 @@ import (
 )
 
 // run is one ask's working state: the trace and sources its exchange will
-// record. Tools add sources from nib's loop goroutine while the translator
-// reads them, hence the mutex.
+// record, and the replay log its subscriptions read. Tools and the provider's
+// retry narration write from nib's goroutines while the translator and the
+// subscriptions read, hence the mutex.
 type run struct {
+	id       string
 	question string
 	started  time.Time
-	emit     func(domain.LibrarianEvent) // the live stream; set by Ask before the run starts
+	grace    time.Duration
+	cancel   context.CancelFunc // ends the run; set before the run is published
 
 	mu          sync.Mutex
 	steps       []domain.LibrarianStep
 	sources     []domain.LibrarianSource
-	sentSources int // sources already emitted as events
+	sentSources int // sources already published
 	stopped     bool
+
+	// log holds every published event but tokens; message is the message
+	// streaming now, and messages counts completed ones so a subscription
+	// knows when its offset into message went stale.
+	log      []domain.LibrarianEvent
+	message  strings.Builder
+	messages int
+	done     bool
+	changed  chan struct{} // closed and replaced on every change
+	attached int           // live subscriptions
+	abandon  *time.Timer   // the grace countdown while nobody is attached
 }
 
-func newRun(question string, started time.Time) *run {
-	return &run{question: question, started: started}
+func newRun(id, question string, started time.Time, grace time.Duration) *run {
+	return &run{id: id, question: question, started: started, grace: grace, changed: make(chan struct{})}
 }
 
 type runKey struct{}
@@ -59,20 +74,18 @@ func (r *run) isStopped() bool {
 	return r.stopped
 }
 
-func (r *run) addStep(step domain.LibrarianStep) {
+// trace records step and publishes it.
+func (r *run) trace(step domain.LibrarianStep) {
 	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.steps = append(r.steps, step)
-	r.mu.Unlock()
+	r.log = append(r.log, domain.LibrarianEvent{Kind: domain.LibrarianTrace, Text: step.Text, Ref: step.Ref})
+	r.changedLocked()
 }
 
-// notice records text as a trace step and streams it at once. Every notice
-// is raised inside a Provider.Stream call, so none can follow the stream's
-// close.
+// notice traces plain text; the provider's retry narration calls it.
 func (r *run) notice(text string) {
-	r.addStep(domain.LibrarianStep{Text: text})
-	if r.emit != nil {
-		r.emit(domain.LibrarianEvent{Kind: domain.LibrarianTrace, Text: text})
-	}
+	r.trace(domain.LibrarianStep{Text: text})
 }
 
 // addSource records an opened document once, however often it was opened.
@@ -109,6 +122,151 @@ func (r *run) exchange(answer string) domain.LibrarianExchange {
 	}
 }
 
+// publish hands ev to every subscription: a token extends the message in
+// progress, anything else joins the log.
+func (r *run) publish(ev domain.LibrarianEvent) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if ev.Kind == domain.LibrarianToken {
+		r.message.WriteString(ev.Text)
+	} else {
+		r.log = append(r.log, ev)
+	}
+	r.changedLocked()
+}
+
+// completeMessage ends the message in progress: content, when non-empty, is
+// its authoritative text and is logged as an answer.
+func (r *run) completeMessage(content string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if content == "" && r.message.Len() == 0 {
+		return // nothing streamed, nothing to settle
+	}
+	if content != "" {
+		r.log = append(r.log, domain.LibrarianEvent{Kind: domain.LibrarianAnswer, Text: content})
+	}
+	r.message.Reset()
+	r.messages++
+	r.changedLocked()
+}
+
+// messageText is the message in progress, cloned: the transcript keeps it
+// without pinning the builder's spare capacity.
+func (r *run) messageText() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return strings.Clone(r.message.String())
+}
+
+// finish marks the run done: subscriptions deliver LibrarianDone and close.
+func (r *run) finish() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.done = true
+	r.stopAbandonLocked()
+	r.changedLocked()
+}
+
+func (r *run) changedLocked() {
+	close(r.changed)
+	r.changed = make(chan struct{})
+}
+
+func (r *run) stopAbandonLocked() {
+	if r.abandon != nil {
+		r.abandon.Stop()
+		r.abandon = nil
+	}
+}
+
+// subscribe streams the run into a new channel: the log so far, the message
+// in progress as one token, then live changes until done or ctx ends. Each
+// subscription reads at its own pace, so none holds up the run.
+func (r *run) subscribe(ctx context.Context) <-chan domain.LibrarianEvent {
+	out := make(chan domain.LibrarianEvent, outBufferSize)
+	r.attach()
+	go func() {
+		defer close(out)
+		defer r.detach()
+		var cursor, offset, messages int
+		var batch []domain.LibrarianEvent
+		for {
+			r.mu.Lock()
+			// Copied, never aliased: appending the tail must not write into
+			// the log's spare capacity.
+			batch = latestAnswerOnly(append(batch[:0], r.log[cursor:]...))
+			cursor = len(r.log)
+			if messages != r.messages {
+				messages, offset = r.messages, 0
+			}
+			if text := r.message.String(); len(text) > offset {
+				batch = append(batch, domain.LibrarianEvent{Kind: domain.LibrarianToken, Text: text[offset:]})
+				offset = len(text)
+			}
+			done, changed := r.done, r.changed
+			r.mu.Unlock()
+			if done {
+				batch = append(batch, domain.LibrarianEvent{Kind: domain.LibrarianDone})
+			}
+			for _, ev := range batch {
+				select {
+				case out <- ev:
+				case <-ctx.Done():
+					return
+				}
+			}
+			if done {
+				return
+			}
+			select {
+			case <-changed:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	return out
+}
+
+// latestAnswerOnly drops each answer a later one in batch supersedes: the
+// reader only ever sees the latest, so a replay renders it once.
+func latestAnswerOnly(batch []domain.LibrarianEvent) []domain.LibrarianEvent {
+	last := -1
+	for i, ev := range batch {
+		if ev.Kind == domain.LibrarianAnswer {
+			last = i
+		}
+	}
+	kept := batch[:0]
+	for i, ev := range batch {
+		if ev.Kind != domain.LibrarianAnswer || i == last {
+			kept = append(kept, ev)
+		}
+	}
+	return kept
+}
+
+// attach counts a subscription and calls off any abandon countdown.
+func (r *run) attach() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.attached++
+	r.stopAbandonLocked()
+}
+
+// detach drops a subscription; with none left on a live run the grace
+// countdown starts, ending the run unless someone attaches first.
+func (r *run) detach() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.attached--
+	if r.attached > 0 || r.done {
+		return
+	}
+	r.abandon = time.AfterFunc(r.grace, r.cancel)
+}
+
 // usageTally sums one run's provider-reported usage for the log line.
 type usageTally struct {
 	turns, toolCalls, prompt, completion, cached int
@@ -132,60 +290,43 @@ func (u *usageTally) add(e nibevent.TurnUsage) {
 	u.cached += e.CachedTokens
 }
 
-// translate drains one run's nib events into the domain vocabulary. It owns
-// the run's end-of-life: nib parks a finished turn awaiting a reply — the
-// librarian's asks are one-shot, so AgentParked triggers Abort, AgentEnd
-// yields the transcript the exchange is taken from, and the out channel
-// closes after done. On ctx cancellation (the reader left) emits become
-// drops but the drain continues to AgentEnd, keeping nib's channel moving.
-func (l *Librarian) translate(ctx context.Context, conv *conversation, out chan<- domain.LibrarianEvent) {
-	defer close(out)
-	l.mu.Lock()
-	current := conv.run
-	l.mu.Unlock()
-	defer l.release(conv, current)
+// translate drains one run's nib events into its log and owns its end:
+// AgentParked aborts (asks are one-shot), AgentEnd records the exchange and
+// finish releases the subscriptions. ctx is the run's own, never a reader's.
+func (l *Librarian) translate(ctx context.Context, conv *conversation, current *run) {
+	defer current.cancel()
+	defer l.release(conv, current) // frees the slot should the loop ever exit early
 
-	emit := current.emit
 	var usage usageTally
-	var streamed strings.Builder // the message in progress: the answer if the reader stops mid-message
 	outcome := "answered"
 
 	for ev := range conv.events {
 		switch e := ev.(type) {
 		case nibevent.MessageStart:
-			streamed.Reset()
+			current.completeMessage("") // whatever streamed before is over
 		case nibevent.MessageUpdate:
-			streamed.WriteString(e.Delta)
-			emit(domain.LibrarianEvent{Kind: domain.LibrarianToken, Text: e.Delta})
+			current.publish(domain.LibrarianEvent{Kind: domain.LibrarianToken, Text: e.Delta})
 		case nibevent.MessageEnd:
 			// The authoritative full message — deltas are droppable under
 			// backpressure (nib's contract); consumers reconcile on this.
-			if e.Message.Content != "" {
-				emit(domain.LibrarianEvent{Kind: domain.LibrarianAnswer, Text: e.Message.Content})
-			}
+			current.completeMessage(e.Message.Content)
 		case nibevent.ToolStart:
-			step := l.describe(e.Name, e.Args)
-			current.addStep(step)
-			emit(domain.LibrarianEvent{Kind: domain.LibrarianTrace, Text: step.Text, Ref: step.Ref})
+			current.trace(l.describe(e.Name, e.Args))
 		case nibevent.ToolEnd:
 			if e.IsError {
-				step := domain.LibrarianStep{Text: "⚠ " + firstLine(e.Result)}
-				current.addStep(step)
-				emit(domain.LibrarianEvent{Kind: domain.LibrarianTrace, Text: step.Text})
+				current.trace(domain.LibrarianStep{Text: "⚠ " + firstLine(e.Result)})
 			}
 			for _, src := range current.unsentSources() {
-				emit(domain.LibrarianEvent{Kind: domain.LibrarianSourceOpened, Text: src.Title, Ref: src.Ref})
+				current.publish(domain.LibrarianEvent{Kind: domain.LibrarianSourceOpened, Text: src.Title, Ref: src.Ref})
 			}
 		case nibevent.TurnUsage:
 			usage.add(e)
 		case nibevent.MaxTurnsReached:
 			outcome = "capped"
-			step := domain.LibrarianStep{Text: fmt.Sprintf("stopped at the turn cap (%d turns) — answering with what I have", e.Turns)}
-			current.addStep(step)
-			emit(domain.LibrarianEvent{Kind: domain.LibrarianTrace, Text: step.Text})
+			current.trace(domain.LibrarianStep{Text: fmt.Sprintf("stopped at the turn cap (%d turns) — answering with what I have", e.Turns)})
 		case nibevent.Error:
 			outcome = "error"
-			emit(domain.LibrarianEvent{Kind: domain.LibrarianError, Text: e.Err})
+			current.publish(domain.LibrarianEvent{Kind: domain.LibrarianError, Text: e.Err})
 		case nibevent.AgentParked:
 			// The answer is complete; the librarian doesn't hold parked
 			// runs — unwind so AgentEnd delivers the transcript.
@@ -195,26 +336,29 @@ func (l *Librarian) translate(ctx context.Context, conv *conversation, out chan<
 			switch {
 			case current.isStopped():
 				outcome = "stopped"
-				if streamed.Len() > 0 {
-					answer = streamed.String()
+				if partial := current.messageText(); partial != "" {
+					answer = partial
 				}
-				step := domain.LibrarianStep{Text: "stopped at your request"}
-				current.addStep(step)
-				emit(domain.LibrarianEvent{Kind: domain.LibrarianTrace, Text: step.Text})
+				current.trace(domain.LibrarianStep{Text: "stopped at your request"})
+			case errors.Is(ctx.Err(), context.DeadlineExceeded):
+				outcome = "timed out"
+				current.trace(domain.LibrarianStep{Text: "stopped: this answer ran past its time limit"})
 			case ctx.Err() != nil:
 				outcome = "abandoned"
 			case outcome == "capped":
-				answer = l.finalWord(withRun(ctx, current), e.Messages, emit, &usage)
+				answer = l.finalWord(withRun(ctx, current), e.Messages, &usage)
 			}
 			l.mu.Lock()
 			conv.exchanges = append(conv.exchanges, current.exchange(answer))
+			conv.lastAskID = current.id
+			l.releaseLocked(conv, current)
 			l.mu.Unlock()
 			l.cfg.Logger.Info("librarian ask",
 				"conversation", conversationTag(conv.key), "outcome", outcome,
 				"turns", usage.turns, "tool_calls", usage.toolCalls,
 				"prompt_tokens", usage.prompt, "completion_tokens", usage.completion,
 				"cached_tokens", usage.cached, "duration_ms", l.now().Sub(current.started).Milliseconds())
-			emit(domain.LibrarianEvent{Kind: domain.LibrarianDone})
+			current.finish()
 			return
 		}
 	}
@@ -226,14 +370,14 @@ const capNudge = "You have used your tool budget for this question. Answer now f
 // finalWord makes the turn cap's promise good: one more model turn without
 // tools, streamed like any answer, so a capped run never ends with a trace
 // and no answer. Returns the answer, "" if the turn failed.
-func (l *Librarian) finalWord(ctx context.Context, msgs []llm.Message, emit func(domain.LibrarianEvent), usage *usageTally) string {
+func (l *Librarian) finalWord(ctx context.Context, msgs []llm.Message, usage *usageTally) string {
+	current := runFrom(ctx)
 	msgs = append(slices.Clone(msgs), llm.Message{Role: "user", Content: capNudge})
 	stream, err := l.cfg.Provider.Stream(ctx, msgs, nil)
 	if err != nil {
 		l.cfg.Logger.Warn("librarian final answer failed", "err", err)
 		return ""
 	}
-	var answer strings.Builder
 	for ev := range stream {
 		if ev.Done {
 			usage.addTurn(ev.Usage)
@@ -243,24 +387,27 @@ func (l *Librarian) finalWord(ctx context.Context, msgs []llm.Message, emit func
 			continue // drain: the provider closes the channel after its terminal event
 		}
 		if ev.Token != "" {
-			answer.WriteString(ev.Token)
-			emit(domain.LibrarianEvent{Kind: domain.LibrarianToken, Text: ev.Token})
+			current.publish(domain.LibrarianEvent{Kind: domain.LibrarianToken, Text: ev.Token})
 		}
 	}
-	if answer.Len() > 0 {
-		emit(domain.LibrarianEvent{Kind: domain.LibrarianAnswer, Text: answer.String()})
-	}
-	return answer.String()
+	answer := current.messageText()
+	current.completeMessage(answer)
+	return answer
 }
 
-// release frees the conversation's run slot, but only if r still holds it: a
-// later ask may already have taken the slot this run gave up.
+// release frees the conversation's run slot if r still holds it.
 func (l *Librarian) release(conv *conversation, r *run) {
 	l.mu.Lock()
+	l.releaseLocked(conv, r)
+	l.mu.Unlock()
+}
+
+// releaseLocked frees the slot only if r still holds it: a later ask may
+// already have taken the slot this run gave up.
+func (l *Librarian) releaseLocked(conv *conversation, r *run) {
 	if conv.run == r {
 		conv.run = nil
 	}
-	l.mu.Unlock()
 }
 
 // finalAnswer is the last non-empty assistant message after the question:
@@ -279,7 +426,7 @@ func finalAnswer(msgs []llm.Message) string {
 }
 
 // conversationTag correlates a conversation's log lines without logging its
-// key, which is the reader's session cookie.
+// key, which is the reader's session id.
 func conversationTag(key string) string {
 	sum := sha256.Sum256([]byte(key))
 	return hex.EncodeToString(sum[:6])

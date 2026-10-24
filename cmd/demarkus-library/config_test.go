@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/base64"
 	"strings"
 	"testing"
 	"time"
@@ -104,5 +106,33 @@ func TestNewAppConfigLibrarianAsksPerHour(t *testing.T) {
 		if _, err := NewAppConfig(); err == nil {
 			t.Errorf("%q accepted; a typo must not lift the cost guard", bad)
 		}
+	}
+}
+
+// A mistyped sealing key must stop startup: replicas on different keys would
+// bounce every reader whose cookie another one sealed. Length is the sealer's.
+func TestParseSessionKey(t *testing.T) {
+	key := bytes.Repeat([]byte{0xfb}, 32)
+	tests := []struct {
+		name    string
+		raw     string
+		want    []byte
+		wantErr bool
+	}{
+		{name: "unset", raw: "  "},
+		{name: "standard", raw: base64.StdEncoding.EncodeToString(key), want: key},
+		{name: "url alphabet", raw: base64.URLEncoding.EncodeToString(key), wantErr: true},
+		{name: "not base64", raw: "not a key!", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := parseSessionKey(tt.raw)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("err = %v, wantErr %v", err, tt.wantErr)
+			}
+			if !bytes.Equal(got, tt.want) {
+				t.Errorf("key = %x, want %x", got, tt.want)
+			}
+		})
 	}
 }

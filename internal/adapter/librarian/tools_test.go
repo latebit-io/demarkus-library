@@ -289,7 +289,7 @@ func TestOpenTool_RecordsSourceForTheRun(t *testing.T) {
 	t.Parallel()
 
 	ports := newFakePorts()
-	r := newRun("q", time.Now())
+	r := newRun("", "q", time.Now(), 0)
 	ctx := withRun(context.Background(), r)
 	tool := &openTool{reader: ports, defaultWorld: "root"}
 	tool.Execute(ctx, call("open", `{"path":"/ops/deploy.md"}`))

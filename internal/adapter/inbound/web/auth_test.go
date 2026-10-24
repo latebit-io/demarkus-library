@@ -1,12 +1,14 @@
 package web
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -17,16 +19,21 @@ import (
 	"github.com/latebit-io/demarkus-library/internal/core/port"
 )
 
-// fakeAuthority satisfies session.Authority for manager construction; the
-// middleware tests never hit refresh (tokens are minted fresh).
+// fakeAuthority satisfies session.Authority: refresh mints "refreshed" until
+// the refresh token is revoked, then answers like a broker with a dead grant.
 type fakeAuthority struct {
 	refreshErr error
+	refreshes  int
 	revoked    []string
 }
 
-func (f *fakeAuthority) Refresh(_ context.Context, _ string) (session.Tokens, error) {
+func (f *fakeAuthority) Refresh(_ context.Context, refreshToken string) (session.Tokens, error) {
+	f.refreshes++
 	if f.refreshErr != nil {
 		return session.Tokens{}, f.refreshErr
+	}
+	if slices.Contains(f.revoked, refreshToken) {
+		return session.Tokens{}, session.ErrGrantDead
 	}
 	return session.Tokens{IDToken: "refreshed", Expiry: time.Now().Add(time.Hour)}, nil
 }
@@ -64,12 +71,15 @@ func (f *fakeFlow) Exchange(_ context.Context, code, verifier string) (session.T
 	return f.tokens, nil
 }
 
+// testSealingKey is shared by every rig, so two rigs act as two replicas.
+var testSealingKey = bytes.Repeat([]byte{5}, session.KeySize)
+
 // testRig assembles an Echo app with the auth surface and a turnstiled probe
 // route that records the bearer it saw.
 type testRig struct {
 	app      *echo.Echo
 	sessions *session.Manager
-	pending  *session.PendingStore
+	cookies  CookieConfig
 	auth     *fakeAuthority
 	flow     *fakeFlow
 
@@ -81,11 +91,17 @@ func newTestRig(t *testing.T) *testRig {
 	t.Helper()
 	rig := &testRig{
 		auth: &fakeAuthority{},
-		flow: &fakeFlow{authURL: "https://broker.example.org/oauth/authorize?x=1", state: "st-1", verifier: "ver-1"},
+		flow: &fakeFlow{
+			authURL: "https://broker.example.org/oauth/authorize?x=1", state: "st-1", verifier: "ver-1",
+			tokens: session.Tokens{IDToken: "id-tok", RefreshToken: "ref-tok", Expiry: time.Now().Add(time.Hour)},
+		},
 	}
-	store := session.NewMemoryStore(time.Hour)
-	rig.sessions = session.NewManager(store, rig.auth, 0)
-	rig.pending = session.NewPendingStore()
+	sealer, err := session.NewSealer(testSealingKey)
+	if err != nil {
+		t.Fatalf("NewSealer: %v", err)
+	}
+	rig.sessions = session.NewManager(sealer, rig.auth, session.Config{TTL: time.Hour})
+	rig.cookies = CookieConfig{}
 
 	rig.app = echo.New()
 	view, err := NewView()
@@ -94,12 +110,12 @@ func newTestRig(t *testing.T) *testRig {
 	}
 	rig.app.Renderer = view
 
-	AuthRoutes(rig.app, NewAuthHandler(rig.flow, rig.sessions, rig.pending, CookieConfig{TTL: time.Hour}))
+	AuthRoutes(rig.app, NewAuthHandler(rig.flow, rig.sessions, session.NewPendingLogins(sealer), rig.cookies))
 	rig.app.GET("/probe", func(c *echo.Context) error {
 		rig.probeBearer = bearer.FromContext(c.Request().Context())
 		rig.probeReader = port.ReaderKey(c.Request().Context())
 		return c.String(http.StatusOK, "ok")
-	}, RequireSession(rig.sessions))
+	}, RequireSession(rig.sessions, rig.cookies))
 	return rig
 }
 
@@ -109,29 +125,73 @@ func (r *testRig) do(req *http.Request) *httptest.ResponseRecorder {
 	return rec
 }
 
-// login walks the full happy path and returns the session cookie.
-func (r *testRig) login(t *testing.T) *http.Cookie {
+// start posts /login/start and returns the login cookie it set.
+func (r *testRig) start(t *testing.T, returnTo string) *http.Cookie {
 	t.Helper()
-	r.flow.tokens = session.Tokens{IDToken: "id-tok", RefreshToken: "ref-tok", Expiry: time.Now().Add(time.Hour)}
-
-	form := url.Values{"return_to": {"/d/index.md"}}
+	form := url.Values{"return_to": {returnTo}}
 	req := httptest.NewRequest(http.MethodPost, "/login/start", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	if rec := r.do(req); rec.Code != http.StatusSeeOther {
+	rec := r.do(req)
+	if rec.Code != http.StatusSeeOther {
 		t.Fatalf("start: code = %d", rec.Code)
 	}
+	login := responseCookie(rec, loginCookie)
+	if login == nil || login.Value == "" {
+		t.Fatal("start set no login cookie")
+	}
+	return login
+}
 
-	rec := r.do(httptest.NewRequest(http.MethodGet, "/auth/callback?state=st-1&code=the-code", http.NoBody))
+// callback lands the broker redirect, carrying login when non-nil.
+func (r *testRig) callback(query string, login *http.Cookie) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodGet, "/auth/callback?"+query, http.NoBody)
+	if login != nil {
+		req.AddCookie(login)
+	}
+	return r.do(req)
+}
+
+// probe hits the turnstiled route with cookie.
+func (r *testRig) probe(cookie *http.Cookie) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodGet, "/probe", http.NoBody)
+	req.AddCookie(cookie)
+	return r.do(req)
+}
+
+// login walks the full happy path with tokens and returns the session cookie.
+func (r *testRig) loginWith(t *testing.T, tokens session.Tokens) *http.Cookie {
+	t.Helper()
+	r.flow.tokens = tokens
+	rec := r.callback("state="+r.flow.state+"&code=the-code", r.start(t, "/d/index.md"))
 	if rec.Code != http.StatusFound {
 		t.Fatalf("callback: code = %d, body %s", rec.Code, rec.Body.String())
 	}
+	ck := responseCookie(rec, sessionCookie)
+	if ck == nil || ck.Value == "" {
+		t.Fatal("callback set no session cookie")
+	}
+	return ck
+}
+
+func (r *testRig) login(t *testing.T) *http.Cookie {
+	t.Helper()
+	return r.loginWith(t, r.flow.tokens)
+}
+
+// responseCookie returns the named cookie the response set, or nil.
+func responseCookie(rec *httptest.ResponseRecorder, name string) *http.Cookie {
 	for _, ck := range rec.Result().Cookies() {
-		if ck.Name == sessionCookie && ck.Value != "" {
+		if ck.Name == name {
 			return ck
 		}
 	}
-	t.Fatal("callback set no session cookie")
 	return nil
+}
+
+// cookieCleared reports whether the response expired the named cookie.
+func cookieCleared(rec *httptest.ResponseRecorder, name string) bool {
+	ck := responseCookie(rec, name)
+	return ck != nil && ck.MaxAge < 0
 }
 
 func TestTurnstileRedirectsAnonymous(t *testing.T) {
@@ -167,7 +227,8 @@ func TestTurnstileHTMXGetsHXRedirect(t *testing.T) {
 func TestFullLoginFlow(t *testing.T) {
 	rig := newTestRig(t)
 
-	// Start redirects to the broker authorize URL.
+	// Start redirects to the broker authorize URL with the attempt sealed
+	// into an HttpOnly cookie scoped to the callback.
 	form := url.Values{"return_to": {"/d/index.md"}}
 	req := httptest.NewRequest(http.MethodPost, "/login/start", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -178,11 +239,17 @@ func TestFullLoginFlow(t *testing.T) {
 	if loc := rec.Header().Get("Location"); loc != rig.flow.authURL {
 		t.Errorf("start Location = %q", loc)
 	}
+	login := responseCookie(rec, loginCookie)
+	if login == nil || !login.HttpOnly || login.Path != loginCookiePath {
+		t.Fatalf("login cookie = %+v", login)
+	}
+	if strings.Contains(login.Value, "ver-1") {
+		t.Error("login cookie exposes the PKCE verifier")
+	}
 
 	// Callback with the matching state mints the session and lands on
 	// the stashed return_to.
-	rig.flow.tokens = session.Tokens{IDToken: "id-tok", RefreshToken: "ref-tok", Expiry: time.Now().Add(time.Hour)}
-	rec = rig.do(httptest.NewRequest(http.MethodGet, "/auth/callback?state=st-1&code=the-code", http.NoBody))
+	rec = rig.callback("state=st-1&code=the-code", login)
 	if rec.Code != http.StatusFound {
 		t.Fatalf("callback: code = %d", rec.Code)
 	}
@@ -193,23 +260,19 @@ func TestFullLoginFlow(t *testing.T) {
 		t.Errorf("exchange got code=%q verifier=%q", rig.flow.gotCode, rig.flow.gotVerifier)
 	}
 
-	var cookie *http.Cookie
-	for _, ck := range rec.Result().Cookies() {
-		if ck.Name == sessionCookie {
-			cookie = ck
-		}
-	}
+	cookie := responseCookie(rec, sessionCookie)
 	if cookie == nil || cookie.Value == "" {
 		t.Fatal("no session cookie set")
 	}
 	if !cookie.HttpOnly {
 		t.Error("session cookie must be HttpOnly")
 	}
+	if strings.Contains(cookie.Value, "id-tok") || strings.Contains(cookie.Value, "ref-tok") {
+		t.Error("session cookie carries tokens in the clear")
+	}
 
 	// The turnstile now passes and the probe sees the bearer.
-	req = httptest.NewRequest(http.MethodGet, "/probe", http.NoBody)
-	req.AddCookie(cookie)
-	if rec := rig.do(req); rec.Code != http.StatusOK {
+	if rec := rig.probe(cookie); rec.Code != http.StatusOK {
 		t.Fatalf("probe after login: code = %d", rec.Code)
 	}
 	if rig.probeBearer != "id-tok" {
@@ -222,32 +285,73 @@ func TestFullLoginFlow(t *testing.T) {
 
 func TestCallbackRejectsBadState(t *testing.T) {
 	rig := newTestRig(t)
+	login := rig.start(t, "/")
 
-	rec := rig.do(httptest.NewRequest(http.MethodGet, "/auth/callback?state=never-issued&code=x", http.NoBody))
-	if rec.Code != http.StatusFound {
-		t.Fatalf("code = %d", rec.Code)
+	tests := []struct {
+		name  string
+		query string
+		login *http.Cookie
+	}{
+		{name: "no login cookie", query: "state=st-1&code=x"},
+		{name: "state never issued", query: "state=never-issued&code=x", login: login},
+		{name: "forged login cookie", query: "state=st-1&code=x", login: &http.Cookie{Name: loginCookie, Value: "forged"}},
 	}
-	if loc := rec.Header().Get("Location"); loc != "/login?err=failed" {
-		t.Errorf("Location = %q", loc)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := rig.callback(tt.query, tt.login)
+			if loc := rec.Header().Get("Location"); loc != "/login?err=failed" {
+				t.Errorf("Location = %q", loc)
+			}
+			if responseCookie(rec, sessionCookie) != nil {
+				t.Error("rejected callback set a session cookie")
+			}
+		})
 	}
+}
 
-	// State is single-use: a replay after a successful login also fails.
-	rig.login(t)
-	rec = rig.do(httptest.NewRequest(http.MethodGet, "/auth/callback?state=st-1&code=x", http.NoBody))
-	if loc := rec.Header().Get("Location"); loc != "/login?err=failed" {
-		t.Errorf("replayed state: Location = %q", loc)
+// TestCallbackSpendsLoginCookie: every callback clears the login cookie, so a
+// browser cannot replay the attempt.
+func TestCallbackSpendsLoginCookie(t *testing.T) {
+	rig := newTestRig(t)
+	rec := rig.callback("state=st-1&code=the-code", rig.start(t, "/"))
+	if !cookieCleared(rec, loginCookie) || responseCookie(rec, loginCookie).Path != loginCookiePath {
+		t.Errorf("login cookie not cleared: %+v", responseCookie(rec, loginCookie))
+	}
+}
+
+// TestStartDropsOversizedReturnTo: an outsized return_to lands the reader on /
+// instead of failing the sign-in.
+func TestStartDropsOversizedReturnTo(t *testing.T) {
+	rig := newTestRig(t)
+	login := rig.start(t, "/t/"+strings.Repeat("w/d/long-path~", 400))
+	rec := rig.callback("state=st-1&code=the-code", login)
+	if loc := rec.Header().Get("Location"); loc != "/" {
+		t.Errorf("Location = %q, want /", loc)
+	}
+}
+
+// TestCallbackOnAnotherReplica: the login started on one replica finishes on
+// another, and the session it mints passes either turnstile.
+func TestCallbackOnAnotherReplica(t *testing.T) {
+	first, second := newTestRig(t), newTestRig(t)
+	login := first.start(t, "/d/index.md")
+	rec := second.callback("state=st-1&code=the-code", login)
+	if loc := rec.Header().Get("Location"); loc != "/d/index.md" {
+		t.Fatalf("callback on second replica: Location = %q", loc)
+	}
+	cookie := responseCookie(rec, sessionCookie)
+	if cookie == nil {
+		t.Fatal("no session cookie")
+	}
+	if rec := first.probe(cookie); rec.Code != http.StatusOK || first.probeBearer != "id-tok" {
+		t.Errorf("first replica probe: code %d, bearer %q", rec.Code, first.probeBearer)
 	}
 }
 
 func TestCallbackDeniedAtIdP(t *testing.T) {
 	rig := newTestRig(t)
 
-	form := url.Values{}
-	req := httptest.NewRequest(http.MethodPost, "/login/start", strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	rig.do(req)
-
-	rec := rig.do(httptest.NewRequest(http.MethodGet, "/auth/callback?state=st-1&error=access_denied", http.NoBody))
+	rec := rig.callback("state=st-1&error=access_denied", rig.start(t, ""))
 	if loc := rec.Header().Get("Location"); loc != "/login?err=denied" {
 		t.Errorf("Location = %q", loc)
 	}
@@ -255,7 +359,8 @@ func TestCallbackDeniedAtIdP(t *testing.T) {
 
 func TestLogout(t *testing.T) {
 	rig := newTestRig(t)
-	cookie := rig.login(t)
+	// Inside the refresh skew, so the next use of this cookie must refresh.
+	cookie := rig.loginWith(t, session.Tokens{IDToken: "id-tok", RefreshToken: "ref-tok", Expiry: time.Now().Add(10 * time.Second)})
 
 	req := httptest.NewRequest(http.MethodPost, "/logout", http.NoBody)
 	req.AddCookie(cookie)
@@ -266,12 +371,63 @@ func TestLogout(t *testing.T) {
 	if len(rig.auth.revoked) != 1 || rig.auth.revoked[0] != "ref-tok" {
 		t.Errorf("revoked = %v, want [ref-tok]", rig.auth.revoked)
 	}
+	if !cookieCleared(rec, sessionCookie) {
+		t.Error("logout left the session cookie")
+	}
 
-	// The cookie is dead: the turnstile bounces the next request.
-	req = httptest.NewRequest(http.MethodGet, "/probe", http.NoBody)
+	// A replayed copy dies at its next refresh: the revoked grant mints
+	// nothing. (One with a fresh id_token rides until that token expires.)
+	if rec := rig.probe(cookie); rec.Code != http.StatusFound || !cookieCleared(rec, sessionCookie) {
+		t.Errorf("replayed cookie after logout: code = %d, want 302 + cleared", rec.Code)
+	}
+}
+
+// TestSessionBearerNeverSetsCookies: a public route lends a refreshed bearer
+// but leaves the cookie alone, so no cacheable response carries a Set-Cookie.
+func TestSessionBearerNeverSetsCookies(t *testing.T) {
+	rig := newTestRig(t)
+	var lent string
+	rig.app.GET("/asset", func(c *echo.Context) error {
+		lent = bearer.FromContext(c.Request().Context())
+		return c.String(http.StatusOK, "css")
+	}, SessionBearer(rig.sessions))
+	cookie := rig.loginWith(t, session.Tokens{IDToken: "id-tok", RefreshToken: "ref-tok", Expiry: time.Now().Add(10 * time.Second)})
+
+	req := httptest.NewRequest(http.MethodGet, "/asset", http.NoBody)
 	req.AddCookie(cookie)
-	if rec := rig.do(req); rec.Code != http.StatusFound {
-		t.Errorf("probe after logout: code = %d, want 302", rec.Code)
+	rec := rig.do(req)
+	if lent != "refreshed" {
+		t.Errorf("bearer = %q, want the refreshed token", lent)
+	}
+	if got := rec.Header().Values("Set-Cookie"); len(got) != 0 {
+		t.Errorf("public route set cookies: %v", got)
+	}
+}
+
+// TestTurnstileRenewsRefreshedCookie: a refresh re-seals the session into a
+// new cookie; the reader key survives it, and the new cookie needs no refresh.
+func TestTurnstileRenewsRefreshedCookie(t *testing.T) {
+	rig := newTestRig(t)
+	cookie := rig.loginWith(t, session.Tokens{IDToken: "id-tok", RefreshToken: "ref-tok", Expiry: time.Now().Add(10 * time.Second)})
+
+	rec := rig.probe(cookie)
+	if rec.Code != http.StatusOK || rig.probeBearer != "refreshed" {
+		t.Fatalf("probe: code %d, bearer %q", rec.Code, rig.probeBearer)
+	}
+	renewed := responseCookie(rec, sessionCookie)
+	if renewed == nil || renewed.Value == cookie.Value || renewed.MaxAge <= 0 || renewed.MaxAge > int(time.Hour.Seconds()) {
+		t.Fatalf("renewed cookie = %+v", renewed)
+	}
+	reader := rig.probeReader
+
+	if rec := rig.probe(renewed); rec.Code != http.StatusOK || responseCookie(rec, sessionCookie) != nil {
+		t.Errorf("renewed cookie probe: code %d, re-set %v", rec.Code, responseCookie(rec, sessionCookie) != nil)
+	}
+	if rig.probeReader != reader {
+		t.Errorf("reader key changed across refresh: %q -> %q", reader, rig.probeReader)
+	}
+	if rig.auth.refreshes != 1 {
+		t.Errorf("refreshes = %d, want 1", rig.auth.refreshes)
 	}
 }
 
@@ -303,6 +459,7 @@ func TestSanitizeReturnTo(t *testing.T) {
 		{"/d/x\\..", ""},
 		{"javascript:alert(1)", ""},
 		{"/d/a://b", ""},
+		{"/" + strings.Repeat("x", maxReturnTo), ""},
 	}
 	for _, tc := range cases {
 		if got := sanitizeReturnTo(tc.in); got != tc.want {
@@ -337,32 +494,18 @@ func TestTurnstileTransientFailureIs502(t *testing.T) {
 	// id_token: log in again with an already-stale expiry.
 	rig.auth.refreshErr = errors.New("connection refused")
 	rig.flow.state = "st-2"
-	rig.flow.tokens = session.Tokens{IDToken: "stale", RefreshToken: "r2", Expiry: time.Now().Add(-time.Minute)}
-	form := url.Values{}
-	req := httptest.NewRequest(http.MethodPost, "/login/start", strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	rig.do(req)
-	rec := rig.do(httptest.NewRequest(http.MethodGet, "/auth/callback?state=st-2&code=c2", http.NoBody))
-	var staleCookie *http.Cookie
-	for _, ck := range rec.Result().Cookies() {
-		if ck.Name == sessionCookie {
-			staleCookie = ck
-		}
-	}
-	if staleCookie == nil {
-		t.Fatal("no cookie from second login")
-	}
+	staleCookie := rig.loginWith(t, session.Tokens{IDToken: "stale", RefreshToken: "r2", Expiry: time.Now().Add(-time.Minute)})
 
-	req = httptest.NewRequest(http.MethodGet, "/probe", http.NoBody)
-	req.AddCookie(staleCookie)
-	if rec := rig.do(req); rec.Code != http.StatusBadGateway {
+	rec := rig.probe(staleCookie)
+	if rec.Code != http.StatusBadGateway {
 		t.Errorf("transient refresh failure: code = %d, want 502", rec.Code)
+	}
+	if responseCookie(rec, sessionCookie) != nil {
+		t.Error("a transient failure must leave the session cookie alone")
 	}
 
 	// The healthy session is untouched.
-	req = httptest.NewRequest(http.MethodGet, "/probe", http.NoBody)
-	req.AddCookie(cookie)
-	if rec := rig.do(req); rec.Code != http.StatusOK {
+	if rec := rig.probe(cookie); rec.Code != http.StatusOK {
 		t.Errorf("healthy session: code = %d, want 200", rec.Code)
 	}
 }

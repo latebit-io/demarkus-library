@@ -1,73 +1,63 @@
 package session
 
 import (
-	"sync"
+	"crypto/subtle"
+	"errors"
+	"fmt"
 	"time"
 )
 
-// pendingTTL bounds how long a login attempt may sit between the authorize
+// PendingTTL bounds how long a login attempt may sit between the authorize
 // redirect and the callback. Matches the broker's own pending-auth window.
-const pendingTTL = 10 * time.Minute
+const PendingTTL = 10 * time.Minute
 
 // PendingLogin is one in-flight authorize redirect: the CSRF state that will
 // come back on the callback, the PKCE verifier that redeems the code, and
 // where to send the reader afterwards.
 type PendingLogin struct {
-	Verifier  string
-	ReturnTo  string
-	createdAt time.Time
+	State    string `json:"s"`
+	Verifier string `json:"v"`
+	ReturnTo string `json:"r"`
+	// CreatedAt is stamped by Seal and bounds the attempt to PendingTTL.
+	CreatedAt time.Time `json:"c"`
 }
 
-// PendingStore holds in-flight logins keyed by state, server-side — the
-// browser never sees the verifier. Entries are single-use: Take consumes.
-// Safe for concurrent use.
-type PendingStore struct {
-	now func() time.Time
-
-	mu      sync.Mutex
-	pending map[string]PendingLogin
+// PendingLogins seals in-flight logins into the login cookie so the callback
+// may land on any replica. The verifier stays encrypted: the browser carries
+// it but cannot read it.
+type PendingLogins struct {
+	sealer *Sealer
+	now    func() time.Time
 }
 
-// NewPendingStore creates an empty pending-login store.
-func NewPendingStore() *PendingStore {
-	return &PendingStore{now: time.Now, pending: make(map[string]PendingLogin)}
+// NewPendingLogins wires the login cookie to a Sealer.
+func NewPendingLogins(sealer *Sealer) *PendingLogins {
+	return &PendingLogins{sealer: sealer, now: time.Now}
 }
 
-// Put records a login attempt under its state value.
-func (p *PendingStore) Put(state, verifier, returnTo string) {
-	p.mu.Lock()
-	p.pending[state] = PendingLogin{Verifier: verifier, ReturnTo: returnTo, createdAt: p.now()}
-	p.mu.Unlock()
-}
-
-// Take consumes the pending login for state. False means unknown, expired,
-// or already used — the callback must reject the attempt (CSRF defense:
-// state is single-use and only ever minted by our own /login).
-func (p *PendingStore) Take(state string) (PendingLogin, bool) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	pl, ok := p.pending[state]
-	if !ok {
-		return PendingLogin{}, false
+// Seal stamps pl and returns the login cookie value.
+func (p *PendingLogins) Seal(pl PendingLogin) (string, error) {
+	pl.CreatedAt = p.now()
+	value, err := p.sealer.seal(purposeLogin, pl)
+	if err != nil {
+		return "", fmt.Errorf("session: seal pending login: %w", err)
 	}
-	delete(p.pending, state)
-	if p.now().Sub(pl.createdAt) >= pendingTTL {
-		return PendingLogin{}, false
-	}
-	return pl, true
+	return value, nil
 }
 
-// Sweep drops expired pending logins (abandoned authorize redirects) and
-// reports how many went. Run on the same ticker as MemoryStore.Sweep.
-func (p *PendingStore) Sweep() int {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	n := 0
-	for state, pl := range p.pending {
-		if p.now().Sub(pl.createdAt) >= pendingTTL {
-			delete(p.pending, state)
-			n++
-		}
+// Open returns the login sealed in value if it was minted for state and is
+// inside PendingTTL. Single use comes from the caller clearing the cookie and
+// the broker's one-time code.
+func (p *PendingLogins) Open(value, state string) (PendingLogin, error) {
+	var pl PendingLogin
+	if err := p.sealer.open(purposeLogin, value, &pl); err != nil {
+		return PendingLogin{}, err
 	}
-	return n
+	if state == "" || subtle.ConstantTimeCompare([]byte(pl.State), []byte(state)) != 1 {
+		return PendingLogin{}, errors.New("session: login state mismatch")
+	}
+	if !p.now().Before(pl.CreatedAt.Add(PendingTTL)) {
+		return PendingLogin{}, errors.New("session: login attempt expired")
+	}
+	return pl, nil
 }

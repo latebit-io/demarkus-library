@@ -335,7 +335,7 @@ func presentError(c *echo.Context, err error, world, path string) error {
 		// clean. Only when a session exists (broker mode): in QUIC mode there is
 		// no login route, so a private-path rejection stays a plain 401.
 		if c.Get(authedKey) != nil {
-			clearSessionCookie(c)
+			sessionCard.clear(c)
 			return redirectToLogin(c)
 		}
 		return renderError(c, errorView{Status: http.StatusUnauthorized, World: world,

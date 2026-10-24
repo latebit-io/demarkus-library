@@ -13,7 +13,7 @@ set:
   library.broker.redirectURI: https://library.example.com/auth/callback
   library.broker.world: root
 tests:
-  - it: renders a single-replica Deployment with Recreate strategy (in-memory sessions)
+  - it: renders a single-replica Deployment with Recreate strategy (per-pod sealing key)
     template: deployment.yaml
     asserts:
       - isKind:
@@ -199,6 +199,53 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].securityContext.capabilities.drop
           content: ALL
+
+  - it: a shared sealing key wires DEMARKUS_SESSION_KEY and rolls updates
+    template: deployment.yaml
+    set:
+      replicaCount: 2
+      library.broker.sessionKey.existingSecretRef.name: library-session-key
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 2
+      - equal:
+          path: spec.strategy.type
+          value: RollingUpdate
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DEMARKUS_SESSION_KEY
+            valueFrom:
+              secretKeyRef:
+                name: "library-session-key"
+                key: "sessionKey"
+
+  - it: without a sealing key renders no DEMARKUS_SESSION_KEY
+    template: deployment.yaml
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          any: true
+          content:
+            name: DEMARKUS_SESSION_KEY
+
+  - it: fails render for replicas without a shared sealing key
+    template: deployment.yaml
+    set:
+      replicaCount: 2
+    asserts:
+      - failedTemplate:
+          errorMessage: "replicaCount > 1 requires library.broker.sessionKey.existingSecretRef.name: replicas must share the cookie sealing key"
+
+  - it: fails render when the sealing key ref has no key
+    template: deployment.yaml
+    set:
+      library.broker.sessionKey.existingSecretRef.name: library-session-key
+      library.broker.sessionKey.existingSecretRef.key: " "
+    asserts:
+      - failedTemplate:
+          errorMessage: library.broker.sessionKey.existingSecretRef.key is required when its name is set
 
   - it: fails render when broker mode lacks required settings
     template: deployment.yaml
