@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"slices"
 	"sort"
 
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
@@ -62,20 +63,15 @@ func (s *ReadingService) WorldMap(ctx context.Context, world string) (domain.Wor
 
 	wm := domain.WorldMap{World: domain.WorldInfo{Name: world}, Clusters: clusters}
 
-	// Enrichment (best-effort): the world's display identity (its mark:// URL)
-	// and the host→name join key for intra-world hub edges.
-	// The durable hub topology and its host join, from the shared hub read:
-	// both the orphan flag (nodes + edges) and the intra-world edges below.
-	hub := s.hubGraph(ctx)
-	host2name := hub.hosts.host2name
-	if worlds, werr := s.world.Worlds(ctx); werr == nil {
-		for _, w := range worlds {
-			if w.Name == world {
-				wm.World = w
-			}
-		}
+	// Enrichment (best-effort): the reader's world list gives the world's
+	// display identity (its mark:// URL) and the host join and mask for the
+	// orphan flag and edges below; a failed list costs all three.
+	hosts, _ := s.readerHosts(ctx)
+	if i := slices.IndexFunc(hosts.worlds, func(w domain.WorldInfo) bool { return w.Name == world }); i >= 0 {
+		wm.World = hosts.worlds[i]
 	}
-	topo := hub.topo
+	host2name := hosts.host2name
+	topo := s.hubGraph(ctx).topo
 
 	// Orphan flag (ADR 0006 §0.2): mark each rendered doc the hub topology knows
 	// as a node but that has zero reference edges. Hub-only, so the flag is
@@ -100,7 +96,7 @@ func (s *ReadingService) WorldMap(ctx context.Context, world string) (domain.Wor
 		}
 	}
 	wm.Edges = intraWorldEdges(world, host2name,
-		append(topo.edges, s.graph.allEdges()...), labeled)
+		slices.Concat(topo.edges, s.graph.edges(hosts)), labeled)
 
 	s.worldMaps.put(ctx, world, epoch, wm)
 	return wm, nil

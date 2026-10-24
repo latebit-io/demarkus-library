@@ -1,11 +1,11 @@
 package service
 
 import (
-	"github.com/latebit-io/demarkus-library/internal/core/port"
 	"reflect"
 	"testing"
 
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
+	"github.com/latebit-io/demarkus-library/internal/core/port"
 )
 
 // stubGraphParser returns a fixed domain topology, keeping core tests
@@ -298,6 +298,31 @@ func TestHubGraphIsCachedPerReader(t *testing.T) {
 	svc.Neighborhood(b, "root", "/index.md")
 	if called == "" {
 		t.Error("reader B was served reader A's cached hub graph")
+	}
+}
+
+// TestWorldListReadOncePerReader: the floor, the world map, the hub join and
+// the graph mask all need the reader's world list; inside hubTTL it costs
+// one broker read, not one per consumer.
+func TestWorldListReadOncePerReader(t *testing.T) {
+	var lists int
+	gw := fakeGateway{
+		worlds:      []domain.WorldInfo{{Name: "root", URL: "mark://root.svc:6309"}},
+		fetchBody:   map[string]string{hubGraphPath: "stub"},
+		worldsCalls: &lists,
+	}
+	svc := NewReadingService(gw, fakeRenderer{}, nil).WithHub("root", hubStubTopology)
+	ctx := port.WithReader(t.Context(), "session-a")
+
+	if _, err := svc.Floor(ctx); err != nil {
+		t.Fatalf("Floor: %v", err)
+	}
+	if _, err := svc.WorldMap(ctx, "root"); err != nil {
+		t.Fatalf("WorldMap: %v", err)
+	}
+	svc.Neighborhood(ctx, "root", "/index.md")
+	if lists != 1 {
+		t.Errorf("world list read %d times, want 1", lists)
 	}
 }
 

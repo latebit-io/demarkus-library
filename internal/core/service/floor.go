@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -62,20 +63,19 @@ func (s *ReadingService) Floor(ctx context.Context) (domain.Floor, error) {
 	return floor, nil
 }
 
-// buildFloor assembles the universe view's data live: the gateway's world list
-// (mark_worlds in broker mode — the permission mask; the home world over
-// QUIC), then each world's whole-catalog lookup ("*", importance order). A
-// world whose catalog read fails still appears, satellite-less and marked
-// (an old server that rejects match-all, an unreachable world): on the
-// floor, absence would read as nonexistence.
+// buildFloor assembles the universe view's data live: the reader's world list
+// (mark_worlds in broker mode, the home world over QUIC), then each world's
+// whole-catalog lookup ("*", importance order). A world whose catalog read
+// fails still appears, satellite-less and marked (an old server that rejects
+// match-all, an unreachable world): on the floor, absence would read as
+// nonexistence.
 func (s *ReadingService) buildFloor(ctx context.Context) (domain.Floor, error) {
-	worlds, err := s.world.Worlds(ctx)
+	// The permission mask and host join, shared with the hub read for hubTTL.
+	hosts, err := s.readerHosts(ctx)
 	if err != nil {
 		return domain.Floor{}, err
 	}
-
-	// The permission mask: which worlds the reader may see, and the host join.
-	hosts := indexHosts(worlds)
+	worlds := hosts.worlds
 
 	floor := domain.Floor{Worlds: make([]domain.FloorWorld, 0, len(worlds))}
 	for _, w := range worlds {
@@ -114,7 +114,8 @@ func (s *ReadingService) buildFloor(ctx context.Context) (domain.Floor, error) {
 	// with no authorized name (the extensional universe; ADR 0005 §16). All of
 	// this degrades to nothing when no hub is published and nothing observed.
 	hub := s.hubGraph(ctx).topo
-	edges, portals := worldEdges(append(hub.edges, s.graph.allEdges()...), hosts.host2name, hosts.authorized)
+	// Concat, not append: hub.edges is the reader's cached topology.
+	edges, portals := worldEdges(slices.Concat(hub.edges, s.graph.edges(hosts)), hosts.host2name, hosts.authorized)
 	floor.Edges = edges
 	for _, p := range portals {
 		floor.Worlds = append(floor.Worlds, domain.FloorWorld{

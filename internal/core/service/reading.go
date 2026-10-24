@@ -23,9 +23,10 @@ type ReadingService struct {
 	floor     ttlCache[domain.Floor]
 	worldMaps ttlCache[domain.WorldMap]
 	names     ttlCache[[]domain.IndexEntry] // per-world name index, for unfocused listings
-	graph     linkGraph
-	hub       string             // topology-source world (DEMARKUS_HUB); "" disables hub enrichment
-	hubs      ttlCache[hubGraph] // one hub read per reader per hubTTL, shared by every consumer
+	graph     observedLinks                 // render-time links, shared by every reader; reads take the reader's mask
+	hosts     ttlCache[hostIndex]           // the reader's world index: the graph mask and the hub's host join
+	hub       string                        // topology-source world (DEMARKUS_HUB); "" disables hub enrichment
+	hubs      ttlCache[hubGraph]            // one hub read per reader per hubTTL, shared by every consumer
 	// graphParser decodes the hub's published /graph.md; nil (like hub "")
 	// leaves the floor on its mark_worlds + observed-links baseline.
 	graphParser port.GraphExportParser
@@ -44,6 +45,7 @@ func NewReadingService(world port.WorldGateway, renderer port.Renderer, cache po
 		floor:     ttlCache[domain.Floor]{retain: floorRetain},
 		worldMaps: ttlCache[domain.WorldMap]{retain: worldMapTTL},
 		names:     ttlCache[[]domain.IndexEntry]{retain: floorTTL},
+		hosts:     ttlCache[hostIndex]{retain: hubTTL},
 		hubs:      ttlCache[hubGraph]{retain: hubTTL},
 	}
 }

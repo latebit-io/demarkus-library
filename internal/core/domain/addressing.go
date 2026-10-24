@@ -16,6 +16,13 @@ func IsListingPath(docPath string) bool {
 	return strings.HasSuffix(docPath, "/")
 }
 
+// IsHostShaped reports whether a world identifier addresses a server directly
+// (host or host:port) rather than naming a knowledge-system world. Dots and
+// colons never appear in broker world names, plus bare "localhost".
+func IsHostShaped(worldID string) bool {
+	return worldID == "localhost" || strings.ContainsAny(worldID, ".:")
+}
+
 // IsVersionPath reports whether a path addresses a pinned edition of a
 // document ("/plans/x.md/v12") rather than the document itself. A version is a
 // snapshot, never an edge source: its links are the document's links at an

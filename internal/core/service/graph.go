@@ -26,11 +26,17 @@ func (s *ReadingService) Backlinks(ctx context.Context, world, path string) []do
 // hub's durable edges so a cold pod still draws what the hub knows.
 func (s *ReadingService) Neighborhood(ctx context.Context, world, path string) domain.Neighborhood {
 	center := domain.Ref{World: world, Path: path}
-	durable := s.hubGraph(ctx).edges
+	// A failed world list hides every knowledge-system name (fail closed: the
+	// pane is enrichment) and resolves no hub edge, so the hub read is skipped.
+	hosts, err := s.readerHosts(ctx)
+	durable := noHubEdges
+	if err == nil {
+		durable = s.hubGraph(ctx).edges
+	}
 	return domain.Neighborhood{
 		Center: center,
-		Out:    unionRefs(s.graph.links(center), durable.links(center)),
-		In:     unionRefs(s.graph.backlinks(center), durable.backlinks(center)),
+		Out:    unionRefs(s.graph.links(hosts, center), durable.links(center)),
+		In:     unionRefs(s.graph.backlinks(hosts, center), durable.backlinks(center)),
 	}
 }
 
@@ -59,7 +65,7 @@ func unionRefs(a, b []domain.Ref) []domain.Ref {
 // when that document is next read.
 const maxLinkGraphSources = 5000
 
-// linkGraph holds source→target edges. The service's instance is the render-time
+// linkGraph holds source→target edges. observedLinks wraps the render-time
 // observed map (R3; ADR 0005 §16): per pod, ephemeral, capped. hubGraph keeps an
 // unbounded one filled from the durable hub topology.
 type linkGraph struct {

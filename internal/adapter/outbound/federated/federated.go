@@ -15,7 +15,6 @@ package federated
 
 import (
 	"context"
-	"strings"
 
 	"github.com/latebit-io/demarkus-library/internal/adapter/outbound/world"
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
@@ -133,7 +132,7 @@ func (g *Gateway) Worlds(ctx context.Context) ([]domain.WorldInfo, error) {
 // to the reader an unroutable world is indistinguishable from a world with
 // nothing at that path, and the error page already speaks that language.
 func (g *Gateway) route(worldID string) (port.WorldGateway, error) {
-	if !IsHostShaped(worldID) {
+	if !domain.IsHostShaped(worldID) {
 		if g.cfg.Names == nil {
 			return nil, domain.ErrNotFound
 		}
@@ -146,14 +145,4 @@ func (g *Gateway) route(worldID string) (port.WorldGateway, error) {
 		return nil, domain.ErrNotFound
 	}
 	return g.cfg.Hosts, nil
-}
-
-// IsHostShaped reports whether a world identifier addresses a server directly
-// (host or host:port) rather than naming a knowledge-system world. Dots and
-// colons never appear in broker world names; they are how hosts spell
-// themselves — plus bare "localhost", the one portless dotless host the
-// stack accepts elsewhere. Exported because the web adapter applies the same
-// test when rewriting mark:// links.
-func IsHostShaped(worldID string) bool {
-	return worldID == "localhost" || strings.ContainsAny(worldID, ".:")
 }
