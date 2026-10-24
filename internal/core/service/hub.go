@@ -210,6 +210,9 @@ func hostKey(h string) string {
 // they are never a navigable portal. (Private IPs are NOT dropped — a LAN
 // federation deployment names real worlds by them; and an authorized world on a
 // cluster-internal address never reaches here — hostName matches it first.)
+//
+// Hide: a label that is not host-shaped ("secret", from a crawler-normalized
+// mark://secret link) names a knowledge-system world the reader may not read.
 func portalLabel(host string) (string, bool) {
 	hk := hostKey(host)
 	h, hp, err := net.SplitHostPort(hk)
@@ -219,10 +222,14 @@ func portalLabel(host string) (string, bool) {
 	if isLocalHost(h) {
 		return "", false
 	}
-	if hp == "" || hp == defaultHostPort {
-		return h, true
+	label := h
+	if hp != "" && hp != defaultHostPort {
+		label = net.JoinHostPort(h, hp)
 	}
-	return net.JoinHostPort(h, hp), true
+	if !domain.IsHostShaped(label) {
+		return "", false
+	}
+	return label, true
 }
 
 // isLocalHost reports whether a host is loopback, link-local, unspecified,

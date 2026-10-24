@@ -115,6 +115,9 @@ func TestPortalLabel(t *testing.T) {
 		{"cache.svc.cluster.local:6309", "", false}, // cluster-internal
 		{"10.0.0.5:6309", "10.0.0.5", true},         // private IP KEPT (LAN federation)
 		{"[2001:db8::5]:6309", "2001:db8::5", true}, // routable IPv6 KEPT
+		{"secret:6309", "", false},                  // unauthorized world name, crawler-normalized → hidden
+		{"secret", "", false},
+		{"secret:6401", "secret:6401", true}, // explicit port: a direct host link
 	}
 	for _, c := range cases {
 		got, ok := portalLabel(c.in)
@@ -137,6 +140,8 @@ func TestWorldEdgesCanonicalizesAndFiltersPortals(t *testing.T) {
 		{From: domain.Ref{World: "root", Path: "/f.md"}, To: domain.Ref{World: "cache.svc.cluster.local:6309", Path: "/z.md"}},
 		// an explicit non-default port is a distinct, navigable portal → kept.
 		{From: domain.Ref{World: "root", Path: "/g.md"}, To: domain.Ref{World: "dev.example.org:6401", Path: "/z.md"}},
+		// a world name the reader may not read, as the hub export writes it → hidden.
+		{From: domain.Ref{World: "root", Path: "/h.md"}, To: domain.Ref{World: "secret:6309", Path: "/plan.md"}},
 	}
 	gotEdges, portals := worldEdges(edges, nil, authorized)
 
