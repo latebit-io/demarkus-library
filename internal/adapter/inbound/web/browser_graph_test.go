@@ -8,9 +8,9 @@ import (
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
 )
 
-func graphBrowser(t *testing.T) *cdp {
-	t.Helper()
-	svc := &fakeReading{
+// graphFixture is a two-document world, a linking to b, with a world map.
+func graphFixture() *fakeReading {
+	return &fakeReading{
 		docs: map[string]domain.Document{
 			"/a.md": {Title: "A", Path: "/a.md", HTML: "<p>a</p>"},
 			"/b.md": {Title: "B", Path: "/b.md", HTML: "<p>b</p>"},
@@ -23,7 +23,11 @@ func graphBrowser(t *testing.T) *cdp {
 		},
 		worldMap: testWorldMap(),
 	}
-	srv := browserServer(t, svc)
+}
+
+func graphBrowser(t *testing.T) *cdp {
+	t.Helper()
+	srv := browserServer(t, readingApp(t, graphFixture()))
 	b := launchBrowser(t)
 	b.navigate(t, srv.URL+"/t/w.io/d/a.md")
 	return b
@@ -129,4 +133,21 @@ func TestBrowserGraphCameraAndExploration(t *testing.T) {
 	b.waitFor(t, `document.querySelector('#graph-overlay svg').getAttribute('viewBox') === beforeExplore`)
 	b.key(t, "0")
 	b.waitFor(t, `document.querySelector('#graph-overlay svg').getAttribute('viewBox') === baseBox`)
+}
+
+// A map in a trail pane has no camera, yet its labels hold their screen size
+// at the pane's fit scale rather than shrinking with the drawing.
+func TestBrowserPaneMapHoldsLabelSize(t *testing.T) {
+	srv := browserServer(t, readingApp(t, &fakeReading{worldMap: testWorldMap()}))
+	b := launchBrowser(t)
+	b.navigate(t, srv.URL+"/t/w.io/u/")
+	b.waitFor(t, `document.querySelector('svg.world-map').style.getPropertyValue('--wm-k')`)
+	px := b.eval(t, `(() => {
+		const svg = document.querySelector('svg.world-map'), label = svg.querySelector('text.floor-doc-label');
+		const k = svg.getBoundingClientRect().width / svg.viewBox.baseVal.width;
+		return Math.round(parseFloat(getComputedStyle(label).fontSize) * k * 10) / 10;
+	})()`)
+	if px != 11.5 {
+		t.Fatalf("pane map label = %vpx on screen, want 11.5", px)
+	}
 }

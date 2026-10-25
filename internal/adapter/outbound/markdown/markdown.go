@@ -107,16 +107,27 @@ var alertIcons = map[string]string{
 	"caution":   "🛑",
 }
 
-// NewRenderer builds a GFM renderer with a UGC sanitization policy.
-//
-// Syntax highlighting is server-side (chroma via goldmark-highlighting,
-// zero JS) in CLASSES mode, never inline styles: bluemonday strips
-// `style` attributes, and widening the policy to allow them would
-// reopen the CSS injection surface the sanitizer exists to close.
-// Colors come from /static/chroma.css; the policy admits only
-// chroma-shaped class names (chromaClasses) on the elements chroma
-// emits them on.
+// NewRenderer builds the document renderer: GFM plus math, under a UGC
+// sanitization policy. Highlighting emits chroma classes, never inline styles:
+// admitting `style` would reopen the CSS injection surface the policy closes.
 func NewRenderer() *Renderer {
+	// TeX between the delimiters skips markdown and reaches the KaTeX island
+	// verbatim. No single-$ inline: "$5 and $10" would false-positive.
+	return newRenderer(passthrough.New(passthrough.Config{
+		InlineDelimiters: []passthrough.Delimiters{{Open: `\(`, Close: `\)`}},
+		BlockDelimiters: []passthrough.Delimiters{
+			{Open: "$$", Close: "$$"},
+			{Open: `\[`, Close: `\]`},
+		},
+	}))
+}
+
+// NewProtocolRenderer renders the markdown the protocol generates (listings,
+// editions, catalog tables). Its \( is an escaped paren in a title, never
+// TeX, so it leaves math out.
+func NewProtocolRenderer() *Renderer { return newRenderer() }
+
+func newRenderer(extra ...goldmark.Extender) *Renderer {
 	policy := bluemonday.UGCPolicy()
 	// mark:// is the protocol's own scheme — a cross-world citation like
 	// [x](mark://world/path.md) must keep its href through sanitization or
@@ -148,37 +159,23 @@ func NewRenderer() *Renderer {
 	policy.AllowAttrs("id").Matching(footnoteIDs).OnElements("sup", "li")
 	policy.AllowAttrs("id").Matching(headingIDs).OnElements("h1", "h2", "h3", "h4", "h5", "h6")
 	policy.AllowAttrs("href").Matching(footnoteHrefs).OnElements("a")
+	extensions := append([]goldmark.Extender{
+		extension.GFM,
+		// Footnotes are the sidenote channel: sidenotes (priority 1000) rewrites
+		// qualifying notes after the footnote transformer (999) shapes the AST.
+		extension.Footnote,
+		sidenotes{},
+		highlighting.NewHighlighting(
+			highlighting.WithFormatOptions(chromahtml.WithClasses(true)),
+		),
+		// GFM alerts (> [!NOTE] …): emoji icon set, see alertIcons.
+		alertcallouts.NewAlertCallouts(alertcallouts.WithIcons(alertIcons)),
+		// :shortcode: emoji → unicode characters (plain text, nothing
+		// for the sanitizer to strip).
+		emoji.Emoji,
+	}, extra...)
 	return &Renderer{
-		md: goldmark.New(goldmark.WithExtensions(
-			extension.GFM,
-			// Footnote syntax is the sidenote channel: the sidenotes
-			// extension (below, transformer priority 1000) rewrites
-			// qualifying notes into margin spans after the footnote
-			// transformer (999) has shaped the AST.
-			extension.Footnote,
-			sidenotes{},
-			highlighting.NewHighlighting(
-				highlighting.WithFormatOptions(chromahtml.WithClasses(true)),
-			),
-			// GFM alerts (> [!NOTE] …): emoji icon set, see alertIcons.
-			alertcallouts.NewAlertCallouts(alertcallouts.WithIcons(alertIcons)),
-			// :shortcode: emoji → unicode characters (plain text, nothing
-			// for the sanitizer to strip).
-			emoji.Emoji,
-			// Math passthrough: protect TeX between the delimiters from
-			// markdown processing (underscores, backslashes) and emit it
-			// verbatim — the KaTeX island (islands.js) renders it
-			// client-side and the raw TeX is the no-JS degradation.
-			// Single-$ inline math is deliberately absent: "$5 and $10"
-			// false-positives; authors write \( … \) for inline.
-			passthrough.New(passthrough.Config{
-				InlineDelimiters: []passthrough.Delimiters{{Open: `\(`, Close: `\)`}},
-				BlockDelimiters: []passthrough.Delimiters{
-					{Open: "$$", Close: "$$"},
-					{Open: `\[`, Close: `\]`},
-				},
-			}),
-		)),
+		md:     goldmark.New(goldmark.WithExtensions(extensions...)),
 		policy: policy,
 	}
 }

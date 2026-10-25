@@ -17,7 +17,7 @@ func TestBrowserDiagramPopout(t *testing.T) {
 				HTML: "<pre><code class=\"language-mermaid\">graph TD; A-->B; B-->C;</code></pre>"},
 		},
 	}
-	srv := browserServer(t, svc)
+	srv := browserServer(t, readingApp(t, svc))
 	b := launchBrowser(t)
 	b.navigate(t, srv.URL+"/t/w.io/d/d.md")
 	b.waitFor(t, `document.querySelector('pre.mermaid > svg.diagram') && document.querySelector('pre.mermaid > button.diagram-pop')`)

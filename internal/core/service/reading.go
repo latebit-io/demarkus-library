@@ -19,6 +19,7 @@ import (
 type ReadingService struct {
 	world     port.WorldGateway
 	renderer  port.Renderer
+	protocol  port.Renderer // the protocol's own views: listings, editions, catalog
 	cache     port.DocumentCache
 	floor     ttlCache[domain.Floor]
 	worldMaps ttlCache[domain.WorldMap]
@@ -41,7 +42,7 @@ var _ port.Catalog = (*ReadingService)(nil)
 // NewReadingService wires the outbound ports into the core. cache may be nil.
 func NewReadingService(world port.WorldGateway, renderer port.Renderer, cache port.DocumentCache) *ReadingService {
 	return &ReadingService{
-		world: world, renderer: renderer, cache: cache,
+		world: world, renderer: renderer, protocol: renderer, cache: cache,
 		floor:     ttlCache[domain.Floor]{retain: floorRetain},
 		worldMaps: ttlCache[domain.WorldMap]{retain: worldMapTTL},
 		names:     ttlCache[[]domain.IndexEntry]{retain: floorTTL},
@@ -58,6 +59,14 @@ func NewReadingService(world port.WorldGateway, renderer port.Renderer, cache po
 func (s *ReadingService) WithHub(hub string, parser port.GraphExportParser) *ReadingService {
 	s.hub = hub
 	s.graphParser = parser
+	return s
+}
+
+// WithProtocolRenderer sets the renderer for the protocol's own views, whose
+// markdown escapes title punctuation that a document renderer may read as
+// syntax (\( opens inline math). Unset, they share the document renderer.
+func (s *ReadingService) WithProtocolRenderer(r port.Renderer) *ReadingService {
+	s.protocol = r
 	return s
 }
 
@@ -223,7 +232,7 @@ func (s *ReadingService) Raw(ctx context.Context, world, path string) (domain.Ra
 // the synthetic views (listings, editions, catalog), which carry no margin —
 // an empty margin is correct.
 func (s *ReadingService) render(raw domain.RawDocument, title string) (domain.Document, error) {
-	rendered, err := s.renderer.Render(raw.Body)
+	rendered, err := s.protocol.Render(raw.Body)
 	if err != nil {
 		return domain.Document{}, err
 	}

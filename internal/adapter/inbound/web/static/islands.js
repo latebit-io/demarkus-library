@@ -133,6 +133,7 @@
     renderMermaid(root);
     renderMath(root);
     hydrateMaps(root);
+    holdPaneMaps(root);
     wakeCopy(root);
   }
 
@@ -299,10 +300,11 @@
     });
   }
   // E-reader furniture: a document pane's head reads "38% · 6 min left".
+  // Only a document or listing body carries data-mark; a listing is not read.
   var wordsPerMinute = 230;
   function progressEl(pane) {
     var body = pane.querySelector(".doc-body"), head = pane.querySelector(".pane-head");
-    if (!body || !head || body.querySelector(".listing, #librarian-transcript, .floor-bar")) return null;
+    if (!body || !head || !body.hasAttribute("data-mark") || body.querySelector(".listing")) return null;
     var el = head.querySelector(".pane-progress");
     if (!el) {
       el = head.appendChild(document.createElement("span"));
@@ -1095,13 +1097,19 @@
       if (fit.textContent !== percent) fit.textContent = percent;
       fit.setAttribute("aria-label", "Fit graph (current zoom " + percent + ")");
     }
-    if (st.k !== w.k) {
-      st.k = w.k;
-      svg.style.setProperty("--wm-k", w.k.toFixed(4));
-      if (st.focus) st.focus.style.setProperty("--wm-k", w.k.toFixed(4));
-      clearTimeout(st.cullTimer);
-      st.cullTimer = setTimeout(function () { wmCull(svg); }, wmCullSettle);
-    }
+    wmHoldK(svg, w.k);
+  }
+  // Map labels divide by --wm-k (library.css) to hold their screen size at
+  // scale k; the cull waits for k to settle, so a gesture or a resize drag
+  // writes the variable each frame but measures labels once.
+  function wmHoldK(svg, k) {
+    var st = wmState(svg);
+    if (st.k === k) return;
+    st.k = k;
+    svg.style.setProperty("--wm-k", k.toFixed(4));
+    if (st.focus) st.focus.style.setProperty("--wm-k", k.toFixed(4));
+    clearTimeout(st.cullTimer);
+    st.cullTimer = setTimeout(function () { wmCull(svg); }, wmCullSettle);
   }
   // Once a zoom settles, labels that would overlap an earlier one hide:
   // rest-state labels (landmarks, top ranks) claim space first. All rects
@@ -1367,6 +1375,25 @@
         pendingReveal = "";
         if (i >= 0) pickMatch(svg, i);
       }
+    });
+  }
+
+  // A map in a pane has no camera, but its labels still hold their screen
+  // size at the fit scale, re-held whenever a pane opens beside it or the
+  // window resizes.
+  var paneMapSizes = new ResizeObserver(function (entries) {
+    entries.forEach(function (e) {
+      var svg = e.target;
+      if (!svg.isConnected) { paneMapSizes.unobserve(svg); return; }
+      wmState(svg).rect = null;
+      var k = wmView(svg).k;
+      if (k) wmHoldK(svg, k);
+    });
+  });
+  function holdPaneMaps(root) {
+    if (!root.querySelectorAll) return;
+    root.querySelectorAll("svg.floor").forEach(function (svg) {
+      if (!svg.closest(".graph-canvas")) paneMapSizes.observe(svg);
     });
   }
 

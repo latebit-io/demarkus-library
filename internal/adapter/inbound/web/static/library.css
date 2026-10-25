@@ -82,6 +82,8 @@ a { color: inherit; text-decoration-color: var(--rule); text-decoration-thicknes
 a:hover { text-decoration-color: currentColor; }
 .doc-body p, .doc-body li { text-wrap: pretty; hanging-punctuation: first; }
 .doc-body p { hyphens: auto; }
+/* Link text is often a path or a name; a soft hyphen in it reads as part of it. */
+.doc-body p a { hyphens: manual; }
 .doc-body img { max-width: 100%; height: auto; }
 .doc-body blockquote { margin: 1.2rem 0; padding: 0 0 0 1.1rem;
                        border-left: 2px solid var(--rule); color: var(--muted); }
@@ -105,7 +107,9 @@ a:hover { text-decoration-color: currentColor; }
 .status-archived { color: var(--muted); border-style: dashed; text-decoration: line-through; }
 ul.tags { list-style: none; padding: 0; display: flex; flex-wrap: wrap; gap: .3rem .6rem; }
 ul.tags a { color: var(--muted); }
-.doc-meta dl { display: grid; grid-template-columns: max-content 1fr; gap: .1rem .6rem; }
+/* Each group is its own <dl>; a shared floor on the key column lines their
+   values up, and only an unusually long key widens its own group. */
+.doc-meta dl { display: grid; grid-template-columns: minmax(6.5em, max-content) 1fr; gap: .1rem .6rem; }
 .doc-meta dt { color: var(--muted); }
 .doc-meta dd { margin: 0; overflow-wrap: anywhere; }
 .doc-meta .meta-head { font-size: .8rem; font-weight: 600; letter-spacing: .05em;
@@ -328,8 +332,10 @@ body.pane-scroll .pane .sidenote { display: none; }
       a neuron plate (neuron.go): somas, axons, lobes and ganglia. ──── */
 svg.floor { max-width: 100%; height: auto; }
 svg.floor text { fill: var(--muted); font-family: var(--font-ui); }
-.floor-world-label { font-size: 15px; font-weight: 600; }
-.floor-doc-label { font-size: 10.5px; }
+/* Every map label divides by --wm-k (islands.js): the camera's zoom in the
+   overlay, the fit scale in a pane, so text holds its screen size. */
+.floor-world-label { font-size: calc(15px / var(--wm-k, 1)); font-weight: 600; }
+.floor-doc-label { font-size: calc(10.5px / var(--wm-k, 1)); }
 .floor-world { fill: url(#ganglion); stroke: var(--ink); stroke-width: 1.5; }
 .floor-doc { fill: var(--paper); stroke: var(--muted); stroke-width: 1.5; }
 .floor-doc.status-accepted { stroke: var(--ok); }
@@ -364,9 +370,7 @@ svg a:focus-visible { outline: none; }
    connected ring (reuse .floor-doc + .graph-edge), orphans floated in a band
    below — dashed + dimmed so "unconnected" reads at a glance. */
 .floor .floor-doc-label { fill: var(--ink); }
-.world-map-caption { font-family: var(--font-ui); font-size: 11px; fill: var(--muted); }
-.world-map-band { font-family: var(--font-ui); font-size: 11px; fill: var(--muted);
-                  font-variant-caps: all-small-caps; letter-spacing: .05em; }
+.world-map-caption { font-size: calc(11px / var(--wm-k, 1)); dominant-baseline: hanging; }
 .floor-doc.world-map-orphan { stroke-dasharray: 3 2; opacity: .7; }
 .world-map-new { margin-top: .6rem; font-family: var(--font-ui); font-size: .85rem; }
 /* Rest-state tiers (plan world-map-navigation): the hub spine reads at rest,
@@ -403,11 +407,10 @@ svg.world-map .floor-region-label { font-size: calc(13px / var(--wm-k, 1)); font
         background: color-mix(in srgb, var(--paper) 86%, transparent);
         pointer-events: none; transition: opacity .18s ease-out; will-change: opacity; }
 .wm-stage.wm-lit .wm-dim { opacity: 1; }
-/* Map labels hold a screen size at every zoom (islands.js sets --wm-k) and
-   hang off their circle by a fixed screen gap; overlapping ones cull. */
+/* Labels hang off their circle by a fixed screen gap; overlapping ones cull. */
 svg.world-map .floor-doc-label { font-size: calc(11.5px / var(--wm-k, 1)); }
-svg.world-map .wm-below { dominant-baseline: hanging; transform: translateY(calc(4px / var(--wm-k, 1))); }
-svg.world-map .wm-above { transform: translateY(calc(-5px / var(--wm-k, 1))); }
+svg.floor .wm-below { dominant-baseline: hanging; transform: translateY(calc(4px / var(--wm-k, 1))); }
+svg.floor .wm-above { transform: translateY(calc(-5px / var(--wm-k, 1))); }
 .floor .wm-cull { visibility: hidden; }
 /* Filtering: the receded map is out of reach, not just out of sight. */
 .wm-filtering a[data-node]:not(.wm-live) { pointer-events: none; }
@@ -952,8 +955,9 @@ body.canvas-page { padding-bottom: 4.5rem; }
    and can be dragged taller where it cannot. */
 .ask-input { flex: 1; font: inherit; color: inherit; background: transparent;
         border: 1px solid var(--rule); border-radius: 3px; padding: .35rem .6rem;
-        line-height: 1.4; resize: vertical; field-sizing: content;
-        min-height: 2.2rem; max-height: 12rem; }
+        line-height: 1.4; resize: vertical; field-sizing: content; max-height: 12rem; }
+/* One border-box floor, so a one-line box and its button stand the same height. */
+.ask-input, .ask-send { box-sizing: border-box; min-height: 2.65rem; }
 .ask-send { font: inherit; color: var(--paper); background: var(--ink);
         border: 1px solid var(--ink); border-radius: 3px; padding: .35rem .9rem;
         cursor: pointer; }
