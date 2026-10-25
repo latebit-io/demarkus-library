@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/labstack/echo/v5"
 	"golang.org/x/net/websocket"
 
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
@@ -39,7 +40,7 @@ func TestBrowserClicksSwapInPlace(t *testing.T) {
 	}
 	svc.docs["/c.md"] = domain.Document{Title: "C", Path: "/c.md", HTML: `<p>A <a href="gone.md">dead link</a>.</p>`}
 	svc.errs = map[string]error{"/gone.md": domain.ErrNotFound}
-	srv := browserServer(t, svc)
+	srv := browserServer(t, readingApp(t, svc))
 	b := launchBrowser(t)
 
 	cases := []struct {
@@ -77,9 +78,8 @@ func TestBrowserClicksSwapInPlace(t *testing.T) {
 
 // browserServer serves the room (pages and static assets) over real HTTP.
 // Requests are serialized: the fake service is not safe for concurrent use.
-func browserServer(t *testing.T, svc *fakeReading) *httptest.Server {
+func browserServer(t *testing.T, app *echo.Echo) *httptest.Server {
 	t.Helper()
-	app := readingApp(t, svc)
 	StaticRoutes(app, "")
 	var mu sync.Mutex
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

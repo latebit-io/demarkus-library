@@ -355,6 +355,22 @@ func TestRenderMathPassthrough(t *testing.T) {
 	}
 }
 
+// The lookup table escapes a title's parens; the document renderer would
+// open inline math on them, the protocol renderer reads them as parens.
+func TestProtocolRendererReadsEscapedParens(t *testing.T) {
+	table := "| Title |\n|---|\n| Spec \\(emit points + dispatch\\) |\n"
+	out, err := NewProtocolRenderer().Render(table)
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out.HTML, "Spec (emit points + dispatch)") || strings.Contains(out.HTML, `\(`) {
+		t.Errorf("protocol renderer kept the escape as math: %q", out.HTML)
+	}
+	if html := render(t, table); !strings.Contains(html, `\(emit points + dispatch\)`) {
+		t.Errorf("document renderer should keep \\( for KaTeX: %q", html)
+	}
+}
+
 func TestRenderMathSanitized(t *testing.T) {
 	html := render(t, `evil \(<script>alert(1)</script>\)`)
 	if strings.Contains(html, "<script>") {

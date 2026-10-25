@@ -17,7 +17,7 @@ func TestBrowserCopyMarkAddress(t *testing.T) {
 			"/a.md": {Title: "A", Path: "/a.md", HTML: `<h2 id="sec">Sec</h2><p>a</p>`},
 		},
 	}
-	srv := browserServer(t, svc)
+	srv := browserServer(t, readingApp(t, svc))
 	b := launchBrowser(t)
 	b.navigate(t, srv.URL+"/t/w.io/d/a.md")
 	b.eval(t, `window.copied = [];

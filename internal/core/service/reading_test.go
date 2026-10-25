@@ -261,7 +261,8 @@ func TestBrowseHistorySearchRouteAndRender(t *testing.T) {
 	}
 	for _, tc := range cases {
 		var called string
-		svc := newTestService(fakeGateway{raw: raw, called: &called}, fakeRenderer{html: "<ul></ul>"})
+		svc := newTestService(fakeGateway{raw: raw, called: &called}, fakeRenderer{html: "<p>document renderer</p>"}).
+			WithProtocolRenderer(fakeRenderer{html: "<ul></ul>"})
 
 		doc, err := tc.call(svc)
 		if err != nil {
@@ -279,6 +280,21 @@ func TestBrowseHistorySearchRouteAndRender(t *testing.T) {
 		if doc.Status != "" {
 			t.Errorf("%s status = %q, want empty (synthetic views carry no margin)", tc.name, doc.Status)
 		}
+	}
+}
+
+// An authored document keeps the document renderer (math on); only the
+// protocol's own views take the protocol renderer.
+func TestReadUsesDocumentRenderer(t *testing.T) {
+	raw := domain.RawDocument{Source: "world:6309", Path: "/a.md", Body: "# A"}
+	svc := newTestService(fakeGateway{raw: raw}, fakeRenderer{html: "<p>document renderer</p>"}).
+		WithProtocolRenderer(fakeRenderer{html: "<ul></ul>"})
+	doc, err := svc.Read(t.Context(), "soul", "/a.md")
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if doc.HTML != "<p>document renderer</p>" {
+		t.Errorf("Read html = %q, want the document renderer's", doc.HTML)
 	}
 }
 

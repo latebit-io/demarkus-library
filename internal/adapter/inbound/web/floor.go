@@ -187,8 +187,8 @@ func floorWorldNode(b *strings.Builder, fw *domain.FloorWorld, it *wmItem, href 
 	cls += " soma"
 	fmt.Fprintf(b, `<a href="%s" data-node="%s"><circle class="%s" cx="%d" cy="%d" r="%d"/>`,
 		html.EscapeString(href), html.EscapeString(it.id), cls, it.x, it.y, it.r)
-	fmt.Fprintf(b, `<text class="%s" x="%d" y="%d" text-anchor="middle">%s</text>`,
-		label, it.x, it.y+it.r+16, html.EscapeString(trimRunes(fw.World.Name, wmLabelTrim+6)))
+	fmt.Fprintf(b, `<text class="%s wm-below" x="%d" y="%d" text-anchor="middle">%s</text>`,
+		label, it.x, it.y+it.r, html.EscapeString(trimRunes(fw.World.Name, wmLabelTrim+6)))
 	title := fw.World.URL
 	if title == "" {
 		title = fw.World.Name
