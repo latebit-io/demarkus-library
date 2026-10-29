@@ -97,6 +97,7 @@ func TestLiveEditionStream(t *testing.T) {
 		wantFrames int
 		wantText   string
 		wantDone   bool
+		wantReads  int // 0 = unchecked
 	}{
 		{name: "newer edition after a hint", results: []readResult{v1, v2},
 			signals: 1, wantFrames: 1, wantText: "Edition 2 published by fritz@latebit.io"},
@@ -110,6 +111,10 @@ func TestLiveEditionStream(t *testing.T) {
 			signals: 3, wantFrames: 1, wantText: "Archived since you opened it", wantDone: true},
 		{name: "removed ends the stream", results: []readResult{{err: domain.ErrNotFound}},
 			signals: 0, wantFrames: 1, wantText: "Removed since you opened it", wantDone: true},
+		{name: "refused at connect ends the stream", results: []readResult{{err: domain.ErrUnauthorized}},
+			signals: 3, wantFrames: 0, wantDone: true, wantReads: 1},
+		{name: "refused later closes for a reconnect", results: []readResult{v1, {err: domain.ErrUnauthorized}},
+			signals: 3, wantFrames: 0, wantDone: false, wantReads: 2},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -130,6 +135,9 @@ func TestLiveEditionStream(t *testing.T) {
 			}
 			if got := strings.Contains(body, "event: done"); got != tt.wantDone {
 				t.Errorf("done sent = %v, want %v", got, tt.wantDone)
+			}
+			if tt.wantReads > 0 && reader.reads != tt.wantReads {
+				t.Errorf("reads = %d, want %d", reader.reads, tt.wantReads)
 			}
 			if watcher.watched[0] != "soul.demarkus.io/x.md" {
 				t.Errorf("watched %v", watcher.watched)

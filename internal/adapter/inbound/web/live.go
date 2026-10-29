@@ -75,11 +75,11 @@ func (h LiveHandler) LiveEdition(c *echo.Context) error {
 	}
 	defer out.close()
 	// The first read catches an edition published while the stream was down.
-	if !h.report(c, out, doc) {
+	if !h.report(c, out, doc, false) {
 		return nil
 	}
 	for range changed {
-		if !h.report(c, out, doc) {
+		if !h.report(c, out, doc, true) {
 			return nil
 		}
 	}
@@ -87,9 +87,9 @@ func (h LiveHandler) LiveEdition(c *echo.Context) error {
 }
 
 // report re-reads the document and fills the banner when its edition moved
-// past the one shown. false ends the stream: the reader left or the document
-// is gone.
-func (h LiveHandler) report(c *echo.Context, out *sseWriter, doc liveDoc) bool {
+// past the one shown. false ends the stream: the reader left, the document is
+// gone, or the read was refused. renew marks a read past the first.
+func (h LiveHandler) report(c *echo.Context, out *sseWriter, doc liveDoc, renew bool) bool {
 	ctx := c.Request().Context()
 	current, err := h.reader.Read(ctx, doc.world, doc.path)
 	switch {
@@ -98,6 +98,14 @@ func (h LiveHandler) report(c *echo.Context, out *sseWriter, doc liveDoc) bool {
 	case errors.Is(err, domain.ErrNotFound): // archived unwraps to not found
 		out.send("edition", html.EscapeString(goneNote(err)))
 		out.finish()
+		return false
+	case errors.Is(err, domain.ErrUnauthorized):
+		// Past the first read, likely the bearer taken at connect lapsed: a bare
+		// close reconnects through the turnstile, which renews it. Refused at
+		// connect, a reconnect would be refused too.
+		if !renew {
+			out.finish()
+		}
 		return false
 	case err != nil:
 		// Transient (timeout, dropped connection): the next hint re-reads.

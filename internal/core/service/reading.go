@@ -29,6 +29,7 @@ type ReadingService struct {
 	hub       string                        // topology-source world (DEMARKUS_HUB); "" disables hub enrichment
 	hubs      ttlCache[hubGraph]            // one hub read per reader per hubTTL, shared by every consumer
 	watchers  documentWatchers              // live-edition streams waiting on a document (changes.go)
+	fence     docFence                      // keeps a hint's stale edition out of cache (changes.go)
 	// graphParser decodes the hub's published /graph.md; nil (like hub "")
 	// leaves the floor on its mark_worlds + observed-links baseline.
 	graphParser port.GraphExportParser
@@ -78,6 +79,7 @@ func (s *ReadingService) WithProtocolRenderer(r port.Renderer) *ReadingService {
 // plus the margin's trust signals (ADR 0005 decisions 6–8): status, tags,
 // provenance, and the document-properties block parsed from frontmatter.
 func (s *ReadingService) Read(ctx context.Context, world, path string) (domain.Document, error) {
+	epoch := s.fence.epoch()
 	raw, err := s.world.Fetch(ctx, world, path)
 	if err != nil {
 		return domain.Document{}, err
@@ -103,7 +105,7 @@ func (s *ReadingService) Read(ctx context.Context, world, path string) (domain.D
 		User:        raw.Metadata["user"],
 		Meta:        otherMeta(raw.Metadata),
 	}
-	s.cachePut(docKey(ctx, world, path), doc)
+	s.cachePut(epoch, docKey(ctx, world, path), doc)
 	return doc, nil
 }
 
@@ -149,8 +151,15 @@ func (s *ReadingService) TagCached(ctx context.Context, world, tag string) (doma
 	return s.Tag(ctx, world, tag)
 }
 
-func (s *ReadingService) cachePut(key port.CacheKey, doc domain.Document) {
-	if s.cache != nil {
+// cachePut stores doc unless a hint came since epoch: the read began before
+// that write, so doc may be the edition the hint evicted.
+func (s *ReadingService) cachePut(epoch uint64, key port.CacheKey, doc domain.Document) {
+	if s.cache == nil {
+		return
+	}
+	s.fence.mu.RLock()
+	defer s.fence.mu.RUnlock()
+	if s.fence.gen == epoch {
 		s.cache.Put(key, doc)
 	}
 }
@@ -175,6 +184,7 @@ func renderKey(ctx context.Context, kind, world, name string) port.CacheKey {
 
 // Browse renders a directory listing (the stacks) at path.
 func (s *ReadingService) Browse(ctx context.Context, world, path string) (domain.Document, error) {
+	epoch := s.fence.epoch()
 	raw, err := s.world.List(ctx, world, path)
 	if err != nil {
 		return domain.Document{}, err
@@ -183,7 +193,7 @@ func (s *ReadingService) Browse(ctx context.Context, world, path string) (domain
 	if err != nil {
 		return domain.Document{}, err
 	}
-	s.cachePut(docKey(ctx, world, path), doc)
+	s.cachePut(epoch, docKey(ctx, world, path), doc)
 	return doc, nil
 }
 
@@ -221,6 +231,7 @@ func (s *ReadingService) Search(ctx context.Context, world, scope, query string)
 // page (ADR 0005 decision 5). The tag rides as both query and filter: the
 // filter does the exact narrowing, the query keeps ranking sensible.
 func (s *ReadingService) Tag(ctx context.Context, world, tag string) (domain.Document, error) {
+	epoch := s.fence.epoch()
 	raw, err := s.world.Lookup(ctx, world, domain.LookupQuery{Scope: "/", Query: tag, Filter: "tag=" + tag})
 	if err != nil {
 		return domain.Document{}, err
@@ -229,7 +240,7 @@ func (s *ReadingService) Tag(ctx context.Context, world, tag string) (domain.Doc
 	if err != nil {
 		return domain.Document{}, err
 	}
-	s.cachePut(tagKey(ctx, world, tag), doc)
+	s.cachePut(epoch, tagKey(ctx, world, tag), doc)
 	return doc, nil
 }
 

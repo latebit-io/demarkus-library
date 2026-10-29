@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -163,5 +164,47 @@ func TestFollowChangesAppliesEveryHint(t *testing.T) {
 	}
 	if !pending(signal) {
 		t.Error("watcher not signalled")
+	}
+}
+
+// slowFetch holds each Fetch until release closes, after signalling start.
+type slowFetch struct {
+	fakeGateway
+	start   func()
+	release chan struct{}
+}
+
+func (g slowFetch) Fetch(ctx context.Context, world, path string) (domain.RawDocument, error) {
+	g.start()
+	<-g.release
+	return g.fakeGateway.Fetch(ctx, world, path)
+}
+
+// A hint that lands while a read is in flight keeps the read's edition, the
+// one the hint made stale, out of the cache.
+func TestHintDuringAReadKeepsItsEditionUncached(t *testing.T) {
+	c := newFakeCache()
+	started := make(chan struct{})
+	g := slowFetch{fakeGateway: fakeGateway{raw: domain.RawDocument{Path: "/x.md"}},
+		start: sync.OnceFunc(func() { close(started) }), release: make(chan struct{})}
+	svc := NewReadingService(g, fakeRenderer{}, c)
+	read := make(chan error)
+	go func() {
+		_, err := svc.Read(t.Context(), "soul", "/x.md")
+		read <- err
+	}()
+
+	<-started
+	svc.applyChange(domain.Change{World: "soul", Path: "/x.md"})
+	close(g.release)
+
+	if err := <-read; err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if len(c.store) != 0 {
+		t.Errorf("cached the stale edition: %v", c.puts)
+	}
+	if _, err := svc.Read(t.Context(), "soul", "/x.md"); err != nil || len(c.store) != 1 {
+		t.Errorf("a read after the hint did not cache: err %v, puts %v", err, c.puts)
 	}
 }

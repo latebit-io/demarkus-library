@@ -42,3 +42,13 @@ func (l *lockedWriter) Write(p []byte) (int, error) {
 	defer l.mu.Unlock()
 	return l.w.Write(p)
 }
+
+// Every SSE line ending becomes a data line: a bare \r must not start a line
+// the client reads as a field, or end the event early.
+func TestSSEDataFoldsEveryLineEnding(t *testing.T) {
+	got := sseData("a\rb\r\nc\n\revent: x")
+	want := "data: a\ndata: b\ndata: c\ndata: \ndata: event: x"
+	if got != want {
+		t.Errorf("sseData = %q, want %q", got, want)
+	}
+}

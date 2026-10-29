@@ -131,11 +131,15 @@ func (r sseRegions) frame(event, payload string) string {
 	return "event: " + event + "\n" + sseData(payload) + "\n\n"
 }
 
+// sseNewlines folds every SSE line ending into \n: a bare \r would start a
+// line of its own, read as a field rather than data.
+var sseNewlines = strings.NewReplacer("\r\n", "\n", "\r", "\n")
+
 // sseData renders one event payload as SSE data lines: each newline in the
 // payload becomes its own `data:` line, which SSE clients rejoin with
 // newlines — multi-line frames stay one event.
 func sseData(payload string) string {
-	lines := strings.Split(payload, "\n")
+	lines := strings.Split(sseNewlines.Replace(payload), "\n")
 	var b strings.Builder
 	for _, line := range lines {
 		b.WriteString("data: ")
