@@ -56,9 +56,9 @@ func (f *docFence) epoch() uint64 {
 // staleAfter reports whether change, in the world keyed world, can make the
 // render at key stale: the document itself, a listing above it, or any tag
 // page, since a hint does not say which tags moved. Pinned editions never
-// change and are kept.
+// change and are kept, even across a resync.
 func staleAfter(key port.CacheKey, change domain.Change, world string) bool {
-	if worldKey(key.World) != world {
+	if worldKey(key.World) != world || (key.Kind == kindDoc && domain.IsVersionPath(key.Name)) {
 		return false
 	}
 	if change.Resync || key.Kind != kindDoc {

@@ -13,7 +13,8 @@ import (
 
 // A document change evicts that document, the listings above it and the
 // world's tag pages, for every reader and under every spelling of the world; a
-// resync evicts the whole world. Neither touches another world.
+// resync evicts the whole world but its pinned editions. Neither touches
+// another world.
 func TestApplyChangeEvictsWhatTheWriteMadeStale(t *testing.T) {
 	readerA := port.WithReader(t.Context(), "a")
 	readerB := port.WithReader(t.Context(), "b")
@@ -44,11 +45,14 @@ func TestApplyChangeEvictsWhatTheWriteMadeStale(t *testing.T) {
 			name:   "resync",
 			change: domain.Change{World: "h.example.org:6309", Resync: true},
 			stale: []port.CacheKey{
-				docKey(readerA, "h.example.org:6309", "/a/x.md/v2"),
+				docKey(readerA, "h.example.org:6309", "/a/x.md"),
 				docKey(readerA, "h.example.org", "/"),
 				tagKey(readerA, "h.example.org", "t"),
 			},
-			kept: []port.CacheKey{docKey(readerA, "root", "/x.md")},
+			kept: []port.CacheKey{
+				docKey(readerA, "root", "/x.md"),
+				docKey(readerA, "h.example.org:6309", "/a/x.md/v2"),
+			},
 		},
 	}
 	for _, tt := range tests {
