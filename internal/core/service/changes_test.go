@@ -11,10 +11,10 @@ import (
 	"github.com/latebit-io/demarkus-library/internal/core/port"
 )
 
-// A document change evicts that document, the listings above it and the
-// world's tag pages, for every reader and under every spelling of the world; a
-// resync evicts the whole world but its pinned editions. Neither touches
-// another world.
+// A document change evicts that document and its pinned editions, the
+// listings above it and the world's tag pages, for every reader and under
+// every spelling of the world; a resync evicts the whole world. Neither
+// touches another world.
 func TestApplyChangeEvictsWhatTheWriteMadeStale(t *testing.T) {
 	readerA := port.WithReader(t.Context(), "a")
 	readerB := port.WithReader(t.Context(), "b")
@@ -29,6 +29,7 @@ func TestApplyChangeEvictsWhatTheWriteMadeStale(t *testing.T) {
 			stale: []port.CacheKey{
 				docKey(readerA, "soul.demarkus.io", "/a/x.md"),
 				docKey(readerB, "soul.demarkus.io:6309", "/a/x.md"),
+				docKey(readerA, "soul.demarkus.io", "/a/x.md/v2"),
 				docKey(readerA, "soul.demarkus.io", "/a/"),
 				docKey(readerA, "soul.demarkus.io", "/"),
 				tagKey(readerB, "soul.demarkus.io", "plan"),
@@ -36,7 +37,7 @@ func TestApplyChangeEvictsWhatTheWriteMadeStale(t *testing.T) {
 			kept: []port.CacheKey{
 				docKey(readerA, "soul.demarkus.io", "/a/y.md"),
 				docKey(readerA, "soul.demarkus.io", "/b/"),
-				docKey(readerA, "soul.demarkus.io", "/a/x.md/v2"),
+				docKey(readerA, "soul.demarkus.io", "/a/y.md/v2"),
 				docKey(readerA, "other.example.org", "/a/x.md"),
 				docKey(readerA, "soul.demarkus.io:7000", "/a/x.md"),
 			},
@@ -45,14 +46,11 @@ func TestApplyChangeEvictsWhatTheWriteMadeStale(t *testing.T) {
 			name:   "resync",
 			change: domain.Change{World: "h.example.org:6309", Resync: true},
 			stale: []port.CacheKey{
-				docKey(readerA, "h.example.org:6309", "/a/x.md"),
+				docKey(readerA, "h.example.org:6309", "/a/x.md/v2"),
 				docKey(readerA, "h.example.org", "/"),
 				tagKey(readerA, "h.example.org", "t"),
 			},
-			kept: []port.CacheKey{
-				docKey(readerA, "root", "/x.md"),
-				docKey(readerA, "h.example.org:6309", "/a/x.md/v2"),
-			},
+			kept: []port.CacheKey{docKey(readerA, "root", "/x.md")},
 		},
 	}
 	for _, tt := range tests {
