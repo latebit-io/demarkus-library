@@ -41,7 +41,7 @@ func newFakePorts() *fakePorts {
 			Source:   "root",
 			Path:     "/ops/deploy.md",
 			Body:     "# Deploy runbook\n\nSteps live here.",
-			Metadata: map[string]string{"title": "Deploy runbook"},
+			Metadata: map[string]string{"title": "Deploy runbook", "version": "4"},
 		},
 		hood: domain.Neighborhood{
 			Center: domain.Ref{World: "root", Path: "/ops/deploy.md"},

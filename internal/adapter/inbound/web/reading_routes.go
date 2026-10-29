@@ -6,7 +6,7 @@ import "github.com/labstack/echo/v5"
 // single-pane document permalinks, the catalog, the hover-card fragment, and
 // the world-less 1a redirects. The caller (RoomRoutes) supplies the shared
 // middleware, no-store first.
-func readingRoutes(e *echo.Echo, handler ReadingHandler, mw ...echo.MiddlewareFunc) {
+func readingRoutes(e *echo.Echo, handler *ReadingHandler, mw ...echo.MiddlewareFunc) {
 	e.GET("/", handler.Root, mw...)
 	e.GET("/t/*", handler.Trail, mw...)
 	e.GET("/w/:world/d/*", handler.Doc, mw...)

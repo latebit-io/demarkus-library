@@ -98,14 +98,15 @@ func (r Room) spatialPanes() spatialPanes {
 func (r Room) librarianPanes() librarianPanes {
 	return librarianPanes{
 		lib: r.lib, reader: r.reading, defaultWorld: r.defaultWorld,
-		identity: librarianIdentity{brands: r.brands, terms: r.terms},
+		identity:     librarianIdentity{brands: r.brands, terms: r.terms},
+		liveEditions: r.live != nil,
 	}
 }
 
 // readingHandler builds the reading surfaces: documents, the catalog, and the
 // trail canvas that composes every pane kind.
-func (r Room) readingHandler() ReadingHandler {
-	return ReadingHandler{
+func (r Room) readingHandler() *ReadingHandler {
+	return &ReadingHandler{
 		reading:      r.reading,
 		spatial:      r.spatialPanes(),
 		librarian:    r.librarianPanes(),
@@ -119,12 +120,12 @@ func (r Room) readingHandler() ReadingHandler {
 
 // liveHandler builds the live-edition stream over the reader and the watcher.
 func (r Room) liveHandler() LiveHandler {
-	return LiveHandler{reader: r.reading, watcher: r.live}
+	return LiveHandler{reader: r.reading, watcher: r.live, sources: r.reading, history: r.lib}
 }
 
 // editHandler builds the cataloging desk over the editor port alone.
 func (r Room) editHandler() EditHandler {
-	return EditHandler{editor: r.reading, chrome: r.chrome()}
+	return EditHandler{editor: r.reading, chrome: r.chrome(), liveEditions: r.live != nil}
 }
 
 // spatialHandler builds the graph and map permalinks.
@@ -192,7 +193,7 @@ func RoomRoutes(e *echo.Echo, room Room, middleware ...echo.MiddlewareFunc) {
 // as the reader watches, so a request timeout must not apply to it.
 func LongLived(path string) bool {
 	switch path {
-	case LibrarianStreamPath, LibrarianAskPath, LiveEditionPath:
+	case LibrarianStreamPath, LibrarianAskPath, LiveEditionPath, LiveSourcesPath:
 		return true
 	}
 	return false

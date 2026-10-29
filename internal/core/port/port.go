@@ -147,9 +147,9 @@ type ReadingService interface {
 	Editor
 }
 
-// DocumentWatcher signals that one document may have changed: each receive
-// means "re-read it". A hint only, never content; the channel closes when
-// ctx ends.
+// DocumentWatcher signals that one document, or anything under a listing
+// path, may have changed: each receive means "re-read it". A hint only, never
+// content; the channel closes when ctx ends.
 type DocumentWatcher interface {
 	WatchDocument(ctx context.Context, world, path string) <-chan struct{}
 }

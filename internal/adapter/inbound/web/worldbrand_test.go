@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -252,5 +253,51 @@ func TestInWorldUnsafeTokensAreDropped(t *testing.T) {
 	}
 	if strings.TrimSpace(body) != ":root { --paper: #abcdef; }" {
 		t.Errorf("dropping the tokens changed the stylesheet: %q", body)
+	}
+}
+
+// A change hint to a branding document drops the cached brands at once, under
+// any spelling of the world; a hint elsewhere keeps them, a resync does not.
+func TestWorldBrandsApplyChange(t *testing.T) {
+	tests := []struct {
+		name     string
+		change   domain.Change
+		reloaded bool
+	}{
+		{"branding document", domain.Change{World: "w:6309", Path: WorldBrandDoc}, true},
+		{"stylesheet", domain.Change{World: "w:6309", Path: WorldBrandCSS}, true},
+		{"resync", domain.Change{World: "w:6309", Resync: true}, true},
+		{"another document", domain.Change{World: "w:6309", Path: "/notes/x.md"}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := inWorldSvc("")
+			svc.trackRaw = true
+			brands := NewWorldBrands(svc)
+			brands.For(context.Background(), "w")
+			loaded := len(svc.calls)
+
+			brands.ApplyChange(tt.change)
+			brands.For(context.Background(), "w")
+
+			if got := len(svc.calls) > loaded; got != tt.reloaded {
+				t.Errorf("reloaded = %v, want %v", got, tt.reloaded)
+			}
+		})
+	}
+}
+
+// An expired brand whose reload fails keeps the last good one, so a branding
+// write during a broker blip does not drop the world's identity.
+func TestWorldBrandsApplyChangeKeepsTheLastGoodBrand(t *testing.T) {
+	svc := inWorldSvc("")
+	brands := NewWorldBrands(svc)
+	if brand, ok := brands.For(context.Background(), "w"); !ok || brand.Name != "Soul Room" {
+		t.Fatalf("first load = %+v, %v", brand, ok)
+	}
+	brands.ApplyChange(domain.Change{World: "w", Path: WorldBrandDoc})
+	svc.raws, svc.err = nil, errors.New("broker: timeout")
+	if brand, ok := brands.For(context.Background(), "w"); !ok || brand.Name != "Soul Room" {
+		t.Errorf("after a failed reload = %+v, %v; want the last good brand", brand, ok)
 	}
 }

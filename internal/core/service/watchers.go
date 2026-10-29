@@ -7,9 +7,10 @@ import (
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
 )
 
-// documentWatchers fans change hints out to readers watching one document.
-// Each signal channel holds one pending signal, so a burst of writes costs one
-// re-read; a watcher lives exactly as long as its ctx.
+// documentWatchers fans change hints out to readers watching one document, or
+// one listing and everything under it. Each signal channel holds one pending
+// signal, so a burst of writes costs one re-read; a watcher lives exactly as
+// long as its ctx.
 type documentWatchers struct {
 	mu  sync.Mutex
 	all map[*documentWatcher]struct{}
@@ -45,7 +46,7 @@ func (w *documentWatchers) notify(change domain.Change) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	for watcher := range w.all {
-		if watcher.world != world || (!change.Resync && watcher.path != change.Path) {
+		if watcher.world != world || (!change.Resync && !shows(watcher.path, change.Path)) {
 			continue
 		}
 		select {

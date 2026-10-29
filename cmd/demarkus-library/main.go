@@ -229,9 +229,6 @@ func main() {
 		WithHub(config.Hub, graphexport.Parser{}).
 		WithProtocolRenderer(markdown.NewProtocolRenderer())
 	followCtx, stopFollowing := context.WithCancel(context.Background())
-	if changes != nil {
-		go reading.FollowChanges(followCtx, changes)
-	}
 	// Phase 4 AI librarian (plans/phase-4-ai-librarian.md): nib-backed agent
 	// over the core's read-only ports, joining the canvas as pane kind `a`.
 	// Feature-dark unless nib's llmconfig resolves an LLM provider (global
@@ -248,6 +245,9 @@ func main() {
 		brands = brands.WithHubSource(hubBranding)
 	}
 	view.WithWorldBrands(brands)
+	if changes != nil {
+		go reading.FollowChanges(followCtx, changes, brands.ApplyChange)
+	}
 	web.WorldThemeRoutes(app, branding, brands, themeBearer...)
 	room := web.NewRoom(reading, defaultWorld, config.DefaultDoc).WithBranding(branding).WithWorldBrands(brands)
 	if changes != nil {

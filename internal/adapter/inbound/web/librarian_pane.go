@@ -49,6 +49,7 @@ type librarianPanes struct {
 	reader       librarianReader
 	identity     librarianIdentity // carries the room's Terms too
 	defaultWorld string
+	liveEditions bool // a change feed is wired: answers note sources that moved on
 }
 
 // enabled reports whether a librarian is on duty — the nav door and the ask
@@ -106,9 +107,10 @@ type librarianExchangeVM struct {
 
 // librarianPaneVM is the pane template's librarian branch data.
 type librarianPaneVM struct {
-	Enabled   bool
-	Exchanges []librarianExchangeVM
-	Ask       *librarianAskVM // nil unless the pane is expanded and enabled
+	Enabled    bool
+	Exchanges  []librarianExchangeVM
+	Ask        *librarianAskVM // nil unless the pane is expanded and enabled
+	SourcesURL string          // the stale-answer stream (live_sources.go); empty ⇒ none
 }
 
 // pane builds the librarian pane: transcript from History, rendered like any
@@ -139,8 +141,14 @@ func (h librarianPanes) pane(c *echo.Context, t trail, i int) paneVM {
 
 	lp := librarianPaneVM{Enabled: h.lib != nil}
 	if h.lib != nil {
-		for _, ex := range h.lib.History(conversationKey(c)) {
+		history := h.lib.History(conversationKey(c))
+		for _, ex := range history {
 			lp.Exchanges = append(lp.Exchanges, h.exchangeVM(ex, t, i))
+		}
+		// The stream covers the answers rendered here; a later answer joins
+		// at the pane's next render.
+		if h.liveEditions && len(answerSources(history)) > 0 {
+			lp.SourcesURL = LiveSourcesPath
 		}
 		// The ask form rides every EXPANDED librarian pane, focused or not:
 		// reading a cited document focuses the doc pane, and that is exactly

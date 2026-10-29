@@ -17,20 +17,14 @@ import (
 // routes are auth-gated, so handler tests need an authenticated identity.
 func authedApp(t *testing.T, svc *fakeReading) *echo.Echo {
 	t.Helper()
-	app := echo.New()
-	view, err := NewView()
-	if err != nil {
-		t.Fatalf("NewView: %v", err)
+	return roomApp(t, NewRoom(svc, "soul.demarkus.io", "/index.md"), markAuthed)
+}
+
+func markAuthed(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c *echo.Context) error {
+		c.Set(authedKey, true)
+		return next(c)
 	}
-	app.Renderer = view
-	mark := func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c *echo.Context) error {
-			c.Set(authedKey, true)
-			return next(c)
-		}
-	}
-	RoomRoutes(app, NewRoom(svc, "soul.demarkus.io", "/index.md"), mark)
-	return app
 }
 
 func postForm(app *echo.Echo, target string, form url.Values) *httptest.ResponseRecorder {
@@ -525,5 +519,37 @@ func TestDirOf(t *testing.T) {
 		if got := dirOf(in); got != want {
 			t.Errorf("dirOf(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// With a change feed, the edit form streams its document's edition so a newer
+// one warns before save; a merge re-render watches from the version it will
+// publish at. Create and append have no edition to be overtaken.
+func TestEditFormStreamsItsEdition(t *testing.T) {
+	draft := domain.EditDraft{Path: "/adr/0007.md", Body: "# ADR 7", Version: 7}
+	live := func(svc *fakeReading) *echo.Echo {
+		return roomApp(t, NewRoom(svc, "soul.demarkus.io", "/index.md").WithLiveEditions(&fakeWatcher{}), markAuthed)
+	}
+
+	got := streamURL(get(live(&fakeReading{draft: draft}), "/w/soul.demarkus.io/edit/adr/0007.md").Body.String())
+	if want := "/live?editing=1&path=%2Fadr%2F0007.md&v=7&world=soul.demarkus.io"; got != want {
+		t.Errorf("edit stream = %q, want %q", got, want)
+	}
+	merged := &fakeReading{publishCand: &domain.MergeCandidate{Body: "merged", PublishAtVersion: 9}}
+	got = streamURL(postForm(live(merged), "/w/root/edit/x.md", url.Values{"version": {"7"}, "body": {"mine"}}).Body.String())
+	if !strings.Contains(got, "v=9") {
+		t.Errorf("merge re-render stream = %q, want it at v=9", got)
+	}
+	for _, target := range []string{"/w/soul.demarkus.io/new", "/w/soul.demarkus.io/append/x.md"} {
+		rec := get(live(&fakeReading{}), target)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: status = %d", target, rec.Code)
+		}
+		if got := streamURL(rec.Body.String()); got != "" {
+			t.Errorf("%s streams %q, want none", target, got)
+		}
+	}
+	if got := streamURL(get(authedApp(t, &fakeReading{draft: draft}), "/w/soul.demarkus.io/edit/adr/0007.md").Body.String()); got != "" {
+		t.Errorf("without a feed the form streams %q", got)
 	}
 }

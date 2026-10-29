@@ -2,11 +2,9 @@ package web
 
 import (
 	"context"
-	"html"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -124,11 +122,11 @@ func askToken(t *testing.T, e *echo.Echo, question string) string {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("ask status = %d (body: %s)", rec.Code, rec.Body.String())
 	}
-	m := regexp.MustCompile(`hx-sse:connect="([^"]+)"`).FindStringSubmatch(rec.Body.String())
-	if m == nil {
+	stream := streamURL(rec.Body.String())
+	if stream == "" {
 		t.Fatalf("no hx-sse:connect in fragment:\n%s", rec.Body.String())
 	}
-	return html.UnescapeString(m[1])
+	return stream
 }
 
 func TestLibrarianStream_LibrarianPathMapsEvents(t *testing.T) {
@@ -373,12 +371,12 @@ func TestAskLibrarian_JunkIdxClamps(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("junk idx ask status = %d", rec.Code)
 	}
-	m := regexp.MustCompile(`hx-sse:connect="([^"]+)"`).FindStringSubmatch(rec.Body.String())
-	if m == nil {
+	stream := streamURL(rec.Body.String())
+	if stream == "" {
 		t.Fatal("no stream URL in fragment")
 	}
 	rec = httptest.NewRecorder()
-	e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, html.UnescapeString(m[1]), http.NoBody))
+	e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, stream, http.NoBody))
 	if !strings.Contains(rec.Body.String(), "event: done") {
 		t.Errorf("clamped ask did not stream:\n%s", rec.Body.String())
 	}

@@ -204,6 +204,22 @@ func (w *WorldBrands) Invalidate(world string) {
 	w.mu.Unlock()
 }
 
+// ApplyChange expires every cached brand when a change touches a branding
+// document, or a resync may have: a hint spells its world as the feed does
+// (host:port), not as the room asks, and brand writes are rare. Expired, not
+// dropped, so a failed reload still falls back to the last good brand.
+func (w *WorldBrands) ApplyChange(change domain.Change) {
+	if !change.Resync && !strings.HasPrefix(change.Path, WorldBrandDir) {
+		return
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	for world, brand := range w.byWorld {
+		brand.fetched = time.Time{}
+		w.byWorld[world] = brand
+	}
+}
+
 func (w *WorldBrands) get(ctx context.Context, world string) worldBrand {
 	if w == nil || world == "" {
 		return worldBrand{}

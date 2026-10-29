@@ -93,10 +93,12 @@ type LibrarianStep struct {
 	Ref  Ref
 }
 
-// LibrarianSource is a document the librarian opened while answering.
+// LibrarianSource is a document the librarian opened while answering, and
+// the edition it read; Version is "" when the world stamped none.
 type LibrarianSource struct {
 	Ref
-	Title string
+	Title   string
+	Version string
 }
 
 // LibrarianExchange is one question/answer pair of a conversation, with the

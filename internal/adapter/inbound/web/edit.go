@@ -29,8 +29,9 @@ import (
 // preview. It drives the editor port only — the desk never reads rendered
 // documents, so the reading side stays out of its dependencies.
 type EditHandler struct {
-	editor port.Editor
-	chrome chromeBuilder
+	editor       port.Editor
+	chrome       chromeBuilder
+	liveEditions bool // the edit form streams its document's edition (live.go)
 }
 
 // editStatuses is the status: axis vocabulary the form's picker offers
@@ -58,6 +59,13 @@ type editVM struct {
 	Trail      string // carried trail context (the /t/* remainder); empty ⇒ none
 	TrailPane  string // originating pane index within Trail
 	CancelURL  string // cancel target: back onto the trail, or the standalone page
+	LiveURL    string // the edition stream that warns of a newer edition; empty ⇒ none
+}
+
+// DocURL is the document's standalone page, where the warning's link opens
+// the newer edition without leaving the editor.
+func (v *editVM) DocURL() string {
+	return docRoute(v.World, v.Path)
 }
 
 // MarkURL is the address the meta line names and its copy button carries;
@@ -442,11 +450,16 @@ func editErrorStatus(err error) int {
 }
 
 // renderEdit is the single seam every edit-form render goes through: it stamps
-// the shared nav chrome and the cancel target so the nine construction sites
-// don't each repeat them.
+// the shared nav chrome, the cancel target and the edition stream so the nine
+// construction sites don't each repeat them.
 func (h *EditHandler) renderEdit(c *echo.Context, status int, vm *editVM) error {
 	vm.navChrome = h.chrome.build(c)
 	vm.CancelURL = editCancelURL(vm)
+	// Only an edit has an edition to be overtaken (create and append carry
+	// version 0); a merge re-render watches from the version it publishes at.
+	if h.liveEditions && vm.Version > 0 {
+		vm.LiveURL = liveEditionURL(liveDoc{world: vm.World, path: vm.Path, shown: strconv.Itoa(vm.Version), editing: true})
+	}
 	return c.Render(status, "edit", vm)
 }
 
