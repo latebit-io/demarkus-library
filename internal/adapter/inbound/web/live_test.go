@@ -317,7 +317,8 @@ func TestLiveListingStream(t *testing.T) {
 }
 
 // A stream renews inside the session's refresh window, where the reconnect
-// gets a fresh bearer; without an expiry, or already inside it, it does not.
+// gets a fresh bearer; already inside it, at the bearer's own expiry; without
+// an expiry, never.
 func TestRenewAt(t *testing.T) {
 	ctx := t.Context()
 	if _, ok := renewAt(ctx); ok {
@@ -326,8 +327,9 @@ func TestRenewAt(t *testing.T) {
 	if _, ok := renewAt(bearer.WithExpiry(ctx, time.Now().Add(time.Hour))); !ok {
 		t.Error("an hour left: want a renewal")
 	}
-	if _, ok := renewAt(bearer.WithExpiry(ctx, time.Now().Add(session.DefaultRefreshSkew/4))); ok {
-		t.Error("inside the window: want none")
+	short := time.Now().Add(session.DefaultRefreshSkew / 4)
+	if at, ok := renewAt(bearer.WithExpiry(ctx, short)); !ok || !at.Equal(short) {
+		t.Errorf("inside the window: renewal at %v (%v), want the bearer's expiry %v", at, ok, short)
 	}
 }
 

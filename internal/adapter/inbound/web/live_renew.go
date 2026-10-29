@@ -31,12 +31,16 @@ func renewBeforeExpiry(next echo.HandlerFunc) echo.HandlerFunc {
 
 // renewAt is when a stream renews: inside the session's refresh window, so the
 // reconnect gets a fresh bearer, which its first live read lends to the pool.
-// False without an expiry (quic mode), or once inside the window already.
+// A bearer already inside the window (a refresh came back short) is held no
+// longer than it lasts. False without an expiry (quic mode).
 func renewAt(ctx context.Context) (time.Time, bool) {
 	expires := bearer.ExpiryFromContext(ctx)
 	if expires.IsZero() {
 		return time.Time{}, false
 	}
 	at := expires.Add(-session.DefaultRefreshSkew / 2)
-	return at, time.Now().Before(at)
+	if !time.Now().Before(at) {
+		at = expires
+	}
+	return at, true
 }

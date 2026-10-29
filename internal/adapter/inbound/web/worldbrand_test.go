@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -299,5 +300,43 @@ func TestWorldBrandsApplyChangeKeepsTheLastGoodBrand(t *testing.T) {
 	svc.raws, svc.err = nil, errors.New("broker: timeout")
 	if brand, ok := brands.For(context.Background(), "w"); !ok || brand.Name != "Soul Room" {
 		t.Errorf("after a failed reload = %+v, %v; want the last good brand", brand, ok)
+	}
+}
+
+// holdFirstRaw holds reads until release closes, after signalling the first.
+type holdFirstRaw struct {
+	rawReader
+	start   func()
+	release chan struct{}
+}
+
+func (h holdFirstRaw) Raw(ctx context.Context, world, path string) (domain.RawDocument, error) {
+	h.start()
+	<-h.release
+	return h.rawReader.Raw(ctx, world, path)
+}
+
+// A load in flight when a branding change lands stores its result expired,
+// so the next request reloads rather than serving what the change replaced.
+func TestWorldBrandsLoadAcrossAChangeStaysExpired(t *testing.T) {
+	svc := inWorldSvc("")
+	svc.trackRaw = true
+	started, release := make(chan struct{}), make(chan struct{})
+	brands := NewWorldBrands(holdFirstRaw{rawReader: svc, start: sync.OnceFunc(func() { close(started) }), release: release})
+	loaded := make(chan struct{})
+	go func() {
+		brands.For(context.Background(), "w")
+		close(loaded)
+	}()
+
+	<-started
+	brands.ApplyChange(domain.Change{World: "w", Path: WorldBrandDoc})
+	close(release)
+	<-loaded
+
+	reads := len(svc.calls)
+	brands.For(context.Background(), "w")
+	if len(svc.calls) == reads {
+		t.Error("served the load that raced the change; want a reload")
 	}
 }
