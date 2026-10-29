@@ -130,6 +130,12 @@ func (g *Gateway) Worlds(ctx context.Context) ([]domain.WorldInfo, error) {
 	if token == "" {
 		return nil, domain.ErrUnauthorized
 	}
+	worlds, err := g.listWorlds(ctx, token)
+	g.noteWorlds(token, worlds, err)
+	return worlds, err
+}
+
+func (g *Gateway) listWorlds(ctx context.Context, token string) ([]domain.WorldInfo, error) {
 	text, isToolError, err := g.caller.callTool(ctx, token, "mark_worlds", nil)
 	if err != nil {
 		if isUnauthorized(err) {
@@ -497,6 +503,7 @@ type pooledEntry struct {
 	conn     *mcpConn
 	lastUsed time.Time // guarded by mcpCaller.mu
 	expires  time.Time // the bearer's expiry, zero when unknown; guarded by mcpCaller.mu
+	worlds   []string  // the reader's last world list, nil before one; guarded by mcpCaller.mu
 }
 
 // mcpConn is one initialized client and the listener that routes its watch

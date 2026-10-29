@@ -201,7 +201,7 @@ func main() {
 			// One MCP subscription per knowledge world, on a signed-in
 			// reader's bearer (ADR 0047 decision 10); none in an empty room.
 			changes = watch.NewWorlds(bg.ReaderWorlds, func(name string) port.ChangeFeed {
-				return watch.NewMCPFeed(bg.WatchSource, name, logger)
+				return watch.NewMCPFeed(bg.WorldSource(name), name, logger)
 			}, logger)
 		}
 		fcfg := federated.Config{Names: bg, AllowExternal: config.Federation}
