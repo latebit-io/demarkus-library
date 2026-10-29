@@ -112,6 +112,7 @@ Configuration (environment):
 | `DEMARKUS_FEDERATION` | `true` | follow `mark://` links to external hosts (anonymous QUIC reads) |
 | `DEMARKUS_HUB` | home world (quic) / _(empty)_ | world publishing the universe topology for the floor |
 | `DEMARKUS_PANE_SCROLL` | `true` | pane-scroll room (ADR 0007); `false` = legacy page-scroll room |
+| `DEMARKUS_WATCH` | `true` | WATCH so writes evict cached views at once and the live edition banner shows: the home world (quic), or each knowledge world over the broker's MCP binding on a signed-in reader's bearer (broker; needs knowledge ≥ 0.83.0) |
 | `DEMARKUS_LLM_KEYSTORE` | `true` | let the librarian read nib's on-disk key store; `false` = env-only |
 | `DEMARKUS_LIBRARIAN_ASKS_PER_HOUR` | `30` | each reader's librarian questions per rolling hour |
 | `DEMARKUS_TLS_CERT` / `DEMARKUS_TLS_KEY` | _(empty)_ | serve HTTPS directly (local dev; the cluster ingress terminates TLS) |

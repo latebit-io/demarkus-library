@@ -189,3 +189,17 @@ func TestLinkGraphEviction(t *testing.T) {
 		t.Errorf("backlinks = %d, want %d (== live source count)", len(bl), n)
 	}
 }
+
+// invalidateMatching must also fence a read in flight for a scope whose
+// entries were already dropped, so a stale result cannot land.
+func TestTTLCacheInvalidateMatchingFencesInFlightReads(t *testing.T) {
+	var c ttlCache[string]
+	ctx := port.WithReader(t.Context(), "a")
+	c.invalidate("h") // known scope, no entries
+	inFlight := c.epoch("h")
+	c.invalidateMatching(func(scope string) bool { return scope == "h" })
+	c.put(ctx, "h", inFlight, "stale")
+	if v, ok := c.getFresh(ctx, "h", time.Minute); ok {
+		t.Errorf("stale in-flight read was cached: %q", v)
+	}
+}

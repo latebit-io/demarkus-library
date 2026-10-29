@@ -40,6 +40,13 @@ library:
   # graph working as intended; set false to pin readers to home worlds.
   federation: true
 
+  # WATCH so a write evicts cached views at once instead of at the next 30s
+  # rebuild, and the live edition banner shows (DEMARKUS_WATCH). One
+  # subscription per watched world per pod: the home world over QUIC, or each
+  # knowledge world over the broker's MCP binding (knowledge >= 0.83.0) on a
+  # signed-in reader's bearer, none while no reader is signed in.
+  watch: true
+
   # Document served at / (DEMARKUS_DEFAULT_DOC).
   defaultDoc: /index.md
 

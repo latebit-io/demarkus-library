@@ -62,7 +62,7 @@ func TestNameIndexCachedServesThenInvalidates(t *testing.T) {
 			t.Errorf("read %d: catalog lookup = %v, want only the first to read live", i, read)
 		}
 	}
-	svc.invalidateTopology("world-a")
+	svc.invalidateTopology(domain.Change{World: "world-a", Path: "/x.md"})
 	lookups = 0
 	if _, err := svc.NameIndexCached(t.Context(), "world-a"); err != nil || lookups == 0 {
 		t.Errorf("after a write the index should read live (lookups %d, err %v)", lookups, err)

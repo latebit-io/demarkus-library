@@ -147,7 +147,7 @@ func SessionBearer(mgr *session.Manager) echo.MiddlewareFunc {
 				// cacheable, and a shared cache could replay one. The next
 				// page through the turnstile renews a refreshed card.
 				if live, err := mgr.Resolve(c.Request().Context(), cookie.Value); err == nil {
-					withBearer(c, live.Session.ID, live.Session.IDToken)
+					withBearer(c, live.Session)
 				}
 			}
 			return next(c)
@@ -163,14 +163,15 @@ func attachSession(c *echo.Context, live session.Live, cookies CookieConfig) {
 	if email := emailFromIDToken(live.Session.IDToken); email != "" {
 		c.Set(userEmailKey, email)
 	}
-	withBearer(c, live.Session.ID, live.Session.IDToken)
+	withBearer(c, live.Session)
 }
 
-// withBearer marks the request as the reader's: the bearer for outbound calls
-// and the session id as the core's per-reader key.
-func withBearer(c *echo.Context, sessionID, token string) {
+// withBearer marks the request as the reader's: the bearer and its expiry for
+// outbound calls, and the session id as the core's per-reader key.
+func withBearer(c *echo.Context, s session.Session) {
 	r := c.Request()
-	c.SetRequest(r.WithContext(port.WithReader(bearer.WithToken(r.Context(), token), sessionID)))
+	ctx := bearer.WithExpiry(bearer.WithToken(r.Context(), s.IDToken), s.IDTokenExpiry)
+	c.SetRequest(r.WithContext(port.WithReader(ctx, s.ID)))
 }
 
 // redirectToLogin sends the reader to /login, preserving where they were

@@ -53,6 +53,7 @@ type ReadingHandler struct {
 	defaultDoc   string
 	chrome       chromeBuilder // the shared nav, built once per request (chrome.go)
 	terms        Terms         // display vocabulary (Branding.Terms); handler-built labels read it
+	liveEditions bool          // the focused document pane streams its edition (live.go)
 }
 
 // tagLink is one clickable tag in the margin — the lateral-nav exit to a

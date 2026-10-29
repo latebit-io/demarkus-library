@@ -109,6 +109,8 @@ type paneVM struct {
 	// AskURL opens the librarian beside this document (empty ⇒ no librarian,
 	// or not a document).
 	AskURL string
+	// LiveURL is the focused document's live-edition stream (empty ⇒ off).
+	LiveURL string
 }
 
 // Trail renders the canvas for the trail encoded at /t/*.
@@ -359,6 +361,11 @@ func (h *ReadingHandler) headAffordances(vm *paneVM, req *paneRequest) {
 	}
 	if h.librarian.enabled() {
 		vm.AskURL = trailURL(trailAskAbout(t, i))
+	}
+	// Only the focused pane streams: one stream per tab.
+	live := liveDoc{world: addr.World, path: req.doc.Path, shown: req.doc.Version}
+	if h.liveEditions && i == t.Focus && liveWatchable(live) {
+		vm.LiveURL = liveEditionURL(live)
 	}
 }
 

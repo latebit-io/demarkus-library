@@ -158,11 +158,38 @@ tests:
           content:
             name: DEMARKUS_AUTH
             value: "tok123"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DEMARKUS_WATCH
+            value: "true"
       - notContains:
           path: spec.template.spec.containers[0].env
           content:
             name: DEMARKUS_BROKER_URL
           any: true
+
+  - it: quic mode renders DEMARKUS_WATCH=false when library.watch is off
+    template: deployment.yaml
+    set:
+      library.transport: quic
+      library.quic.host: soul.demarkus.io
+      library.watch: false
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DEMARKUS_WATCH
+            value: "false"
+
+  - it: broker mode renders DEMARKUS_WATCH (the MCP binding, knowledge >= 0.83.0)
+    template: deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DEMARKUS_WATCH
+            value: "true"
 
   - it: health probes target /health on the http port
     template: deployment.yaml

@@ -36,6 +36,7 @@ import (
 	"github.com/latebit-io/demarkus-library/internal/adapter/bearer"
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
 	"github.com/latebit-io/demarkus-library/internal/core/port"
+	"github.com/latebit-io/demarkus/client/mcpwatch"
 	"github.com/latebit-io/demarkus/protocol"
 )
 
@@ -59,16 +60,16 @@ type Gateway struct {
 // compile-time check that Gateway satisfies the outbound port.
 var _ port.WorldGateway = (*Gateway)(nil)
 
-// DefaultTimeout bounds every MCP call. Safe at the client level because no
-// long-lived SSE stream is held open; without it a wedged broker would pin
-// request handlers indefinitely.
+// DefaultTimeout bounds every MCP call, on its context: the pooled clients
+// also carry watch streams, which a client-level timeout would cut.
 const DefaultTimeout = 15 * time.Second
 
 // NewGateway builds the production gateway: brokerURL is the broker origin
-// (https://broker.example.org). A nil httpClient gets a DefaultTimeout client.
+// (https://broker.example.org). httpClient must set no Timeout, since watches
+// hold streams open; nil gets a plain client.
 func NewGateway(brokerURL string, httpClient *http.Client) *Gateway {
 	if httpClient == nil {
-		httpClient = &http.Client{Timeout: DefaultTimeout}
+		httpClient = &http.Client{}
 	}
 	return &Gateway{
 		caller: &mcpCaller{
@@ -87,15 +88,9 @@ func (g *Gateway) Close() {
 	}
 }
 
-// Fetch reads a document through mark_fetch. force=true opts out of the
-// gateway's agent ergonomics — the outline gate for large bodies and the
-// per-session unchanged-dedup (broker 0.5.0+). Both exist to save a
-// token-constrained model's context; the library is a programmatic
-// renderer that always needs the real body. Without force, a >8KB
-// document parses as a heading tree (the floor lost graph.md's federation
-// edges exactly this way) and a re-fetched document returns
-// `status: unchanged` with no body, which parseToolResult rejects as
-// unreachable.
+// Fetch reads a document through mark_fetch. force=true skips the gateway's
+// outline gate for bodies over 8KB (the floor once lost graph.md's edges to
+// it) and, before MCP 2026-07-28, its per-session unchanged-dedup.
 func (g *Gateway) Fetch(ctx context.Context, world, path string) (domain.RawDocument, error) {
 	return g.read(ctx, toolRead{
 		Tool:  "mark_fetch",
@@ -494,13 +489,21 @@ type mcpCaller struct {
 	pool map[string]*pooledEntry
 }
 
-// pooledEntry is one reader's MCP session slot. client is nil before the
+// pooledEntry is one reader's MCP session slot. conn is nil before the
 // first call and after an invalidation; the entry mutex single-flights the
 // (re)build so concurrent reads pay one initialize, not N.
 type pooledEntry struct {
 	mu       sync.Mutex
-	client   *mcpclient.Client
+	conn     *mcpConn
 	lastUsed time.Time // guarded by mcpCaller.mu
+	expires  time.Time // the bearer's expiry, zero when unknown; guarded by mcpCaller.mu
+}
+
+// mcpConn is one initialized client and the listener that routes its watch
+// notifications; mcp-go keeps notification handlers for the client's life.
+type mcpConn struct {
+	client   *mcpclient.Client
+	listener *mcpwatch.Listener
 }
 
 const (
@@ -517,7 +520,9 @@ const (
 // the session on first use and rebuilding it once if the call fails (broker
 // restart invalidates server-side session ids; the retry is transparent).
 func (m *mcpCaller) callTool(ctx context.Context, token, tool string, args map[string]any) (text string, isToolError bool, err error) {
-	entry := m.entryFor(token)
+	entry := m.entryFor(token, bearer.ExpiryFromContext(ctx))
+	ctx, cancel := context.WithTimeout(ctx, DefaultTimeout)
+	defer cancel()
 
 	callReq := mcp.CallToolRequest{}
 	callReq.Params.Name = tool
@@ -525,13 +530,13 @@ func (m *mcpCaller) callTool(ctx context.Context, token, tool string, args map[s
 
 	var lastErr error
 	for range 2 {
-		c, err := m.clientOf(ctx, entry, token)
+		c, err := m.connOf(ctx, entry, token)
 		if err != nil {
 			// Initialize failed against a fresh session — nothing to
 			// retry; the broker's answer would not change.
 			return "", false, fmt.Errorf("initialize mcp session: %w", err)
 		}
-		res, err := c.CallTool(ctx, callReq)
+		res, err := c.client.CallTool(ctx, callReq)
 		if err == nil {
 			var sb strings.Builder
 			for _, content := range res.Content {
@@ -556,16 +561,17 @@ func (m *mcpCaller) callTool(ctx context.Context, token, tool string, args map[s
 // stamping activity, and lazily evicting idle/overflow entries. Eviction
 // only touches entries idle past idleTTL, so an in-flight call (which just
 // stamped its entry) can never have its client closed underneath it by the
-// sweep — only invalidate does that, on the failing client alone.
-func (m *mcpCaller) entryFor(token string) *pooledEntry {
+// sweep — only invalidate does that, on the failing client alone. expires
+// stamps the bearer's expiry when the caller knows it.
+func (m *mcpCaller) entryFor(token string, expires time.Time) *pooledEntry {
 	var toClose []*mcpclient.Client
 
 	m.mu.Lock()
 	now := m.now()
 	for key, e := range m.pool {
 		if key != token && now.Sub(e.lastUsed) >= idleTTL {
-			if e.client != nil {
-				toClose = append(toClose, e.client)
+			if e.conn != nil {
+				toClose = append(toClose, e.conn.client)
 			}
 			delete(m.pool, key)
 		}
@@ -579,6 +585,9 @@ func (m *mcpCaller) entryFor(token string) *pooledEntry {
 		m.pool[token] = entry
 	}
 	entry.lastUsed = now
+	if !expires.IsZero() {
+		entry.expires = expires
+	}
 	m.mu.Unlock()
 
 	// Close evicted sessions outside the pool lock — Close does I/O.
@@ -606,19 +615,19 @@ func (m *mcpCaller) evictOldestLocked(current string) []*mcpclient.Client {
 	}
 	e := m.pool[oldestKey]
 	delete(m.pool, oldestKey)
-	if e.client != nil {
-		return []*mcpclient.Client{e.client}
+	if e.conn != nil {
+		return []*mcpclient.Client{e.conn.client}
 	}
 	return nil
 }
 
-// clientOf returns the entry's live MCP session, building and initializing
+// connOf returns the entry's live MCP session, building and initializing
 // one under the entry lock when absent.
-func (m *mcpCaller) clientOf(ctx context.Context, entry *pooledEntry, token string) (*mcpclient.Client, error) {
+func (m *mcpCaller) connOf(ctx context.Context, entry *pooledEntry, token string) (*mcpConn, error) {
 	entry.mu.Lock()
 	defer entry.mu.Unlock()
-	if entry.client != nil {
-		return entry.client, nil
+	if entry.conn != nil {
+		return entry.conn, nil
 	}
 
 	opts := []transport.StreamableHTTPCOption{
@@ -642,23 +651,23 @@ func (m *mcpCaller) clientOf(ctx context.Context, entry *pooledEntry, token stri
 		_ = c.Close()
 		return nil, err
 	}
-	entry.client = c
-	return c, nil
+	entry.conn = &mcpConn{client: c, listener: mcpwatch.NewListener(c)}
+	return entry.conn, nil
 }
 
 // invalidate retires a failed session so the next call rebuilds. The pointer
 // compare makes it idempotent under races: only the goroutine that observes
-// the still-current failed client nils and closes it; latecomers see a nil
-// or already-rebuilt client and do nothing.
-func (m *mcpCaller) invalidate(entry *pooledEntry, failed *mcpclient.Client) {
+// the still-current failed session nils and closes it; latecomers see a nil
+// or already-rebuilt session and do nothing.
+func (m *mcpCaller) invalidate(entry *pooledEntry, failed *mcpConn) {
 	entry.mu.Lock()
-	current := entry.client == failed
+	current := entry.conn == failed
 	if current {
-		entry.client = nil
+		entry.conn = nil
 	}
 	entry.mu.Unlock()
 	if current {
-		_ = failed.Close()
+		_ = failed.client.Close()
 	}
 }
 
@@ -675,9 +684,9 @@ func (m *mcpCaller) close() {
 
 	for _, e := range entries {
 		e.mu.Lock()
-		if e.client != nil {
-			_ = e.client.Close()
-			e.client = nil
+		if e.conn != nil {
+			_ = e.conn.client.Close()
+			e.conn = nil
 		}
 		e.mu.Unlock()
 	}

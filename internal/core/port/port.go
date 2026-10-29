@@ -147,6 +147,13 @@ type ReadingService interface {
 	Editor
 }
 
+// DocumentWatcher signals that one document may have changed: each receive
+// means "re-read it". A hint only, never content; the channel closes when
+// ctx ends.
+type DocumentWatcher interface {
+	WatchDocument(ctx context.Context, world, path string) <-chan struct{}
+}
+
 // WorldGateway is an outbound (driven) port — read from demarkus worlds. The
 // adapter translates transport status into domain errors and returns markdown
 // bodies for the core to render. Implementations: direct QUIC (world is a
@@ -189,13 +196,26 @@ type Renderer interface {
 }
 
 // DocumentCache is an outbound (driven) port — the rendered-document cache
-// the trail engine requires (ADR 0005 decision 9). Keys are the service's
-// kind-prefixed addresses; values are display-ready Documents. Staleness is
-// bounded by the focused-live policy, not by the cache: every render
-// refreshes the pane the reader is looking at.
+// the trail engine requires (ADR 0005 decision 9), keyed by the service's
+// addresses. Focused-live reads and change hints (Evict) bound staleness.
 type DocumentCache interface {
-	Get(key string) (domain.Document, bool)
-	Put(key string, doc domain.Document)
+	Get(key CacheKey) (domain.Document, bool)
+	Put(key CacheKey, doc domain.Document)
+	// Evict drops every entry whose key match reports true.
+	Evict(match func(key CacheKey) bool)
+}
+
+// CacheKey addresses one cached render. Reader is part of it: the cache is
+// shared by every session on the pod, and one reader's render must never
+// serve a reader who cannot read it.
+type CacheKey struct {
+	Kind, Reader, World, Name string
+}
+
+// ChangeFeed is an outbound (driven) port — change hints from watched worlds
+// (demarkus WATCH). The channel closes when ctx ends.
+type ChangeFeed interface {
+	Changes(ctx context.Context) <-chan domain.Change
 }
 
 // GraphExportParser is an outbound (driven) port — decode a hub's published

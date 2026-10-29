@@ -60,6 +60,11 @@ type AppConfig struct {
 	// rolling hour; 0 keeps the librarian's own default.
 	LibrarianAsksPerHour int
 
+	// Watch follows WATCH so a write evicts cached views at once and the
+	// live edition banner shows: the home world over QUIC, or each knowledge
+	// world over the broker's MCP binding.
+	Watch bool
+
 	// Branding lets an operator present the library as their own room.
 	// Branding is a path to the manifest (YAML: name, logo, css, terms,
 	// per-world overrides; see docs/theming.md). The single-value knobs
@@ -132,6 +137,10 @@ func NewAppConfig() (*AppConfig, error) {
 	if err != nil {
 		return nil, err
 	}
+	watch, err := getEnvAsBoolStrict("DEMARKUS_WATCH", true)
+	if err != nil {
+		return nil, err
+	}
 	asksPerHour := 0
 	if v := strings.TrimSpace(os.Getenv("DEMARKUS_LIBRARIAN_ASKS_PER_HOUR")); v != "" {
 		// Strict: a typo must not silently lift the cost guard.
@@ -179,6 +188,7 @@ func NewAppConfig() (*AppConfig, error) {
 		ReadToken:  getEnv("DEMARKUS_AUTH", ""),
 		Insecure:   getEnvAsBool("DEMARKUS_INSECURE", true),
 		DefaultDoc: getEnv("DEMARKUS_DEFAULT_DOC", "/index.md"),
+		Watch:      watch,
 		Hub:        strings.TrimSpace(getEnv("DEMARKUS_HUB", "")),
 
 		BrokerURL: getEnv("DEMARKUS_BROKER_URL", ""),
