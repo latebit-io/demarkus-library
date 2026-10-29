@@ -59,20 +59,23 @@ func (s *ReadingService) Publish(ctx context.Context, req domain.PublishRequest)
 	if res.Merge != nil {
 		return domain.Document{}, res.Merge, nil
 	}
-	s.invalidateTopology(req.World)
+	s.invalidateTopology(domain.Change{World: req.World, Path: req.Path})
 	doc, err := s.Read(ctx, req.World, req.Path)
 	return doc, nil, err
 }
 
-// invalidateTopology drops the cached floor, the world's cached map and its
-// name index after a write, so a just-published or appended document shows on the universe view and
-// the world map immediately instead of at the next cache-TTL rebuild. The
-// rendered-document LRU is refreshed by the live re-read; the link graph
-// re-records when the document next renders.
-func (s *ReadingService) invalidateTopology(world string) {
+// invalidateTopology drops the floor and the world's map and name index under
+// every spelling of the world, so a write shows at once instead of at the next
+// TTL rebuild. The hub only moves when its graph export does.
+func (s *ReadingService) invalidateTopology(change domain.Change) {
+	world := worldKey(change.World)
+	sameWorld := func(scope string) bool { return worldKey(scope) == world }
 	s.floor.invalidate(universe)
-	s.worldMaps.invalidate(world)
-	s.names.invalidate(world)
+	s.worldMaps.invalidateMatching(sameWorld)
+	s.names.invalidateMatching(sameWorld)
+	if s.hub != "" && sameWorld(s.hub) && (change.Resync || change.Path == hubGraphPath) {
+		s.hubs.invalidate(universe)
+	}
 }
 
 // Append adds body to the end of the document then re-reads it live (refreshing
@@ -82,7 +85,7 @@ func (s *ReadingService) Append(ctx context.Context, world, path, body string) (
 	if _, err := s.world.Append(ctx, world, path, body); err != nil {
 		return domain.Document{}, err
 	}
-	s.invalidateTopology(world)
+	s.invalidateTopology(domain.Change{World: world, Path: path})
 	return s.Read(ctx, world, path)
 }
 

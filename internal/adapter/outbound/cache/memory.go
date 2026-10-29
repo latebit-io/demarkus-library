@@ -3,10 +3,9 @@
 // decision 9). A trail render reads every unfocused pane from here, so a
 // click costs one world read instead of N.
 //
-// Plain LRU, no TTL: freshness is the service's focused-live policy (the
-// pane being read is always fetched and re-cached), so age alone never
-// matters — an unfocused pane shows at worst what the reader already saw.
-// Per-pod: a replica that misses re-reads the world, so no sharing needed.
+// Plain LRU, no TTL: the focused pane is always re-read, and change hints
+// evict what a write made stale, so age alone never matters. Per-pod: a
+// replica that misses re-reads the world, so no sharing needed.
 package cache
 
 import (
@@ -21,12 +20,12 @@ import (
 type Memory struct {
 	mu      sync.Mutex
 	cap     int
-	order   *list.List               // front = most recently used
-	entries map[string]*list.Element // key → element whose Value is *entry
+	order   *list.List                      // front = most recently used
+	entries map[port.CacheKey]*list.Element // key → element whose Value is *entry
 }
 
 type entry struct {
-	key string
+	key port.CacheKey
 	doc domain.Document
 }
 
@@ -45,12 +44,12 @@ func NewMemory(capacity int) *Memory {
 	return &Memory{
 		cap:     capacity,
 		order:   list.New(),
-		entries: make(map[string]*list.Element, capacity),
+		entries: make(map[port.CacheKey]*list.Element, capacity),
 	}
 }
 
 // Get returns the cached document for key, marking it most recently used.
-func (m *Memory) Get(key string) (domain.Document, bool) {
+func (m *Memory) Get(key port.CacheKey) (domain.Document, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	el, ok := m.entries[key]
@@ -63,7 +62,7 @@ func (m *Memory) Get(key string) (domain.Document, bool) {
 
 // Put stores (or refreshes) the document for key, evicting the least
 // recently used entry past capacity.
-func (m *Memory) Put(key string, doc domain.Document) {
+func (m *Memory) Put(key port.CacheKey, doc domain.Document) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if el, ok := m.entries[key]; ok {
@@ -76,5 +75,18 @@ func (m *Memory) Put(key string, doc domain.Document) {
 		oldest := m.order.Back()
 		m.order.Remove(oldest)
 		delete(m.entries, oldest.Value.(*entry).key)
+	}
+}
+
+// Evict drops every entry whose key match reports true. A full scan: at most
+// cap entries, and changes arrive far less often than reads.
+func (m *Memory) Evict(match func(key port.CacheKey) bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for key, el := range m.entries {
+		if match(key) {
+			m.order.Remove(el)
+			delete(m.entries, key)
+		}
 	}
 }

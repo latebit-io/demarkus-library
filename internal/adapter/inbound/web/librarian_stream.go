@@ -5,7 +5,7 @@ package web
 // answer re-rendered through the document pipeline as it streams, then the
 // settled steps, sources, and done. On the wire (htmx 4) the swapping frames
 // are unnamed <hx-partial> events aimed at the block's regions; done stays a
-// named event (see sseFrame). A real ask arrives only as a token from POST
+// named event (see sseRegions). A real ask arrives only as a token from POST
 // /a/ask; the run it starts outlives the connection, so hx-sse's reconnect
 // after a drop attaches to it and replays it. ?slow= is the one survivor of
 // the transport spike that proved this path (build order step 1): a
@@ -13,14 +13,11 @@ package web
 // timeout/proxy/ingress questions every new environment re-asks.
 
 import (
-	"context"
 	"fmt"
 	"html"
-	"io"
 	"net/http"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/labstack/echo/v5"
@@ -28,13 +25,22 @@ import (
 )
 
 // LibrarianStreamPath is the SSE endpoint and LibrarianAskPath the pane's
-// form target. Both hold a run subscription for the whole answer, so the
-// composition root exempts them from the 30s ContextTimeout; the run's own
-// bounds live in the librarian (port.Librarian.Ask).
+// form target. Both hold a run subscription for the whole answer, so they
+// are LongLived; the run's own bounds live in the librarian (port.Librarian.Ask).
 const (
 	LibrarianStreamPath = "/a/stream"
 	LibrarianAskPath    = "/a/ask"
 )
+
+// librarianRegions places the stream's events in the librarian's exchange block.
+var librarianRegions = sseRegions{
+	"trace":    {"find .ask-trace", "beforeend"},
+	"retrace":  {"find .ask-trace", "innerHTML"},
+	"rendered": {"find .ask-answer", "innerHTML"},
+	"steps":    {"find .ask-steps", "outerHTML"},
+	"sources":  {"find .ask-sources", "outerHTML"},
+	"settled":  {"find .ask-live", "outerHTML"},
+}
 
 // soakCap bounds the ?slow= soak so a crafted URL cannot pin a goroutine
 // for hours; 120s is comfortably past every timeout under test.
@@ -43,10 +49,6 @@ const soakCap = 120
 // renderInterval paces the streamed answer's re-renders: often enough to read
 // as live, rarely enough that an e-ink panel is not repainting every token.
 const renderInterval = 300 * time.Millisecond
-
-// keepaliveInterval paces SSE comment frames while the model is silent, so
-// proxies with a read timeout (nginx defaults to 60s) keep the stream open.
-const keepaliveInterval = 15 * time.Second
 
 // LibrarianStream is the SSE endpoint. A real ask arrives only as a
 // pending-ask token from POST /a/ask (?ask=<token>) — the question never
@@ -58,10 +60,8 @@ const keepaliveInterval = 15 * time.Second
 // re-run it whenever the deployment topology changes. Anything else has
 // nothing to stream and says so.
 func (h *LibrarianHandler) LibrarianStream(c *echo.Context) error {
-	// An ask costs model tokens and appends to the reader's conversation;
-	// EventSource can't carry a CSRF token, so reject cross-site fetches at
-	// the metadata level (absent header = older client or direct curl: allow).
-	if site := c.Request().Header.Get("Sec-Fetch-Site"); site != "" && site != "same-origin" && site != "none" {
+	// An ask costs model tokens and appends to the reader's conversation.
+	if crossSiteStream(c) {
 		return echo.NewHTTPError(http.StatusForbidden, "cross-site stream rejected")
 	}
 	// Clamp both ends: a negative ?slow= must not skid past the branch
@@ -79,22 +79,10 @@ func (h *LibrarianHandler) LibrarianStream(c *echo.Context) error {
 		return echo.NewHTTPError(http.StatusNotFound, "the librarian is not on duty")
 	}
 
-	w := c.Response()
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		// echo.Response always implements Flusher; a wrapper that hides it
-		// would silently buffer the whole stream, so fail loudly instead.
-		return echo.NewHTTPError(http.StatusInternalServerError, "response writer does not support streaming")
+	out, err := openSSE(c, librarianRegions)
+	if err != nil {
+		return err
 	}
-	hdr := w.Header()
-	hdr.Set(echo.HeaderContentType, "text/event-stream")
-	hdr.Set("Cache-Control", "private, no-store")
-	// Ask buffering reverse proxies (nginx-style) to pass frames through.
-	hdr.Set("X-Accel-Buffering", "no")
-	w.WriteHeader(http.StatusOK)
-	flusher.Flush()
-
-	out := newSSEWriter(c.Request().Context(), w, flusher.Flush, keepaliveInterval)
 	defer out.close()
 
 	// A real ask arrives ONLY as a pending-ask token (POST /a/ask parked it
@@ -121,61 +109,6 @@ func (h *LibrarianHandler) LibrarianStream(c *echo.Context) error {
 	}
 	streamSoak(slow, out)
 	return nil
-}
-
-// sseWriter frames one stream and keeps it alive: an SSE comment every
-// interval of silence, which clients ignore and proxies count as traffic.
-// close must run before the handler returns; later writes are illegal.
-type sseWriter struct {
-	ctx   context.Context
-	mu    sync.Mutex // serializes the handler's frames with the keepalive
-	w     io.Writer
-	flush func()
-	stop  context.CancelFunc
-	done  chan struct{}
-}
-
-func newSSEWriter(ctx context.Context, w io.Writer, flush func(), interval time.Duration) *sseWriter {
-	tickCtx, stop := context.WithCancel(ctx)
-	s := &sseWriter{ctx: ctx, w: w, flush: flush, stop: stop, done: make(chan struct{})}
-	go func() {
-		defer close(s.done)
-		tick := time.NewTicker(interval)
-		defer tick.Stop()
-		for {
-			select {
-			case <-tickCtx.Done():
-				return
-			case <-tick.C:
-				s.write(": keepalive\n\n")
-			}
-		}
-	}()
-	return s
-}
-
-// send writes markup that is already wire-safe: callers escape text
-// (html.EscapeString) and hand over rendered HTML as is.
-func (s *sseWriter) send(event, markup string) bool {
-	return s.write(sseFrame(event, markup))
-}
-
-func (s *sseWriter) close() {
-	s.stop()
-	<-s.done
-}
-
-func (s *sseWriter) write(frame string) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.ctx.Err() != nil {
-		return false
-	}
-	if _, err := fmt.Fprint(s.w, frame); err != nil {
-		return false
-	}
-	s.flush()
-	return true
 }
 
 // streamSoak is the transport diagnostic: one tick per second for slow
@@ -295,7 +228,7 @@ func (h *LibrarianHandler) finish(c *echo.Context, out *sseWriter, steps []libra
 // answer it already has.
 func settle(out *sseWriter) {
 	out.send("settled", "")
-	out.send("done", "∎")
+	out.finish()
 }
 
 // traceNote is a plain trace line: text only, no document.
@@ -313,42 +246,4 @@ func (h *LibrarianHandler) fragment(c *echo.Context, name string, data any) stri
 		return ""
 	}
 	return b.String()
-}
-
-// sseRegions maps the swapping half of the stream vocabulary onto the
-// exchange block's regions. htmx 4 swaps only UNNAMED SSE frames, so each
-// of these goes out as an <hx-partial> aimed (relative to the connecting
-// block, hence `find`) at its region with its swap style. done is absent: it
-// travels as a named event (a DOM event on the block, no swap) that closes
-// the stream via hx-sse:close.
-var sseRegions = map[string]struct{ target, swap string }{
-	"trace":    {"find .ask-trace", "beforeend"},
-	"retrace":  {"find .ask-trace", "innerHTML"},
-	"rendered": {"find .ask-answer", "innerHTML"},
-	"steps":    {"find .ask-steps", "outerHTML"},
-	"sources":  {"find .ask-sources", "outerHTML"},
-	"settled":  {"find .ask-live", "outerHTML"},
-}
-
-// sseFrame renders one complete wire frame (trailing blank line included)
-// for an event of the stream vocabulary; payload is already wire-safe HTML.
-func sseFrame(event, payload string) string {
-	if r, ok := sseRegions[event]; ok {
-		return sseData(`<hx-partial hx-target="`+r.target+`" hx-swap="`+r.swap+`">`+payload+`</hx-partial>`) + "\n\n"
-	}
-	return "event: " + event + "\n" + sseData(payload) + "\n\n"
-}
-
-// sseData renders one event payload as SSE data lines: each newline in the
-// payload becomes its own `data:` line, which SSE clients rejoin with
-// newlines — multi-line frames stay one event.
-func sseData(payload string) string {
-	lines := strings.Split(payload, "\n")
-	var b strings.Builder
-	for _, line := range lines {
-		b.WriteString("data: ")
-		b.WriteString(line)
-		b.WriteByte('\n')
-	}
-	return strings.TrimSuffix(b.String(), "\n")
 }

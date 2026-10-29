@@ -100,6 +100,29 @@ func (c *ttlCache[T]) sweep(now time.Time) {
 func (c *ttlCache[T]) invalidate(scope string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.invalidateLocked(scope)
+}
+
+// invalidateMatching is invalidate for every known scope match accepts: one
+// world can be cached under several spellings. A first read in flight for a
+// scope never seen before can still land, bounded by its TTL.
+func (c *ttlCache[T]) invalidateMatching(match func(scope string) bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for scope := range c.epochs {
+		if match(scope) {
+			c.epochs[scope]++ // fences a read in flight for a scope with no entries
+		}
+	}
+	for scope := range c.all {
+		if match(scope) {
+			c.invalidateLocked(scope)
+		}
+	}
+}
+
+// invalidateLocked bumps scope's epoch and drops its entries. Caller holds mu.
+func (c *ttlCache[T]) invalidateLocked(scope string) {
 	if c.epochs == nil {
 		c.epochs = make(map[string]uint64)
 	}

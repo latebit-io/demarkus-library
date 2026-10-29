@@ -247,6 +247,11 @@ func (f *fakeReading) Append(_ context.Context, _, path, body string) (domain.Do
 
 func readingApp(t *testing.T, svc *fakeReading) *echo.Echo {
 	t.Helper()
+	return roomApp(t, NewRoom(svc, "soul.demarkus.io", "/index.md"))
+}
+
+func roomApp(t *testing.T, room Room) *echo.Echo {
+	t.Helper()
 	app := echo.New()
 	view, err := NewView()
 	if err != nil {
@@ -254,7 +259,7 @@ func readingApp(t *testing.T, svc *fakeReading) *echo.Echo {
 	}
 	app.Renderer = view
 	app.HTTPErrorHandler = HTMLErrorHandler
-	RoomRoutes(app, NewRoom(svc, "soul.demarkus.io", "/index.md"))
+	RoomRoutes(app, room)
 	return app
 }
 

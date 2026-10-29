@@ -14,9 +14,10 @@ import (
 // Room carries what every surface family is built from.
 type Room struct {
 	reading      port.ReadingService
-	lib          port.Librarian // nil = librarian not configured (feature-dark)
-	brands       *WorldBrands   // in-world branding resolver (ADR 0008); nil ⇒ manifest only
-	asks         *pendingAsks   // POST /a/ask → SSE handoff tokens, shared by both librarian routes
+	lib          port.Librarian       // nil = librarian not configured (feature-dark)
+	brands       *WorldBrands         // in-world branding resolver (ADR 0008); nil ⇒ manifest only
+	live         port.DocumentWatcher // change hints for the live-edition banner; nil = off
+	asks         *pendingAsks         // POST /a/ask → SSE handoff tokens, shared by both librarian routes
 	defaultWorld string
 	defaultDoc   string
 	terms        Terms // display vocabulary (Branding.Terms); handler-built labels read it
@@ -53,6 +54,14 @@ func (r Room) WithBranding(b Branding) Room {
 // renders its not-on-duty state, the nav door is absent, and asks are rejected.
 func (r Room) WithLibrarian(lib port.Librarian) Room {
 	r.lib = lib
+	return r
+}
+
+// WithLiveEditions gives the focused document pane a stream that announces a
+// newer edition (live.go). The composition root calls it when a change feed
+// is wired.
+func (r Room) WithLiveEditions(w port.DocumentWatcher) Room {
+	r.live = w
 	return r
 }
 
@@ -104,7 +113,13 @@ func (r Room) readingHandler() ReadingHandler {
 		defaultDoc:   r.defaultDoc,
 		chrome:       r.chrome(),
 		terms:        r.terms,
+		liveEditions: r.live != nil,
 	}
+}
+
+// liveHandler builds the live-edition stream over the reader and the watcher.
+func (r Room) liveHandler() LiveHandler {
+	return LiveHandler{reader: r.reading, watcher: r.live}
 }
 
 // editHandler builds the cataloging desk over the editor port alone.
@@ -154,6 +169,7 @@ func (r Room) brandingHandler() BrandingHandler {
 //   - /w/:world/versions/<path>  edition history
 //   - /a, /a/ask, /a/stream      the AI librarian (Phase 4)
 //   - /a/stop, /a/new            stop the answer in flight; start the conversation over
+//   - /live?world=&path=&v=      the focused document's live-edition stream
 //
 // /w/ routes are the stable single-pane permalinks (and what the margin's
 // escape block points at); /t/ is where reading happens. The world-less 1a
@@ -168,7 +184,18 @@ func RoomRoutes(e *echo.Echo, room Room, middleware ...echo.MiddlewareFunc) {
 	spatialRoutes(e, room.spatialHandler(), mw...)
 	paletteRoutes(e, room.paletteHandler(), mw...)
 	librarianRoutes(e, room.librarianHandler(), mw...)
+	liveRoutes(e, room.liveHandler(), mw...)
 	brandingRoutes(e, room.brandingHandler(), mw...)
+}
+
+// LongLived reports a room path whose handler holds a subscription for as long
+// as the reader watches, so a request timeout must not apply to it.
+func LongLived(path string) bool {
+	switch path {
+	case LibrarianStreamPath, LibrarianAskPath, LiveEditionPath:
+		return true
+	}
+	return false
 }
 
 // noStore marks reading-room responses uncacheable by any shared cache. Every

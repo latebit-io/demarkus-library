@@ -396,20 +396,28 @@ func newTestService(g fakeGateway, r fakeRenderer) *ReadingService {
 
 // fakeCache records puts and serves scripted hits.
 type fakeCache struct {
-	store map[string]domain.Document
-	puts  []string
+	store map[port.CacheKey]domain.Document
+	puts  []port.CacheKey
 }
 
-func newFakeCache() *fakeCache { return &fakeCache{store: map[string]domain.Document{}} }
+func newFakeCache() *fakeCache { return &fakeCache{store: map[port.CacheKey]domain.Document{}} }
 
-func (f *fakeCache) Get(key string) (domain.Document, bool) {
+func (f *fakeCache) Get(key port.CacheKey) (domain.Document, bool) {
 	doc, ok := f.store[key]
 	return doc, ok
 }
 
-func (f *fakeCache) Put(key string, doc domain.Document) {
+func (f *fakeCache) Put(key port.CacheKey, doc domain.Document) {
 	f.store[key] = doc
 	f.puts = append(f.puts, key)
+}
+
+func (f *fakeCache) Evict(match func(key port.CacheKey) bool) {
+	for key := range f.store {
+		if match(key) {
+			delete(f.store, key)
+		}
+	}
 }
 
 func TestReadRefreshesCacheAndReadCachedServesIt(t *testing.T) {

@@ -238,6 +238,13 @@ main.canvas { display: flex; align-items: flex-start; gap: 1.25rem;
              color: var(--muted); margin-bottom: .8rem;
              border-bottom: 1px solid var(--faint); padding-bottom: .35rem; }
 .pane-head code { font-size: .95em; }
+/* The live-edition banner (live.go): absent until the stream names a newer
+   edition, so an idle stream costs no layout. */
+.live-edition { display: none; }
+.live-edition:has(.edition-text:not(:empty)) {
+  display: block; font-family: var(--font-ui); font-size: .78rem; color: var(--ink);
+  margin: 0 0 .8rem; padding: .35rem .6rem; border-left: 2px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent); }
 /* Reading progress (islands.js): e-reader furniture, right-aligned, quiet. */
 .pane-progress { float: right; color: var(--muted); font-variant-numeric: tabular-nums; }
 /* The attention marker: the active pane gets the room's 2px ink rule

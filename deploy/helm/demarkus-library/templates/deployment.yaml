@@ -64,6 +64,8 @@ spec:
               value: {{ .Values.library.transport | quote }}
             - name: DEMARKUS_FEDERATION
               value: {{ .Values.library.federation | quote }}
+            - name: DEMARKUS_WATCH
+              value: {{ .Values.library.watch | quote }}
             - name: DEMARKUS_DEFAULT_DOC
               value: {{ .Values.library.defaultDoc | quote }}
             {{- /* DEMARKUS_HUB names the world whose published topology

@@ -43,6 +43,7 @@ import (
 	"github.com/latebit-io/demarkus-library/internal/adapter/outbound/graphexport"
 	"github.com/latebit-io/demarkus-library/internal/adapter/outbound/markdown"
 	"github.com/latebit-io/demarkus-library/internal/adapter/outbound/oauth"
+	"github.com/latebit-io/demarkus-library/internal/adapter/outbound/watch"
 	"github.com/latebit-io/demarkus-library/internal/adapter/outbound/world"
 	"github.com/latebit-io/demarkus-library/internal/core/port"
 	"github.com/latebit-io/demarkus-library/internal/core/service"
@@ -108,13 +109,10 @@ func main() {
 	}
 	// Bound handler latency: a wedged outbound read returns 503 instead of
 	// pinning the goroutine. Covers the turnstile's token refresh too. The
-	// librarian paths are exempt; see web.LibrarianStreamPath.
+	// streams are exempt (web.LongLived).
 	app.Use(middleware.ContextTimeoutWithConfig(middleware.ContextTimeoutConfig{
 		Timeout: handlerTimeout,
-		Skipper: func(c *echo.Context) bool {
-			p := c.Request().URL.Path
-			return p == web.LibrarianStreamPath || p == web.LibrarianAskPath
-		},
+		Skipper: func(c *echo.Context) bool { return web.LongLived(c.Request().URL.Path) },
 	}))
 
 	view, err := web.NewView()
@@ -150,6 +148,9 @@ func main() {
 	// pod and the sign-in page carry the room's identity (#90).
 	var hubBranding *broker.PublicReader
 	var shutdown func()
+	// Change hints evict caches as the world changes, and drive the live
+	// edition banner (plans/watch-realtime.md).
+	var changes port.ChangeFeed
 
 	switch config.Transport {
 	case TransportQUIC:
@@ -160,6 +161,9 @@ func main() {
 			HomeHost:      config.Host,
 			AllowExternal: config.Federation,
 		})
+		if config.Watch {
+			changes = watch.NewFeed(client, config.Host, config.ReadToken, logger)
+		}
 		shutdown = client.Close
 
 	case TransportBroker:
@@ -189,9 +193,17 @@ func main() {
 		turnstile = append(turnstile, web.RequireSession(sessions, cookies))
 		themeBearer = append(themeBearer, web.SessionBearer(sessions))
 
-		brokerHTTP := routedClient(route, broker.DefaultTimeout)
-		bg := broker.NewGateway(config.BrokerURL, brokerHTTP)
-		hubBranding = broker.NewPublicReader(config.BrokerURL, brokerHTTP)
+		// No client timeout on the gateway: its sessions also carry watch
+		// streams, and each call is bounded on its context instead.
+		bg := broker.NewGateway(config.BrokerURL, routedClient(route, 0))
+		hubBranding = broker.NewPublicReader(config.BrokerURL, routedClient(route, broker.DefaultTimeout))
+		if config.Watch {
+			// One MCP subscription per knowledge world, on a signed-in
+			// reader's bearer (ADR 0047 decision 10); none in an empty room.
+			changes = watch.NewWorlds(bg.ReaderWorlds, func(name string) port.ChangeFeed {
+				return watch.NewMCPFeed(bg.WorldSource(name), name, logger)
+			}, logger)
+		}
 		fcfg := federated.Config{Names: bg, AllowExternal: config.Federation}
 		var fclient *fetch.Client
 		if config.Federation {
@@ -216,6 +228,10 @@ func main() {
 	reading := service.NewReadingService(gateway, renderer, cache.NewMemory(0)).
 		WithHub(config.Hub, graphexport.Parser{}).
 		WithProtocolRenderer(markdown.NewProtocolRenderer())
+	followCtx, stopFollowing := context.WithCancel(context.Background())
+	if changes != nil {
+		go reading.FollowChanges(followCtx, changes)
+	}
 	// Phase 4 AI librarian (plans/phase-4-ai-librarian.md): nib-backed agent
 	// over the core's read-only ports, joining the canvas as pane kind `a`.
 	// Feature-dark unless nib's llmconfig resolves an LLM provider (global
@@ -234,6 +250,9 @@ func main() {
 	view.WithWorldBrands(brands)
 	web.WorldThemeRoutes(app, branding, brands, themeBearer...)
 	room := web.NewRoom(reading, defaultWorld, config.DefaultDoc).WithBranding(branding).WithWorldBrands(brands)
+	if changes != nil {
+		room = room.WithLiveEditions(reading)
+	}
 	if lib != nil {
 		room = room.WithLibrarian(lib)
 	}
@@ -252,6 +271,7 @@ func main() {
 	// requests with a 10s graceful timeout and then return. Transport
 	// cleanup runs afterwards (not via defer, which os.Exit would skip).
 	err = serve(app, config)
+	stopFollowing()
 	shutdown()
 	if err != nil && !errors.Is(err, http.ErrServerClosed) {
 		logger.Error("server stopped", "err", err)

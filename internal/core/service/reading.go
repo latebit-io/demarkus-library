@@ -28,6 +28,8 @@ type ReadingService struct {
 	hosts     ttlCache[hostIndex]           // the reader's world index: the graph mask and the hub's host join
 	hub       string                        // topology-source world (DEMARKUS_HUB); "" disables hub enrichment
 	hubs      ttlCache[hubGraph]            // one hub read per reader per hubTTL, shared by every consumer
+	watchers  documentWatchers              // live-edition streams waiting on a document (changes.go)
+	fence     docFence                      // keeps a hint's stale edition out of cache (changes.go)
 	// graphParser decodes the hub's published /graph.md; nil (like hub "")
 	// leaves the floor on its mark_worlds + observed-links baseline.
 	graphParser port.GraphExportParser
@@ -38,6 +40,9 @@ var _ port.ReadingService = (*ReadingService)(nil)
 
 // compile-time check that ReadingService also serves the librarian's catalog.
 var _ port.Catalog = (*ReadingService)(nil)
+
+// compile-time check that ReadingService serves the live-edition streams.
+var _ port.DocumentWatcher = (*ReadingService)(nil)
 
 // NewReadingService wires the outbound ports into the core. cache may be nil.
 func NewReadingService(world port.WorldGateway, renderer port.Renderer, cache port.DocumentCache) *ReadingService {
@@ -74,6 +79,7 @@ func (s *ReadingService) WithProtocolRenderer(r port.Renderer) *ReadingService {
 // plus the margin's trust signals (ADR 0005 decisions 6–8): status, tags,
 // provenance, and the document-properties block parsed from frontmatter.
 func (s *ReadingService) Read(ctx context.Context, world, path string) (domain.Document, error) {
+	epoch := s.fence.epoch()
 	raw, err := s.world.Fetch(ctx, world, path)
 	if err != nil {
 		return domain.Document{}, err
@@ -99,7 +105,7 @@ func (s *ReadingService) Read(ctx context.Context, world, path string) (domain.D
 		User:        raw.Metadata["user"],
 		Meta:        otherMeta(raw.Metadata),
 	}
-	s.cachePut(docKey(ctx, world, path), doc)
+	s.cachePut(epoch, docKey(ctx, world, path), doc)
 	return doc, nil
 }
 
@@ -145,24 +151,40 @@ func (s *ReadingService) TagCached(ctx context.Context, world, tag string) (doma
 	return s.Tag(ctx, world, tag)
 }
 
-func (s *ReadingService) cachePut(key string, doc domain.Document) {
-	if s.cache != nil {
+// cachePut stores doc unless a hint came since epoch: the read began before
+// that write, so doc may be the edition the hint evicted.
+func (s *ReadingService) cachePut(epoch uint64, key port.CacheKey, doc domain.Document) {
+	if s.cache == nil {
+		return
+	}
+	s.fence.mu.RLock()
+	defer s.fence.mu.RUnlock()
+	if s.fence.gen == epoch {
 		s.cache.Put(key, doc)
 	}
 }
 
-// Cache keys are kind-prefixed so a document and a tag page can never collide,
-// and lead with the reader: the cache is shared by every session on the pod,
-// and one reader's render must never serve a reader who cannot read it.
-func docKey(ctx context.Context, world, path string) string { return renderKey(ctx, "d", world, path) }
-func tagKey(ctx context.Context, world, tag string) string  { return renderKey(ctx, "t", world, tag) }
+// Render kinds keep a document and a tag page from ever sharing a key.
+const (
+	kindDoc = "d"
+	kindTag = "t"
+)
 
-func renderKey(ctx context.Context, kind, world, name string) string {
-	return kind + "\x00" + port.ReaderKey(ctx) + "\x00" + world + "\x00" + name
+func docKey(ctx context.Context, world, path string) port.CacheKey {
+	return renderKey(ctx, kindDoc, world, path)
+}
+
+func tagKey(ctx context.Context, world, tag string) port.CacheKey {
+	return renderKey(ctx, kindTag, world, tag)
+}
+
+func renderKey(ctx context.Context, kind, world, name string) port.CacheKey {
+	return port.CacheKey{Kind: kind, Reader: port.ReaderKey(ctx), World: world, Name: name}
 }
 
 // Browse renders a directory listing (the stacks) at path.
 func (s *ReadingService) Browse(ctx context.Context, world, path string) (domain.Document, error) {
+	epoch := s.fence.epoch()
 	raw, err := s.world.List(ctx, world, path)
 	if err != nil {
 		return domain.Document{}, err
@@ -171,7 +193,7 @@ func (s *ReadingService) Browse(ctx context.Context, world, path string) (domain
 	if err != nil {
 		return domain.Document{}, err
 	}
-	s.cachePut(docKey(ctx, world, path), doc)
+	s.cachePut(epoch, docKey(ctx, world, path), doc)
 	return doc, nil
 }
 
@@ -209,6 +231,7 @@ func (s *ReadingService) Search(ctx context.Context, world, scope, query string)
 // page (ADR 0005 decision 5). The tag rides as both query and filter: the
 // filter does the exact narrowing, the query keeps ranking sensible.
 func (s *ReadingService) Tag(ctx context.Context, world, tag string) (domain.Document, error) {
+	epoch := s.fence.epoch()
 	raw, err := s.world.Lookup(ctx, world, domain.LookupQuery{Scope: "/", Query: tag, Filter: "tag=" + tag})
 	if err != nil {
 		return domain.Document{}, err
@@ -217,7 +240,7 @@ func (s *ReadingService) Tag(ctx context.Context, world, tag string) (domain.Doc
 	if err != nil {
 		return domain.Document{}, err
 	}
-	s.cachePut(tagKey(ctx, world, tag), doc)
+	s.cachePut(epoch, tagKey(ctx, world, tag), doc)
 	return doc, nil
 }
 

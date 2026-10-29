@@ -92,6 +92,21 @@ func TestNewAppConfigPaneScrollDefaultsOn(t *testing.T) {
 	}
 }
 
+func TestNewAppConfigWatchDefaultsOn(t *testing.T) {
+	cfg, err := NewAppConfig()
+	if err != nil || !cfg.Watch {
+		t.Fatalf("Watch should default true, got %v (err %v)", cfg.Watch, err)
+	}
+	t.Setenv("DEMARKUS_WATCH", "false")
+	if cfg, err = NewAppConfig(); err != nil || cfg.Watch {
+		t.Errorf("DEMARKUS_WATCH=false should turn the feed off (err %v)", err)
+	}
+	t.Setenv("DEMARKUS_WATCH", "nope")
+	if _, err := NewAppConfig(); err == nil {
+		t.Error("a typo'd DEMARKUS_WATCH was accepted")
+	}
+}
+
 func TestNewAppConfigLibrarianAsksPerHour(t *testing.T) {
 	cfg, err := NewAppConfig()
 	if err != nil || cfg.LibrarianAsksPerHour != 0 {
