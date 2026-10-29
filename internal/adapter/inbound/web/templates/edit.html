@@ -18,6 +18,11 @@
         {{- end }}
       </header>
 
+      {{- if .LiveURL }}
+      {{/* The live-edition banner (live.go): hidden until the stream names an
+           edition newer than the one being edited; the link opens it beside. */}}
+      <p class="live-edition" role="status" hx-sse:connect="{{ .LiveURL }}" hx-sse:close="done"><span class="edition-text"></span> · <a href="{{ .DocURL }}" target="_blank" rel="noopener">view it</a></p>
+      {{- end }}
       {{- if .Error }}
       <p class="edit-error" role="alert">{{ .Error }}</p>
       {{- end }}

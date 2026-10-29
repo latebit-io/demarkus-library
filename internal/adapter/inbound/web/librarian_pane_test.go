@@ -508,3 +508,35 @@ func TestAskLibrarian_LibrarianFocusedCarriesTheDocBeside(t *testing.T) {
 		t.Errorf("context = %v; want the document beside the librarian", lib.contexts)
 	}
 }
+
+// With a change feed, a pane whose answers read sources of known edition
+// carries the stale-answer stream; without one, or without such sources, not.
+func TestLibrarianPane_StreamsItsSources(t *testing.T) {
+	t.Parallel()
+	answer := func(version string) []domain.LibrarianExchange {
+		return []domain.LibrarianExchange{{Question: "where?", Answer: "In ops.", Sources: []domain.LibrarianSource{
+			{Ref: domain.Ref{World: "w.io", Path: "/ops/deploy.md"}, Title: "Deploy runbook", Version: version}}}}
+	}
+	versioned, unversioned := answer("4"), answer("")
+	tests := []struct {
+		name    string
+		history []domain.LibrarianExchange
+		live    bool
+		want    bool
+	}{
+		{"feed and known editions", versioned, true, true},
+		{"no feed", versioned, false, false},
+		{"no known edition", unversioned, true, false},
+	}
+	for _, tt := range tests {
+		svc := &fakeReading{doc: domain.Document{Title: "X", Path: "/x.md", HTML: "<p>x</p>"}}
+		room := NewRoom(svc, "soul.demarkus.io", "/index.md").WithLibrarian(&fakeLibrarian{history: tt.history})
+		if tt.live {
+			room = room.WithLiveEditions(&fakeWatcher{})
+		}
+		body := get(roomApp(t, room), "/t/w.io/d/x.md/~/a").Body.String()
+		if got := strings.Contains(body, `hx-sse:connect="`+LiveSourcesPath+`"`); got != tt.want {
+			t.Errorf("%s: stream = %v, want %v", tt.name, got, tt.want)
+		}
+	}
+}

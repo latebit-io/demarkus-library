@@ -98,6 +98,7 @@ type WorldBrands struct {
 
 	mu      sync.Mutex
 	byWorld map[string]worldBrand
+	gen     uint64 // invalidations, so a load across one stores its result expired
 }
 
 // NewWorldBrands builds the resolver over a source of raw documents.
@@ -201,7 +202,25 @@ func (w *WorldBrands) Desk(ctx context.Context, world string) brandDesk {
 func (w *WorldBrands) Invalidate(world string) {
 	w.mu.Lock()
 	delete(w.byWorld, world)
+	w.gen++
 	w.mu.Unlock()
+}
+
+// ApplyChange expires every cached brand when a change touches a branding
+// document, or a resync may have: a hint spells its world as the feed does
+// (host:port), not as the room asks, and brand writes are rare. Expired, not
+// dropped, so a failed reload still falls back to the last good brand.
+func (w *WorldBrands) ApplyChange(change domain.Change) {
+	if !change.Resync && !strings.HasPrefix(change.Path, WorldBrandDir) {
+		return
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	for world, brand := range w.byWorld {
+		brand.fetched = time.Time{}
+		w.byWorld[world] = brand
+	}
+	w.gen++
 }
 
 func (w *WorldBrands) get(ctx context.Context, world string) worldBrand {
@@ -210,6 +229,7 @@ func (w *WorldBrands) get(ctx context.Context, world string) worldBrand {
 	}
 	w.mu.Lock()
 	cached, ok := w.byWorld[world]
+	gen := w.gen
 	w.mu.Unlock()
 	if ok && w.now().Sub(cached.fetched) < w.ttl {
 		return cached
@@ -227,6 +247,11 @@ func (w *WorldBrands) get(ctx context.Context, world string) worldBrand {
 	}
 	brand.fetched = w.now()
 	w.mu.Lock()
+	// An invalidation since the load began may postdate what it read: keep
+	// the result as the fallback, but expired, so the next request reloads.
+	if w.gen != gen {
+		brand.fetched = time.Time{}
+	}
 	w.byWorld[world] = brand
 	w.mu.Unlock()
 	return brand

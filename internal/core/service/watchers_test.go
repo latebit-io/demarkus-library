@@ -44,6 +44,23 @@ func TestDocumentWatchersNotify(t *testing.T) {
 	}
 }
 
+// A listing's watcher is signalled for anything under it, at any depth; never
+// for a document beside it.
+func TestDocumentWatchersNotifyAListing(t *testing.T) {
+	var w documentWatchers
+	tests := []struct {
+		path string
+		want bool
+	}{{"/plans/a.md", true}, {"/plans/old/b.md", true}, {"/plansx.md", false}, {"/notes/a.md", false}}
+	for _, tt := range tests {
+		signal := w.add(t.Context(), "h.example.org", "/plans/")
+		w.notify(domain.Change{World: "h.example.org", Path: tt.path})
+		if got := pending(signal); got != tt.want {
+			t.Errorf("%s: signalled = %v, want %v", tt.path, got, tt.want)
+		}
+	}
+}
+
 // A burst of writes leaves one pending signal: one re-read, not one per write.
 func TestDocumentWatchersCoalesce(t *testing.T) {
 	var w documentWatchers

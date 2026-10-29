@@ -250,7 +250,7 @@ func readingApp(t *testing.T, svc *fakeReading) *echo.Echo {
 	return roomApp(t, NewRoom(svc, "soul.demarkus.io", "/index.md"))
 }
 
-func roomApp(t *testing.T, room Room) *echo.Echo {
+func roomApp(t *testing.T, room Room, mw ...echo.MiddlewareFunc) *echo.Echo {
 	t.Helper()
 	app := echo.New()
 	view, err := NewView()
@@ -259,7 +259,7 @@ func roomApp(t *testing.T, room Room) *echo.Echo {
 	}
 	app.Renderer = view
 	app.HTTPErrorHandler = HTMLErrorHandler
-	RoomRoutes(app, room)
+	RoomRoutes(app, room, mw...)
 	return app
 }
 

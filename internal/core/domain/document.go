@@ -349,7 +349,7 @@ type Document struct {
 	Tags       []string
 	Properties []Property // parsed body frontmatter
 	Modified   string
-	Version    string
+	Version    string // the edition; a listing's is a digest of what it lists
 	Agent      string // the writing software
 	User       string // the verified person, when the surface stamped one
 	// Meta is every out-of-band catalog metadata entry not already surfaced in a

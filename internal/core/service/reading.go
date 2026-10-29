@@ -5,6 +5,8 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"regexp"
 	"sort"
 	"strings"
@@ -193,6 +195,10 @@ func (s *ReadingService) Browse(ctx context.Context, world, path string) (domain
 	if err != nil {
 		return domain.Document{}, err
 	}
+	// A listing has no edition: its Version is a digest of what it lists, so
+	// a live stream compares a listing as it does a document.
+	sum := sha256.Sum256([]byte(raw.Body))
+	doc.Version = hex.EncodeToString(sum[:8])
 	s.cachePut(epoch, docKey(ctx, world, path), doc)
 	return doc, nil
 }

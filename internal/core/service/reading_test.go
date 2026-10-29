@@ -494,3 +494,20 @@ func TestNilCacheCachedReadsFallThrough(t *testing.T) {
 		t.Errorf("nil-cache ReadCached must read live, called = %q", called)
 	}
 }
+
+// A listing's Version is a digest of what it lists: the same listing keeps
+// it, a changed one does not, so live streams compare listings like documents.
+func TestBrowseStampsAListingDigest(t *testing.T) {
+	browse := func(body string) string {
+		svc := newTestService(fakeGateway{raw: domain.RawDocument{Path: "/plans/", Body: body}}, fakeRenderer{})
+		doc, err := svc.Browse(t.Context(), "w", "/plans/")
+		if err != nil {
+			t.Fatalf("Browse: %v", err)
+		}
+		return doc.Version
+	}
+	first, again, changed := browse("- a.md\n"), browse("- a.md\n"), browse("- a.md\n- b.md\n")
+	if first == "" || first != again || first == changed {
+		t.Errorf("digests %q, %q, %q: want one stable digest, another for the change", first, again, changed)
+	}
+}

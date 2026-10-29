@@ -14,10 +14,14 @@ import (
 // reader, since a hint names no reader and a re-read costs less than a stale page.
 
 // FollowChanges applies every hint from feed until ctx ends. Caches go first,
-// so a watcher's re-read never lands on the stale entry.
-func (s *ReadingService) FollowChanges(ctx context.Context, feed port.ChangeFeed) {
+// so a watcher's re-read never lands on the stale entry; also hands each hint
+// to the adapters' own caches, which the core cannot name.
+func (s *ReadingService) FollowChanges(ctx context.Context, feed port.ChangeFeed, also ...func(domain.Change)) {
 	for change := range feed.Changes(ctx) {
 		s.applyChange(change)
+		for _, apply := range also {
+			apply(change)
+		}
 		s.watchers.notify(change)
 	}
 }
@@ -64,9 +68,14 @@ func staleAfter(key port.CacheKey, change domain.Change, world string) bool {
 	if change.Resync || key.Kind != kindDoc {
 		return true
 	}
-	return key.Name == change.Path ||
-		(domain.IsVersionPath(key.Name) && key.Name[:strings.LastIndex(key.Name, "/")] == change.Path) ||
-		(domain.IsListingPath(key.Name) && strings.HasPrefix(change.Path, key.Name))
+	return shows(key.Name, change.Path) ||
+		(domain.IsVersionPath(key.Name) && key.Name[:strings.LastIndex(key.Name, "/")] == change.Path)
+}
+
+// shows reports whether a write to changed shows at name: the document
+// itself, or a listing above it.
+func shows(name, changed string) bool {
+	return name == changed || (domain.IsListingPath(name) && strings.HasPrefix(changed, name))
 }
 
 // worldKey is the one spelling of a world identifier: a host gets hostKey's

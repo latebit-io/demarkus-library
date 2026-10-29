@@ -26,32 +26,44 @@ const LiveEditionPath = "/live"
 // liveRegions places the banner text in the pane's live-edition block.
 var liveRegions = sseRegions{"edition": {"find .edition-text", "innerHTML"}}
 
-// documentReader is the one read the stream makes.
+// documentReader is the one read the stream makes: a document, or a listing.
 type documentReader interface {
-	Read(ctx context.Context, world, path string) (domain.Document, error)
+	Open(ctx context.Context, world, path string) (domain.Document, error)
 }
 
-// LiveHandler serves the live-edition stream.
+// LiveHandler serves the live-edition stream and the stale-answer stream
+// (live_sources.go).
 type LiveHandler struct {
 	reader  documentReader
 	watcher port.DocumentWatcher // nil = no change feed; the panes carry no stream
+	sources sourceReader
+	history sourceHistory // nil = no librarian
 }
 
 // liveDoc is the document a stream watches and the edition its pane rendered.
 type liveDoc struct {
 	world, path, shown string
+	editing            bool // the edit desk holds it: the note says what a save does
 }
 
-// liveEditionURL is the stream a focused pane connects to.
+// liveEditionURL is the stream a focused pane or the edit desk connects to;
+// "" for an edition that cannot move on.
 func liveEditionURL(doc liveDoc) string {
-	return LiveEditionPath + "?" + url.Values{"world": {doc.world}, "path": {doc.path}, "v": {doc.shown}}.Encode()
+	if !liveWatchable(doc) {
+		return ""
+	}
+	query := url.Values{"world": {doc.world}, "path": {doc.path}, "v": {doc.shown}}
+	if doc.editing {
+		query.Set("editing", "1")
+	}
+	return LiveEditionPath + "?" + query.Encode()
 }
 
-// liveWatchable reports a shown edition that can move on: not a listing, and
-// not a pinned edition, which never changes.
+// liveWatchable reports a shown edition that can move on: a document or a
+// listing, not a pinned edition, which never changes.
 func liveWatchable(doc liveDoc) bool {
 	return doc.world != "" && doc.shown != "" && strings.HasPrefix(doc.path, "/") &&
-		!domain.IsListingPath(doc.path) && !domain.IsVersionPath(doc.path)
+		!domain.IsVersionPath(doc.path)
 }
 
 // LiveEdition streams the banner for one document until the reader leaves or
@@ -63,7 +75,8 @@ func (h LiveHandler) LiveEdition(c *echo.Context) error {
 	if h.watcher == nil {
 		return echo.NewHTTPError(http.StatusNotFound, "live editions are off")
 	}
-	doc := liveDoc{world: c.QueryParam("world"), path: c.QueryParam("path"), shown: c.QueryParam("v")}
+	doc := liveDoc{world: c.QueryParam("world"), path: c.QueryParam("path"), shown: c.QueryParam("v"),
+		editing: c.QueryParam("editing") == "1"}
 	if !liveWatchable(doc) {
 		return echo.NewHTTPError(http.StatusBadRequest, "not a document whose edition can change")
 	}
@@ -75,23 +88,33 @@ func (h LiveHandler) LiveEdition(c *echo.Context) error {
 	}
 	defer out.close()
 	// The first read catches an edition published while the stream was down.
-	if !h.report(c, out, doc, false) {
+	// The watch closes with ctx, at renewal too (live_renew.go).
+	if !h.report(c, out, doc, true) {
 		return nil
 	}
 	for range changed {
-		if !h.report(c, out, doc, true) {
+		if !h.report(c, out, doc, false) {
 			return nil
 		}
 	}
 	return nil
 }
 
+// endRefused ends a stream the world refused this reader: with done at
+// connect, where a reconnect would be refused too; later bare, since the
+// bearer taken at connect likely lapsed and the reconnect renews it.
+func endRefused(out *sseWriter, first bool) {
+	if first {
+		out.finish()
+	}
+}
+
 // report re-reads the document and fills the banner when its edition moved
 // past the one shown. false ends the stream: the reader left, the document is
-// gone, or the read was refused. renew marks a read past the first.
-func (h LiveHandler) report(c *echo.Context, out *sseWriter, doc liveDoc, renew bool) bool {
+// gone, or the read was refused.
+func (h LiveHandler) report(c *echo.Context, out *sseWriter, doc liveDoc, first bool) bool {
 	ctx := c.Request().Context()
-	current, err := h.reader.Read(ctx, doc.world, doc.path)
+	current, err := h.reader.Open(ctx, doc.world, doc.path)
 	switch {
 	case ctx.Err() != nil:
 		return false
@@ -100,28 +123,30 @@ func (h LiveHandler) report(c *echo.Context, out *sseWriter, doc liveDoc, renew 
 		out.finish()
 		return false
 	case errors.Is(err, domain.ErrUnauthorized):
-		// Past the first read, likely the bearer taken at connect lapsed: a bare
-		// close reconnects through the turnstile, which renews it. Refused at
-		// connect, a reconnect would be refused too.
-		if !renew {
-			out.finish()
-		}
+		endRefused(out, first)
 		return false
 	case err != nil:
 		// Transient (timeout, dropped connection): the next hint re-reads.
 		c.Logger().Warn("live edition re-read failed", "world", doc.world, "path", doc.path, "err", err)
-	case current.Version != doc.shown:
-		out.send("edition", html.EscapeString(editionNote(current)))
+	case current.Version == doc.shown:
+	case domain.IsListingPath(doc.path):
+		out.send("edition", "This listing changed since you opened it")
+	default:
+		out.send("edition", html.EscapeString(editionNote(current, doc.editing)))
 	}
 	return true
 }
 
 // editionNote names the new edition and who wrote it: the verified person
-// when the surface stamped one, else the writing software.
-func editionNote(doc domain.Document) string {
+// when the surface stamped one, else the writing software. At the edit desk
+// it also says that a save now merges rather than overwrites.
+func editionNote(doc domain.Document, editing bool) string {
 	note := "Edition " + doc.Version + " published"
 	if by := cmp.Or(doc.User, doc.Agent); by != "" {
 		note += " by " + by
+	}
+	if editing {
+		note += " while you were editing; saving merges your edits with it"
 	}
 	return note
 }

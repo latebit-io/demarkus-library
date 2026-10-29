@@ -271,7 +271,7 @@ func (t *openTool) Execute(ctx context.Context, call llm.ToolCall) nibagent.Tool
 		return errResult(err)
 	}
 	if r := runFrom(ctx); r != nil {
-		r.addSource(domain.LibrarianSource{Ref: ref, Title: sourceTitle(raw.Metadata["title"], docPath)})
+		r.addSource(domain.LibrarianSource{Ref: ref, Title: sourceTitle(raw.Metadata["title"], docPath), Version: raw.Metadata["version"]})
 	}
 
 	var b strings.Builder

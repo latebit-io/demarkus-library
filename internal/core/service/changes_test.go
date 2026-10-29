@@ -159,13 +159,19 @@ func TestFollowChangesAppliesEveryHint(t *testing.T) {
 	svc := NewReadingService(fakeGateway{}, fakeRenderer{}, c)
 	signal := svc.WatchDocument(ctx, "h.example.org", "/1.md")
 
-	svc.FollowChanges(ctx, fakeFeed{{World: "h.example.org", Path: "/1.md"}, {World: "h.example.org", Path: "/2.md"}})
+	var handed []string
+	also := func(change domain.Change) { handed = append(handed, change.Path) }
+
+	svc.FollowChanges(ctx, fakeFeed{{World: "h.example.org", Path: "/1.md"}, {World: "h.example.org", Path: "/2.md"}}, also)
 
 	if len(c.store) != 0 {
 		t.Errorf("entries left after both hints: %d", len(c.store))
 	}
 	if !pending(signal) {
 		t.Error("watcher not signalled")
+	}
+	if !slices.Equal(handed, []string{"/1.md", "/2.md"}) {
+		t.Errorf("handed on %v, want both hints in order", handed)
 	}
 }
 

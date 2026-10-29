@@ -349,7 +349,15 @@ func (h *ReadingHandler) headAffordances(vm *paneVM, req *paneRequest) {
 	if addr.Kind == paneDoc || addr.Kind == paneTag {
 		vm.ReaderURL = trailReaderURL(t, i)
 	}
-	if addr.Kind != paneDoc || domain.IsListingPath(addr.Value) {
+	if addr.Kind != paneDoc {
+		return
+	}
+	// Only the focused pane streams: one stream per tab. A listing streams
+	// too; the rest of the head is a document's.
+	if h.liveEditions && i == t.Focus {
+		vm.LiveURL = liveEditionURL(liveDoc{world: addr.World, path: req.doc.Path, shown: req.doc.Version})
+	}
+	if domain.IsListingPath(addr.Value) {
 		return
 	}
 	// In the pane-scroll room the margin is summoned, not docked: the head
@@ -361,11 +369,6 @@ func (h *ReadingHandler) headAffordances(vm *paneVM, req *paneRequest) {
 	}
 	if h.librarian.enabled() {
 		vm.AskURL = trailURL(trailAskAbout(t, i))
-	}
-	// Only the focused pane streams: one stream per tab.
-	live := liveDoc{world: addr.World, path: req.doc.Path, shown: req.doc.Version}
-	if h.liveEditions && i == t.Focus && liveWatchable(live) {
-		vm.LiveURL = liveEditionURL(live)
 	}
 }
 

@@ -20,6 +20,11 @@
   {{- end }}
   </div>
 </div>
+{{- if .SourcesURL }}
+{{/* The stale-answer note (live_sources.go): hidden until a source the
+     answers were read from moves on. */}}
+<p class="live-edition" role="status" hx-sse:connect="{{ .SourcesURL }}" hx-sse:close="done"><span class="edition-text"></span> · ask again for a fresh answer</p>
+{{- end }}
 {{- if .Ask }}
 {{- if .Ask.Notice }}<p class="ask-notice">{{ .Ask.Notice }}</p>{{ end }}
 <form class="ask-form" method="post" action="/a/ask"

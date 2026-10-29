@@ -296,7 +296,7 @@ func TestOpenTool_RecordsSourceForTheRun(t *testing.T) {
 	tool.Execute(ctx, call("open", `{"path":"/ops/deploy.md#steps"}`))
 
 	got := r.unsentSources()
-	want := []domain.LibrarianSource{{Ref: domain.Ref{World: "root", Path: "/ops/deploy.md"}, Title: "Deploy runbook"}}
+	want := []domain.LibrarianSource{{Ref: domain.Ref{World: "root", Path: "/ops/deploy.md"}, Title: "Deploy runbook", Version: "4"}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("sources = %+v; want one entry however often opened: %+v", got, want)
 	}
