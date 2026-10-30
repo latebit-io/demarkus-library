@@ -77,11 +77,13 @@ func TestLivePulseStream(t *testing.T) {
 		name       string
 		pulses     [][]domain.Pulse
 		err        error
+		fails      int
 		signals    int
 		wantFrames int
 		wantDone   bool
 	}{
 		{name: "the first list goes out at connect", pulses: [][]domain.Pulse{{a}}, wantFrames: 1},
+		{name: "a failed list retries with no write to prompt it", pulses: [][]domain.Pulse{{a}}, fails: 1, wantFrames: 1},
 		{name: "a write the reader cannot see sends nothing", pulses: [][]domain.Pulse{{a}, {a}}, signals: 1, wantFrames: 1},
 		{name: "a write the reader sees swaps the list", pulses: [][]domain.Pulse{{a}, {b, a}}, signals: 1, wantFrames: 2},
 		{name: "refused at connect ends the stream", err: domain.ErrUnauthorized, signals: 1, wantDone: true},
@@ -89,7 +91,7 @@ func TestLivePulseStream(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			live := &fakeWatcher{pulses: tt.pulses, pulseErr: tt.err, pulseSignals: tt.signals}
+			live := &fakeWatcher{pulses: tt.pulses, pulseErr: tt.err, pulseFails: tt.fails, pulseSignals: tt.signals}
 			rec := get(roomApp(t, pulseRoom(live)), livePulseURL(floorTrail, 0))
 			body := rec.Body.String()
 			if rec.Code != http.StatusOK {

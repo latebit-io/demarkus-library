@@ -30,7 +30,9 @@ func (l *pulseLog) record(p domain.Pulse) {
 	l.recent = l.recent[:min(len(l.recent), pulseCap)]
 }
 
-// visible copies the writes in worlds the reader may see.
+// visible copies the writes in worlds the reader may see. A world mask is
+// enough while a shared watch sees public paths only (ADR 0047 decision 10);
+// identity-scoped knowledge reads would need a per-document check here.
 func (l *pulseLog) visible(hosts hostIndex) []domain.Pulse {
 	l.mu.Lock()
 	defer l.mu.Unlock()

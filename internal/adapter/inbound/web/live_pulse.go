@@ -109,21 +109,27 @@ func (h LiveHandler) LivePulse(c *echo.Context) error {
 	// relist swaps the list in when it changed; false ends the stream: the
 	// reader left, or the world list was refused.
 	relist := func(first bool) bool {
-		pulses, err := h.pulse.Pulse(ctx)
-		switch {
-		case ctx.Err() != nil:
-			return false
-		case errors.Is(err, domain.ErrUnauthorized):
-			endRefused(out, first)
-			return false
-		case err != nil:
-			// Transient: the list stays as shown; the next write lists again.
-			c.Logger().Warn("live pulse list failed", "err", err)
-		case !slices.EqualFunc(pulses, shown, samePulse):
-			shown = pulses
-			out.send("pulse", fragment(c, "pulse-list", pulseItems(pulses, t, t.Focus)))
+		for {
+			pulses, err := h.pulse.Pulse(ctx)
+			switch {
+			case ctx.Err() != nil:
+				return false
+			case errors.Is(err, domain.ErrUnauthorized):
+				endRefused(out, first)
+				return false
+			case err != nil:
+				// Transient: retry unprompted, since no later write may come.
+				c.Logger().Warn("live pulse list failed", "err", err)
+				if !pulseWait(ctx) {
+					return false
+				}
+				continue
+			case !slices.EqualFunc(pulses, shown, samePulse):
+				shown = pulses
+				out.send("pulse", fragment(c, "pulse-list", pulseItems(pulses, t, t.Focus)))
+			}
+			return true
 		}
-		return true
 	}
 	// The first list catches a write between the floor's render and now.
 	if !relist(true) {

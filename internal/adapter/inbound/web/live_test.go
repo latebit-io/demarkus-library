@@ -27,10 +27,12 @@ type fakeWatcher struct {
 	signals chan struct{}
 	byPath  map[string]int
 	watched []string
-	// pulses answers each Pulse call with the next list, repeating the last;
-	// WatchPulse holds pulseSignals signals, then closes.
+	// pulses answers each Pulse call with the next list, repeating the last,
+	// after pulseFails transient failures; WatchPulse holds pulseSignals
+	// signals, then closes.
 	pulses       [][]domain.Pulse
 	pulseErr     error
+	pulseFails   int
 	pulseCalls   int
 	pulseSignals int
 }
@@ -38,6 +40,10 @@ type fakeWatcher struct {
 func (f *fakeWatcher) Pulse(context.Context) ([]domain.Pulse, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.pulseFails > 0 {
+		f.pulseFails--
+		return nil, errors.New("world list timed out")
+	}
 	if f.pulseErr != nil || len(f.pulses) == 0 {
 		return nil, f.pulseErr
 	}

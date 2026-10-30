@@ -140,8 +140,10 @@ func TestAnswerSourcesKeepTheNewest(t *testing.T) {
 	if len(got) != maxLiveSources {
 		t.Fatalf("sources = %d, want %d", len(got), maxLiveSources)
 	}
-	if newest := "/doc-" + strconv.Itoa(maxLiveSources+7) + ".md"; got[0].Path != newest {
-		t.Errorf("first source = %s, want the newest answer's %s", got[0].Path, newest)
+	for i, source := range got {
+		if want := "/doc-" + strconv.Itoa(maxLiveSources+7-i) + ".md"; source.Path != want {
+			t.Errorf("source[%d] = %s, want %s", i, source.Path, want)
+		}
 	}
 }
 
