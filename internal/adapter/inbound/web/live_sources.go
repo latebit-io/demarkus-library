@@ -9,6 +9,7 @@ import (
 	"errors"
 	"html"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 
@@ -130,22 +131,26 @@ func (h LiveHandler) checkSource(c *echo.Context, src *readSource) (turned, refu
 	return src.stale, false
 }
 
-// answerSources lists every source of the conversation once, at the edition
-// its latest answer read; a source of unknown edition cannot go stale.
+// maxLiveSources bounds one stream's watches and first re-reads, which every
+// settled answer reconnects, however long the conversation runs.
+const maxLiveSources = 32
+
+// answerSources lists the conversation's sources once each, newest answer
+// first and at most maxLiveSources, at the edition the latest answer read; a
+// source of unknown edition cannot go stale.
 func answerSources(exchanges []domain.LibrarianExchange) []readSource {
-	at := map[domain.Ref]int{}
+	seen := map[domain.Ref]bool{}
 	var sources []readSource
-	for _, ex := range exchanges {
+	for _, ex := range slices.Backward(exchanges) {
 		for _, src := range ex.Sources {
-			if src.Version == "" {
+			if src.Version == "" || seen[src.Ref] {
 				continue
 			}
-			if i, ok := at[src.Ref]; ok {
-				sources[i].LibrarianSource = src
-				continue
-			}
-			at[src.Ref] = len(sources)
+			seen[src.Ref] = true
 			sources = append(sources, readSource{LibrarianSource: src})
+			if len(sources) == maxLiveSources {
+				return sources
+			}
 		}
 	}
 	return sources

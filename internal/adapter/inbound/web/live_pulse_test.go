@@ -57,9 +57,11 @@ func TestFloorPulseNeedsFocusAndAFeed(t *testing.T) {
 		{"unfocused floor", NewRoom(svc, "soul.demarkus.io", "/index.md").WithLiveEditions(live), "/t/u/~/w.io/d/x.md"},
 	}
 	for _, tt := range tests {
-		if body := get(roomApp(t, tt.room), tt.path).Body.String(); strings.Contains(body, `class="pulse"`) {
-			t.Errorf("%s: floor carries a pulse", tt.name)
-		}
+		t.Run(tt.name, func(t *testing.T) {
+			if body := get(roomApp(t, tt.room), tt.path).Body.String(); strings.Contains(body, `class="pulse"`) {
+				t.Error("floor carries a pulse")
+			}
+		})
 	}
 }
 
@@ -117,26 +119,31 @@ func TestLivePulseRefusals(t *testing.T) {
 		{"junk trail", live, LivePulsePath + "?trail=%2F%2F&idx=0", http.StatusBadRequest},
 	}
 	for _, tt := range tests {
-		if rec := get(roomApp(t, tt.room), tt.target); rec.Code != tt.want {
-			t.Errorf("%s: status = %d, want %d", tt.name, rec.Code, tt.want)
-		}
+		t.Run(tt.name, func(t *testing.T) {
+			if rec := get(roomApp(t, tt.room), tt.target); rec.Code != tt.want {
+				t.Errorf("status = %d, want %d", rec.Code, tt.want)
+			}
+		})
 	}
 }
 
 func TestPulseWhat(t *testing.T) {
 	tests := []struct {
+		name   string
 		change domain.Change
 		want   string
 	}{
-		{domain.Change{Op: domain.OpPublish, Version: 3}, "published · edition 3"},
-		{domain.Change{Op: domain.OpAppend, Version: 4}, "appended · edition 4"},
-		{domain.Change{Op: domain.OpArchive, Version: 5}, "archived"},
-		{domain.Change{Op: "rename"}, "written"},
+		{"publish", domain.Change{Op: domain.OpPublish, Version: 3}, "published · edition 3"},
+		{"append", domain.Change{Op: domain.OpAppend, Version: 4}, "appended · edition 4"},
+		{"archive drops the edition", domain.Change{Op: domain.OpArchive, Version: 5}, "archived"},
+		{"unknown op", domain.Change{Op: "rename"}, "written"},
 	}
 	for _, tt := range tests {
-		if got := pulseWhat(tt.change); got != tt.want {
-			t.Errorf("pulseWhat(%+v) = %q, want %q", tt.change, got, tt.want)
-		}
+		t.Run(tt.name, func(t *testing.T) {
+			if got := pulseWhat(tt.change); got != tt.want {
+				t.Errorf("pulseWhat(%+v) = %q, want %q", tt.change, got, tt.want)
+			}
+		})
 	}
 }
 

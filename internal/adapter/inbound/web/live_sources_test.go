@@ -4,6 +4,7 @@ import (
 	"context"
 	"maps"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -107,9 +108,11 @@ func TestLiveSourcesRefusals(t *testing.T) {
 		{"no source of known edition", LiveHandler{watcher: &fakeWatcher{}, history: unknown}, http.StatusNotFound},
 	}
 	for _, tt := range tests {
-		if rec := get(liveApp(tt.h), LiveSourcesPath); rec.Code != tt.want {
-			t.Errorf("%s: status = %d, want %d", tt.name, rec.Code, tt.want)
-		}
+		t.Run(tt.name, func(t *testing.T) {
+			if rec := get(liveApp(tt.h), LiveSourcesPath); rec.Code != tt.want {
+				t.Errorf("status = %d, want %d", rec.Code, tt.want)
+			}
+		})
 	}
 }
 
@@ -123,6 +126,22 @@ func TestAnswerSourcesKeepTheLatestEdition(t *testing.T) {
 	})
 	if len(got) != 1 || got[0].Version != "6" {
 		t.Errorf("sources = %+v, want one at edition 6", got)
+	}
+}
+
+// A long conversation watches only its newest maxLiveSources sources.
+func TestAnswerSourcesKeepTheNewest(t *testing.T) {
+	exchanges := make([]domain.LibrarianExchange, maxLiveSources+8)
+	for i := range exchanges {
+		path := "/doc-" + strconv.Itoa(i) + ".md"
+		exchanges[i].Sources = []domain.LibrarianSource{{Ref: domain.Ref{World: "w.io", Path: path}, Version: "1"}}
+	}
+	got := answerSources(exchanges)
+	if len(got) != maxLiveSources {
+		t.Fatalf("sources = %d, want %d", len(got), maxLiveSources)
+	}
+	if newest := "/doc-" + strconv.Itoa(maxLiveSources+7) + ".md"; got[0].Path != newest {
+		t.Errorf("first source = %s, want the newest answer's %s", got[0].Path, newest)
 	}
 }
 
@@ -140,9 +159,11 @@ func TestLibrarianPaneCarriesTheStaleSlot(t *testing.T) {
 		{"answered", answeredFrom, true, `<div id="librarian-stale"><p class="live-edition" role="status" hx-sse:connect="/live/sources"`},
 	}
 	for _, tt := range tests {
-		if body := get(roomApp(t, liveRoom(&fakeLibrarian{history: tt.history}, tt.live)), "/t/a").Body.String(); !strings.Contains(body, tt.want) {
-			t.Errorf("%s: pane lacks %q", tt.name, tt.want)
-		}
+		t.Run(tt.name, func(t *testing.T) {
+			if body := get(roomApp(t, liveRoom(&fakeLibrarian{history: tt.history}, tt.live)), "/t/a").Body.String(); !strings.Contains(body, tt.want) {
+				t.Errorf("pane lacks %q", tt.want)
+			}
+		})
 	}
 }
 
@@ -169,17 +190,19 @@ func TestSettledAnswerRefillsTheStaleSlot(t *testing.T) {
 	}
 	refill := `data: <hx-partial hx-target="#librarian-stale" hx-swap="innerHTML"><p class="live-edition" role="status" hx-sse:connect="/live/sources"`
 	for _, tt := range tests {
-		lib := &fakeLibrarian{history: tt.history, events: []domain.LibrarianEvent{
-			{Kind: domain.LibrarianAnswer, Text: "So."}, {Kind: domain.LibrarianDone},
-		}}
-		e := roomApp(t, liveRoom(lib, tt.live))
-		body := get(e, askToken(t, e, "how?")).Body.String()
-		at := strings.Index(body, refill)
-		if got := at >= 0; got != tt.want {
-			t.Errorf("%s: refilled = %v, want %v:\n%s", tt.name, got, tt.want, body)
-		}
-		if at > strings.Index(body, "event: done") {
-			t.Errorf("%s: the slot refilled after done", tt.name)
-		}
+		t.Run(tt.name, func(t *testing.T) {
+			lib := &fakeLibrarian{history: tt.history, events: []domain.LibrarianEvent{
+				{Kind: domain.LibrarianAnswer, Text: "So."}, {Kind: domain.LibrarianDone},
+			}}
+			e := roomApp(t, liveRoom(lib, tt.live))
+			body := get(e, askToken(t, e, "how?")).Body.String()
+			at := strings.Index(body, refill)
+			if got := at >= 0; got != tt.want {
+				t.Errorf("refilled = %v, want %v:\n%s", got, tt.want, body)
+			}
+			if at > strings.Index(body, "event: done") {
+				t.Error("the slot refilled after done")
+			}
+		})
 	}
 }
