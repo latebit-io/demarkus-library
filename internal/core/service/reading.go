@@ -30,7 +30,8 @@ type ReadingService struct {
 	hosts     ttlCache[hostIndex]           // the reader's world index: the graph mask and the hub's host join
 	hub       string                        // topology-source world (DEMARKUS_HUB); "" disables hub enrichment
 	hubs      ttlCache[hubGraph]            // one hub read per reader per hubTTL, shared by every consumer
-	watchers  documentWatchers              // live-edition streams waiting on a document (changes.go)
+	watchers  documentWatchers              // live streams waiting on a document or the pulse (changes.go)
+	pulse     pulseLog                      // the floor's recent writes (pulse.go)
 	fence     docFence                      // keeps a hint's stale edition out of cache (changes.go)
 	// graphParser decodes the hub's published /graph.md; nil (like hub "")
 	// leaves the floor on its mark_worlds + observed-links baseline.
@@ -43,8 +44,8 @@ var _ port.ReadingService = (*ReadingService)(nil)
 // compile-time check that ReadingService also serves the librarian's catalog.
 var _ port.Catalog = (*ReadingService)(nil)
 
-// compile-time check that ReadingService serves the live-edition streams.
-var _ port.DocumentWatcher = (*ReadingService)(nil)
+// compile-time check that ReadingService serves the live streams.
+var _ port.LiveService = (*ReadingService)(nil)
 
 // NewReadingService wires the outbound ports into the core. cache may be nil.
 func NewReadingService(world port.WorldGateway, renderer port.Renderer, cache port.DocumentCache) *ReadingService {

@@ -35,7 +35,7 @@ func TestDocumentWatchersNotify(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			signal := w.add(ctx, "h.example.org:6309", "/a.md")
+			signal := w.add(ctx, showing("h.example.org:6309", "/a.md"))
 			w.notify(tt.change)
 			if got := pending(signal); got != tt.want {
 				t.Errorf("signalled = %v, want %v", got, tt.want)
@@ -53,7 +53,7 @@ func TestDocumentWatchersNotifyAListing(t *testing.T) {
 		want bool
 	}{{"/plans/a.md", true}, {"/plans/old/b.md", true}, {"/plansx.md", false}, {"/notes/a.md", false}}
 	for _, tt := range tests {
-		signal := w.add(t.Context(), "h.example.org", "/plans/")
+		signal := w.add(t.Context(), showing("h.example.org", "/plans/"))
 		w.notify(domain.Change{World: "h.example.org", Path: tt.path})
 		if got := pending(signal); got != tt.want {
 			t.Errorf("%s: signalled = %v, want %v", tt.path, got, tt.want)
@@ -64,7 +64,7 @@ func TestDocumentWatchersNotifyAListing(t *testing.T) {
 // A burst of writes leaves one pending signal: one re-read, not one per write.
 func TestDocumentWatchersCoalesce(t *testing.T) {
 	var w documentWatchers
-	signal := w.add(t.Context(), "h.example.org", "/a.md")
+	signal := w.add(t.Context(), showing("h.example.org", "/a.md"))
 	for range 5 {
 		w.notify(domain.Change{World: "h.example.org", Path: "/a.md"})
 	}
@@ -81,11 +81,11 @@ func TestDocumentWatchersRemovedWithContext(t *testing.T) {
 	var w documentWatchers
 	for range 1000 {
 		ctx, cancel := context.WithCancel(t.Context())
-		w.add(ctx, "h.example.org", "/a.md")
+		w.add(ctx, showing("h.example.org", "/a.md"))
 		cancel()
 	}
 	ctx, cancel := context.WithCancel(t.Context())
-	signal := w.add(ctx, "h.example.org", "/a.md")
+	signal := w.add(ctx, showing("h.example.org", "/a.md"))
 	cancel()
 	select {
 	case _, open := <-signal:

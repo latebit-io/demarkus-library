@@ -322,8 +322,17 @@ func trailOverlayURL(t trail, param string, idx int) string {
 // (the `trail` + `tpane` query params): the pane path as a /t/* remainder plus
 // the originating pane index. returnTrail (edit.go) is the matching decoder.
 func editReturnQuery(t trail, idx int) string {
-	return "trail=" + url.QueryEscape(strings.TrimPrefix(trailBasePath(t), "/t/")) +
-		"&tpane=" + strconv.Itoa(idx)
+	return "trail=" + url.QueryEscape(trailRest(t)) + "&tpane=" + strconv.Itoa(idx)
+}
+
+// trailRest is the pane path as a /t/* remainder: how forms and streams carry
+// the trail they came from, for parseTrail to rebuild.
+func trailRest(t trail) string { return strings.TrimPrefix(trailBasePath(t), "/t/") }
+
+// trailDocLink is the URL of a link to doc from pane idx: the click algebra's
+// trail with the document focused.
+func trailDocLink(doc domain.Ref, t trail, idx int) string {
+	return trailURL(trailAfterClick(t, idx, paneAddr{Kind: paneDoc, World: doc.World, Value: doc.Path}))
 }
 
 // paneChunk encodes one pane address as its chunk (no leading slash).

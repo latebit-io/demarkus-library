@@ -28,6 +28,7 @@ type floorVM struct {
 	Toggle  template.HTML
 	Cards   []worldCardVM
 	Map     template.HTML
+	Pulse   *pulseVM // the focused floor's recent activity; nil = none
 }
 
 // worldCardVM is one world's door. The template lays the world's own
@@ -82,7 +83,7 @@ func worldCards(floor domain.Floor, t trail, idx int) []worldCardVM {
 	cards := make([]worldCardVM, 0, len(floor.Worlds))
 	for _, fw := range floor.Worlds {
 		open := func(path string) string {
-			return trailURL(trailAfterClick(t, idx, paneAddr{Kind: paneDoc, World: fw.World.Name, Value: path}))
+			return trailDocLink(domain.Ref{World: fw.World.Name, Path: path}, t, idx)
 		}
 		card := worldCardVM{World: fw.World.Name, URL: open("/"), Portal: fw.Portal, Unreadable: fw.Err}
 		var stats []string

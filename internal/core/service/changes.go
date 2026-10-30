@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
 	"github.com/latebit-io/demarkus-library/internal/core/port"
@@ -13,14 +14,17 @@ import (
 // focused-live re-reads: a write anywhere evicts what it made stale, for every
 // reader, since a hint names no reader and a re-read costs less than a stale page.
 
-// FollowChanges applies every hint from feed until ctx ends. Caches go first,
-// so a watcher's re-read never lands on the stale entry; also hands each hint
-// to the adapters' own caches, which the core cannot name.
+// FollowChanges applies every hint from feed until ctx ends. Caches and the
+// pulse go first, so a watcher's re-read never lands on the stale entry; also
+// hands each hint to the adapters' own caches, which the core cannot name.
 func (s *ReadingService) FollowChanges(ctx context.Context, feed port.ChangeFeed, also ...func(domain.Change)) {
 	for change := range feed.Changes(ctx) {
 		s.applyChange(change)
 		for _, apply := range also {
 			apply(change)
+		}
+		if !change.Resync {
+			s.pulse.record(domain.Pulse{Change: change, At: time.Now()})
 		}
 		s.watchers.notify(change)
 	}
@@ -28,7 +32,7 @@ func (s *ReadingService) FollowChanges(ctx context.Context, feed port.ChangeFeed
 
 // WatchDocument implements port.DocumentWatcher.
 func (s *ReadingService) WatchDocument(ctx context.Context, world, path string) <-chan struct{} {
-	return s.watchers.add(ctx, world, path)
+	return s.watchers.add(ctx, showing(world, path))
 }
 
 func (s *ReadingService) applyChange(change domain.Change) {

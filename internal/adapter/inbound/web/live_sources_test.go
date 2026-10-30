@@ -125,3 +125,61 @@ func TestAnswerSourcesKeepTheLatestEdition(t *testing.T) {
 		t.Errorf("sources = %+v, want one at edition 6", got)
 	}
 }
+
+// The pane always carries the stale-answer slot, so a pane's first answer has
+// somewhere to start its stream; the stream itself needs a change feed.
+func TestLibrarianPaneCarriesTheStaleSlot(t *testing.T) {
+	tests := []struct {
+		name    string
+		history []domain.LibrarianExchange
+		live    bool
+		want    string
+	}{
+		{"no change feed", answeredFrom, false, `<div id="librarian-stale"></div>`},
+		{"no answer yet", nil, true, `<div id="librarian-stale"></div>`},
+		{"answered", answeredFrom, true, `<div id="librarian-stale"><p class="live-edition" role="status" hx-sse:connect="/live/sources"`},
+	}
+	for _, tt := range tests {
+		if body := get(roomApp(t, liveRoom(&fakeLibrarian{history: tt.history}, tt.live)), "/t/a").Body.String(); !strings.Contains(body, tt.want) {
+			t.Errorf("%s: pane lacks %q", tt.name, tt.want)
+		}
+	}
+}
+
+// liveRoom is librarianRoom, with a change feed when live.
+func liveRoom(lib *fakeLibrarian, live bool) Room {
+	if live {
+		return librarianRoom(lib).WithLiveEditions(&fakeWatcher{})
+	}
+	return librarianRoom(lib)
+}
+
+// A settling answer refills the slot when the conversation has a source of
+// known edition, before done closes its stream.
+func TestSettledAnswerRefillsTheStaleSlot(t *testing.T) {
+	tests := []struct {
+		name    string
+		history []domain.LibrarianExchange
+		live    bool
+		want    bool
+	}{
+		{"answered from known editions", answeredFrom, true, true},
+		{"no change feed", answeredFrom, false, false},
+		{"no source of known edition", nil, true, false},
+	}
+	refill := `data: <hx-partial hx-target="#librarian-stale" hx-swap="innerHTML"><p class="live-edition" role="status" hx-sse:connect="/live/sources"`
+	for _, tt := range tests {
+		lib := &fakeLibrarian{history: tt.history, events: []domain.LibrarianEvent{
+			{Kind: domain.LibrarianAnswer, Text: "So."}, {Kind: domain.LibrarianDone},
+		}}
+		e := roomApp(t, liveRoom(lib, tt.live))
+		body := get(e, askToken(t, e, "how?")).Body.String()
+		at := strings.Index(body, refill)
+		if got := at >= 0; got != tt.want {
+			t.Errorf("%s: refilled = %v, want %v:\n%s", tt.name, got, tt.want, body)
+		}
+		if at > strings.Index(body, "event: done") {
+			t.Errorf("%s: the slot refilled after done", tt.name)
+		}
+	}
+}

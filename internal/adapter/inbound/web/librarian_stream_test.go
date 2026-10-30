@@ -29,9 +29,14 @@ func librarianApp(t *testing.T, lib *fakeLibrarian) *echo.Echo {
 		t.Fatalf("NewView: %v", err)
 	}
 	app.Renderer = view
-	svc := &fakeReading{doc: domain.Document{Title: "X", Path: "/x.md", HTML: "<p>x</p>"}}
-	RoomRoutes(app, NewRoom(svc, "soul.demarkus.io", "/index.md").WithLibrarian(lib))
+	RoomRoutes(app, librarianRoom(lib))
 	return app
+}
+
+// librarianRoom is a room with a scripted librarian over one document.
+func librarianRoom(lib *fakeLibrarian) Room {
+	svc := &fakeReading{doc: domain.Document{Title: "X", Path: "/x.md", HTML: "<p>x</p>"}}
+	return NewRoom(svc, "soul.demarkus.io", "/index.md").WithLibrarian(lib)
 }
 
 // fakeLibrarian scripts one Ask stream and one Attach stream, records the

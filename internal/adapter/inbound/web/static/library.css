@@ -112,7 +112,7 @@ ul.tags a { color: var(--muted); }
 .doc-meta dl { display: grid; grid-template-columns: minmax(6.5em, max-content) 1fr; gap: .1rem .6rem; }
 .doc-meta dt { color: var(--muted); }
 .doc-meta dd { margin: 0; overflow-wrap: anywhere; }
-.doc-meta .meta-head { font-size: .8rem; font-weight: 600; letter-spacing: .05em;
+.doc-meta .meta-head, .pulse-head { font-size: .8rem; font-weight: 600; letter-spacing: .05em;
                        font-variant-caps: all-small-caps; color: var(--muted); margin: 0 0 .35rem; }
 .doc-meta .okf > * { margin: 0 0 .5rem; }
 .doc-meta .okf > :last-child { margin-bottom: 0; }
@@ -679,8 +679,9 @@ body.edit-page { max-width: none; padding: 1.5rem 1.5rem 2rem; }
               font-size: .72rem; color: var(--muted); flex: 1;
               white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
               text-align: right; }
-/* The room's small-caps chip: palette badges, world, orphan and dock tags. */
-.palette-badge, .world-tag, .idx-orphan, .dock-world {
+/* The room's small-caps chip: palette badges, world, orphan and dock tags,
+   the pulse's person and agent badges. */
+.palette-badge, .world-tag, .idx-orphan, .dock-world, .pulse-by {
               font-size: .78rem; font-variant-caps: all-small-caps; letter-spacing: .04em;
               color: var(--muted); border: 1px solid var(--faint);
               border-radius: 3px; padding: 0 .3rem .05rem; }
@@ -830,6 +831,18 @@ body.edit-page { max-width: none; padding: 1.5rem 1.5rem 2rem; }
 .world-card.federated { border-style: dashed; }
 .world-card.federated .world-chev { margin-left: .4rem; }
 .world-card.gone { opacity: .55; }
+/* The floor's pulse (live_pulse.go): recent writes, one quiet line each; an
+   agent's badge is dashed beside the person's solid one. */
+.pulse { margin: 1.6rem 0 0; font-family: var(--font-ui); }
+.pulse-list { list-style: none; margin: 0; padding: 0; font-size: .82rem; }
+.pulse-list li { display: flex; flex-wrap: wrap; align-items: baseline; gap: .2rem .5rem;
+        padding: .3rem 0; border-top: 1px solid var(--faint); }
+.pulse-list time, .pulse-what, .pulse-world, .pulse-quiet { color: var(--muted);
+        font-variant-numeric: tabular-nums; }
+.pulse-list a, .pulse-gone { font-family: var(--font-mono); font-size: .78rem; overflow-wrap: anywhere; }
+.pulse-list a { color: var(--ink); }
+.pulse-gone { color: var(--muted); text-decoration: line-through; }
+.pulse-by.agent { border-style: dashed; }
 @media (max-width: 34rem) {
   .world-card { grid-template-columns: minmax(0, 1fr); gap: .6rem; }
   .world-sky { width: 5rem; }

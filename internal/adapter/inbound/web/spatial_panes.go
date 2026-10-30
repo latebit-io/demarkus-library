@@ -15,7 +15,8 @@ import (
 type spatialPanes struct {
 	maps  port.MapService
 	graph port.GraphService
-	terms Terms // the universe's display name (floor title, spine, context labels)
+	terms Terms      // the universe's display name (floor title, spine, context labels)
+	pulse port.Pulse // the focused floor's recent activity; nil = no change feed
 }
 
 // worldMapPane builds the world-map pane on the trail canvas (focused-live
@@ -100,6 +101,13 @@ func (h spatialPanes) floorPane(ctx context.Context, t trail, i int, mapView boo
 		} else {
 			fv.Summary, fv.Cards = floorSummary(floor), worldCards(floor, t, i)
 		}
+		if h.pulse != nil && focused {
+			// Best effort: the floor just read the same world list, so a
+			// failure is a blip, and the floor renders without its pulse.
+			if pulses, err := h.pulse.Pulse(ctx); err == nil {
+				fv.Pulse = &pulseVM{StreamURL: livePulseURL(t, i), Items: pulseItems(pulses, t, i)}
+			}
+		}
 		vm.Floor = fv
 	}
 	return vm, nil
@@ -157,7 +165,7 @@ func trailNodeURL(t trail, from int) func(domain.Ref) string {
 		if len(t.Panes) == 0 {
 			return docRoute(r.World, r.Path)
 		}
-		return trailURL(trailAfterClick(t, from, paneAddr{Kind: paneDoc, World: r.World, Value: r.Path}))
+		return trailDocLink(r, t, from)
 	}
 }
 

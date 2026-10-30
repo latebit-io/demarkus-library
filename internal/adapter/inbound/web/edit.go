@@ -113,7 +113,7 @@ func trailParams(trailParam, paneParam string) (rest, pane string) {
 // off-canvas (or the carried context is junk).
 func afterWriteURL(c *echo.Context, world, path string) string {
 	if t, idx, ok := returnTrail(c.FormValue("trail"), c.FormValue("tpane")); ok {
-		return trailURL(trailAfterClick(t, idx, paneAddr{Kind: paneDoc, World: world, Value: path}))
+		return trailDocLink(domain.Ref{World: world, Path: path}, t, idx)
 	}
 	return docRoute(world, path)
 }

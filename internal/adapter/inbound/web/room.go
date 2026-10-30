@@ -14,10 +14,10 @@ import (
 // Room carries what every surface family is built from.
 type Room struct {
 	reading      port.ReadingService
-	lib          port.Librarian       // nil = librarian not configured (feature-dark)
-	brands       *WorldBrands         // in-world branding resolver (ADR 0008); nil ⇒ manifest only
-	live         port.DocumentWatcher // change hints for the live-edition banner; nil = off
-	asks         *pendingAsks         // POST /a/ask → SSE handoff tokens, shared by both librarian routes
+	lib          port.Librarian   // nil = librarian not configured (feature-dark)
+	brands       *WorldBrands     // in-world branding resolver (ADR 0008); nil ⇒ manifest only
+	live         port.LiveService // change hints for the live streams; nil = off
+	asks         *pendingAsks     // POST /a/ask → SSE handoff tokens, shared by both librarian routes
 	defaultWorld string
 	defaultDoc   string
 	terms        Terms // display vocabulary (Branding.Terms); handler-built labels read it
@@ -58,9 +58,9 @@ func (r Room) WithLibrarian(lib port.Librarian) Room {
 }
 
 // WithLiveEditions gives the focused document pane a stream that announces a
-// newer edition (live.go). The composition root calls it when a change feed
-// is wired.
-func (r Room) WithLiveEditions(w port.DocumentWatcher) Room {
+// newer edition (live.go), and the focused floor its pulse (live_pulse.go).
+// The composition root calls it when a change feed is wired.
+func (r Room) WithLiveEditions(w port.LiveService) Room {
 	r.live = w
 	return r
 }
@@ -90,7 +90,7 @@ func (r Room) chrome() chromeBuilder {
 // spatialPanes is the floor/map/graph pane builder the canvas and the spatial
 // permalinks share.
 func (r Room) spatialPanes() spatialPanes {
-	return spatialPanes{maps: r.reading, graph: r.reading, terms: r.terms}
+	return spatialPanes{maps: r.reading, graph: r.reading, terms: r.terms, pulse: r.live}
 }
 
 // librarianPanes is the pane builder the canvas and the librarian's own routes
@@ -120,7 +120,7 @@ func (r Room) readingHandler() *ReadingHandler {
 
 // liveHandler builds the live-edition stream over the reader and the watcher.
 func (r Room) liveHandler() LiveHandler {
-	return LiveHandler{reader: r.reading, watcher: r.live, sources: r.reading, history: r.lib}
+	return LiveHandler{reader: r.reading, watcher: r.live, sources: r.reading, history: r.lib, pulse: r.live}
 }
 
 // editHandler builds the cataloging desk over the editor port alone.
@@ -171,6 +171,7 @@ func (r Room) brandingHandler() BrandingHandler {
 //   - /a, /a/ask, /a/stream      the AI librarian (Phase 4)
 //   - /a/stop, /a/new            stop the answer in flight; start the conversation over
 //   - /live?world=&path=&v=      the focused document's live-edition stream
+//   - /live/sources, /live/pulse the stale-answer stream; the focused floor's pulse
 //
 // /w/ routes are the stable single-pane permalinks (and what the margin's
 // escape block points at); /t/ is where reading happens. The world-less 1a
@@ -193,7 +194,7 @@ func RoomRoutes(e *echo.Echo, room Room, middleware ...echo.MiddlewareFunc) {
 // as the reader watches, so a request timeout must not apply to it.
 func LongLived(path string) bool {
 	switch path {
-	case LibrarianStreamPath, LibrarianAskPath, LiveEditionPath, LiveSourcesPath:
+	case LibrarianStreamPath, LibrarianAskPath, LiveEditionPath, LiveSourcesPath, LivePulsePath:
 		return true
 	}
 	return false

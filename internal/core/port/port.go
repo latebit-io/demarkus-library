@@ -154,6 +154,20 @@ type DocumentWatcher interface {
 	WatchDocument(ctx context.Context, world, path string) <-chan struct{}
 }
 
+// Pulse is the floor's recent activity: the latest writes in the worlds the
+// reader may see, newest first, and a signal per write it records, meaning
+// "list again".
+type Pulse interface {
+	Pulse(ctx context.Context) ([]domain.Pulse, error)
+	WatchPulse(ctx context.Context) <-chan struct{}
+}
+
+// LiveService is everything the room's live streams read from the change feed.
+type LiveService interface {
+	DocumentWatcher
+	Pulse
+}
+
 // WorldGateway is an outbound (driven) port — read from demarkus worlds. The
 // adapter translates transport status into domain errors and returns markdown
 // bodies for the core to render. Implementations: direct QUIC (world is a

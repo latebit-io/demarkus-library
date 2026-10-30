@@ -20,11 +20,9 @@
   {{- end }}
   </div>
 </div>
-{{- if .SourcesURL }}
-{{/* The stale-answer note (live_sources.go): hidden until a source the
-     answers were read from moves on. */}}
-<p class="live-edition" role="status" hx-sse:connect="{{ .SourcesURL }}" hx-sse:close="done"><span class="edition-text"></span> · ask again for a fresh answer</p>
-{{- end }}
+{{/* The stale-answer slot (live_sources.go): an answer that settles refills
+     it, so its stream covers that answer too. */}}
+<div id="librarian-stale">{{template "librarian-stale" .SourcesURL}}</div>
 {{- if .Ask }}
 {{- if .Ask.Notice }}<p class="ask-notice">{{ .Ask.Notice }}</p>{{ end }}
 <form class="ask-form" method="post" action="/a/ask"
@@ -63,6 +61,10 @@
   <input type="hidden" name="idx" value="{{ .Idx }}">
   <button type="submit" title="New conversation" aria-label="New conversation"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6"/><path d="M17.5 3.5a2.1 2.1 0 0 1 3 3L12 15l-4 1 1-4Z"/></svg></button>
 </form>{{end}}
+
+{{/* The stale-answer note: hidden until a source the answers were read from
+     moves on. */}}
+{{define "librarian-stale"}}{{ if . }}<p class="live-edition" role="status" hx-sse:connect="{{ . }}" hx-sse:close="done"><span class="edition-text"></span> · ask again for a fresh answer</p>{{ end }}{{end}}
 
 {{/* One exchange. A finished exchange (transcript) carries its steps, the
      rendered Answer, and its sources; a live one (the htmx ask response)
