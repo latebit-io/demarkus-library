@@ -44,6 +44,9 @@ func TestTrailRoundTrip(t *testing.T) {
 		{"floor then world map", trail{Panes: []paneAddr{
 			{Kind: paneFloor}, {Kind: paneFloor, World: "root"}}, Focus: 1},
 			"/t/u/~/root/u/"},
+		{"activity beside a doc", trail{Panes: []paneAddr{
+			doc("w", "/x.md"), {Kind: paneActivity}}, Focus: 1},
+			"/t/w/d/x.md/~/v"},
 		{"listings mid-trail (no //)", trail{Panes: []paneAddr{
 			{Kind: paneFloor}, doc("w", "/"), doc("w", "/an/"), doc("w", "/an/x.md")}, Focus: 3},
 			"/t/u/~/w/d/~~/w/d/an/~~/w/d/an/x.md"},

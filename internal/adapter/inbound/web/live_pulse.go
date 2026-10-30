@@ -1,7 +1,7 @@
 package web
 
-// The floor's pulse (plans/watch-realtime.md, next 5): the recent writes in
-// the worlds this reader may see, re-listed on every write and swapped in only
+// The pulse (plans/watch-realtime.md, next 5): the recent writes in the worlds
+// this reader may see, on the floor and in the activity pane, swapped in only
 // when the list changed, so a write in a hidden world sends nothing.
 
 import (
@@ -20,17 +20,17 @@ import (
 // LivePulsePath is the pulse stream; LongLived like the edition one.
 const LivePulsePath = "/live/pulse"
 
-// pulseSettle spaces one floor's re-lists, so an agent's crawl of hundreds of
+// pulseSettle spaces one stream's re-lists, so an agent's crawl of hundreds of
 // writes costs a swap a second, not one per write.
 const pulseSettle = time.Second
 
 var pulseRegions = sseRegions{"pulse": {"find .pulse-list", "outerHTML"}}
 
-// pulseVM is the floor's recent activity and the stream that keeps it current.
+// pulseVM is a pane's recent activity and the stream, if any, that keeps it current.
 type pulseVM struct {
-	StreamURL   string
+	StreamURL   string // "" for a pane without focus or a room without a feed
 	Items       []pulseItemVM
-	Unavailable bool // the list failed; the stream's first list replaces the note
+	Unavailable bool // no list to show; a stream's first list replaces the note
 }
 
 // pulseItemVM is one write: what happened to which document, and who wrote it.
@@ -45,15 +45,15 @@ type pulseItemVM struct {
 	Stamp  string // the same instant for <time datetime>
 }
 
-// livePulseURL is the stream the focused floor at pane idx connects to; the
-// trail rides along so the list's links continue it.
+// livePulseURL is the stream the focused pane idx connects to; the trail
+// rides along so the list's links continue it.
 func livePulseURL(t trail, idx int) string {
 	query := url.Values{"trail": {trailRest(t)}, "idx": {strconv.Itoa(idx)}}
 	return LivePulsePath + "?" + query.Encode()
 }
 
 // pulseItems words each write for the list; links open the document beside
-// the floor at pane idx.
+// pane idx.
 func pulseItems(pulses []domain.Pulse, t trail, idx int) []pulseItemVM {
 	items := make([]pulseItemVM, 0, len(pulses))
 	for _, p := range pulses {
@@ -86,7 +86,13 @@ func pulseWhat(change domain.Change) string {
 
 func samePulse(a, b domain.Pulse) bool { return a.Change == b.Change && a.At.Equal(b.At) }
 
-// LivePulse streams the floor's recent activity until the reader leaves.
+// showsPulse reports a pane that lists recent activity: the universe floor or
+// the activity pane.
+func showsPulse(p paneAddr) bool {
+	return p == paneAddr{Kind: paneFloor} || p == paneAddr{Kind: paneActivity}
+}
+
+// LivePulse streams a pane's recent activity until the reader leaves.
 func (h LiveHandler) LivePulse(c *echo.Context) error {
 	if crossSiteStream(c) {
 		return echo.NewHTTPError(http.StatusForbidden, "cross-site stream rejected")
@@ -95,8 +101,8 @@ func (h LiveHandler) LivePulse(c *echo.Context) error {
 		return echo.NewHTTPError(http.StatusNotFound, "the pulse is off")
 	}
 	t, err := parseTrail(c.QueryParam("trail"), c.QueryParam("idx"), "")
-	if err != nil || t.Panes[t.Focus] != (paneAddr{Kind: paneFloor}) {
-		return echo.NewHTTPError(http.StatusBadRequest, "the pulse streams to the universe floor")
+	if err != nil || !showsPulse(t.Panes[t.Focus]) {
+		return echo.NewHTTPError(http.StatusBadRequest, "the pulse streams to the universe floor or the activity pane")
 	}
 	ctx := c.Request().Context()
 	// Subscribe before the first list, so a write between them still signals.

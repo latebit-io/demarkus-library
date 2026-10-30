@@ -55,8 +55,8 @@ func (s *ReadingService) Pulse(ctx context.Context) ([]domain.Pulse, error) {
 	return s.pulse.visible(hosts), nil
 }
 
-// WatchPulse implements port.Pulse. Every write signals, also one in a world
-// the reader cannot see: the caller compares what it lists, not the signal.
+// WatchPulse implements port.Pulse. Every recorded write signals, also one in
+// a world the reader cannot see: the caller compares what it lists, not the signal.
 func (s *ReadingService) WatchPulse(ctx context.Context) <-chan struct{} {
-	return s.watchers.add(ctx, func(change domain.Change) bool { return !change.Resync })
+	return s.watchers.add(ctx, domain.Change.Activity)
 }

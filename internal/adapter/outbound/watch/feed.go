@@ -14,6 +14,7 @@ import (
 	"github.com/latebit-io/demarkus-library/internal/core/port"
 	"github.com/latebit-io/demarkus/client/fetch"
 	"github.com/latebit-io/demarkus/client/mcpwatch"
+	"github.com/latebit-io/demarkus/client/memory/graphstore"
 	"github.com/latebit-io/demarkus/protocol"
 )
 
@@ -159,7 +160,7 @@ func (f *Feed) change(notice fetch.Notice) (domain.Change, bool) {
 		return domain.Change{}, false
 	}
 	return domain.Change{World: f.world, Path: event.Path, Op: op, Version: event.Version,
-		Agent: event.Agent, User: event.User}, true
+		Agent: event.Agent, User: event.User, Derived: graphstore.IsGeneratedGraphPath(event.Path)}, true
 }
 
 func sleep(ctx context.Context, d time.Duration) bool {

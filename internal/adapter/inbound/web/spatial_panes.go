@@ -2,7 +2,6 @@ package web
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
@@ -12,12 +11,12 @@ import (
 // The spatial views as canvas panes (ADR 0005 decision 4). Both the canvas and
 // SpatialHandler build them, so the ports are declared here once.
 
-// spatialPanes builds the floor, world-map and graph panes.
+// spatialPanes builds the floor, world-map, graph and activity panes.
 type spatialPanes struct {
 	maps  port.MapService
 	graph port.GraphService
 	terms Terms      // the universe's display name (floor title, spine, context labels)
-	pulse port.Pulse // the focused floor's recent activity; nil = no change feed
+	pulse port.Pulse // recent activity for the floor and the activity pane; nil = no change feed
 }
 
 // worldMapPane builds the world-map pane on the trail canvas (focused-live
@@ -38,13 +37,7 @@ func (h spatialPanes) worldMapPane(ctx context.Context, slot paneSlot) (paneVM, 
 		return paneVM{}, fmt.Errorf("build world map %s: %w", addr.World, err)
 	}
 
-	mode := "spine"
-	switch {
-	case focused:
-		mode = "focused"
-	case paneIndex == trailState.Focus-1:
-		mode = "body"
-	}
+	mode := paneMode(trailState, paneIndex)
 	vm := paneVM{
 		Mode:     mode,
 		Kind:     paneFloor,
@@ -79,13 +72,7 @@ func (h spatialPanes) floorPane(ctx context.Context, t trail, i int, mapView boo
 		return paneVM{}, fmt.Errorf("build universe floor: %w", err)
 	}
 
-	mode := "spine"
-	switch {
-	case focused:
-		mode = "focused"
-	case i == t.Focus-1:
-		mode = "body"
-	}
+	mode := paneMode(t, i)
 	vm := paneVM{
 		Mode:     mode,
 		Kind:     paneFloor,
@@ -103,13 +90,9 @@ func (h spatialPanes) floorPane(ctx context.Context, t trail, i int, mapView boo
 			fv.Summary, fv.Cards = floorSummary(floor), worldCards(floor, t, i)
 		}
 		if h.pulse != nil && focused {
-			pulses, err := h.pulse.Pulse(ctx)
-			if errors.Is(err, domain.ErrUnauthorized) {
-				return paneVM{}, fmt.Errorf("list the floor's pulse: %w", err)
+			if fv.Pulse, err = h.pulseSection(ctx, t, i); err != nil {
+				return paneVM{}, err
 			}
-			// A failed list says so and still mounts the stream, whose retry
-			// swaps the list in.
-			fv.Pulse = &pulseVM{StreamURL: livePulseURL(t, i), Items: pulseItems(pulses, t, i), Unavailable: err != nil}
 		}
 		vm.Floor = fv
 	}
@@ -120,13 +103,7 @@ func (h spatialPanes) floorPane(ctx context.Context, t trail, i int, mapView boo
 // post-click trail URLs so a click continues the trail (decision 4). Like the
 // floor, the graph carries no margin — its signals are on the nodes.
 func (h spatialPanes) graphPane(ctx context.Context, t trail, i int, addr paneAddr) paneVM {
-	mode := "spine"
-	switch i {
-	case t.Focus:
-		mode = "focused"
-	case t.Focus - 1:
-		mode = "body"
-	}
+	mode := paneMode(t, i)
 	vm := paneVM{
 		Mode:     mode,
 		Kind:     paneGraph,

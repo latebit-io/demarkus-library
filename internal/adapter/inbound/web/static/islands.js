@@ -201,9 +201,7 @@
     if (b) copyAddress(b);
   });
   document.addEventListener("keydown", function (e) {
-    if (e.key !== "c" || e.ctrlKey || e.metaKey || e.altKey || typingIn(e)) return;
-    var p = palette();
-    if ((p && !p.hidden) || openOverlay()) return;
+    if (!bareKey(e, "c")) return;
     var b = document.querySelector(".reader-backdrop button.copy-mark:not(.copy-anchor)") ||
       document.querySelector(".pane.focused button.copy-mark:not(.copy-anchor)") ||
       document.querySelector("button.copy-mark:not(.copy-anchor)");
@@ -450,6 +448,13 @@
   function typingIn(e) {
     var tag = (e.target.tagName || "").toLowerCase();
     return tag === "input" || tag === "textarea" || tag === "select" || !!e.target.isContentEditable;
+  }
+  // bareKey is an unmodified press of key the room may take: not while
+  // typing, nor while the palette or an overlay holds the keyboard.
+  function bareKey(e, key) {
+    if (e.key !== key || e.ctrlKey || e.metaKey || e.altKey || typingIn(e)) return false;
+    var p = palette();
+    return !(p && !p.hidden) && !openOverlay();
   }
   var calm = window.matchMedia("(prefers-reduced-motion: reduce)");
   var overlayFade = 140; // ms: matches .graph-backdrop.closing in library.css
@@ -787,14 +792,23 @@
   // without any of this. `a` puts the cursor in the ask box when a librarian
   // pane is open, else walks through the nav door (which joins the trail).
   document.addEventListener("keydown", function (e) {
-    if (e.key !== "a" || e.ctrlKey || e.metaKey || e.altKey || typingIn(e)) return;
-    var p = palette();
-    if ((p && !p.hidden) || openOverlay()) return;
+    if (!bareKey(e, "a")) return;
     var box = document.querySelector(".pane .ask-input");
     var door = document.querySelector("a.nav-librarian");
     if (!box && !door) return;
     e.preventDefault();
     box ? box.focus() : door.click();
+  });
+
+  // --- activity (v) ----------------------------------------------------
+  // Walks through the nav door, which opens the activity pane beside the
+  // focus; the door is a real link, so this is only the key.
+  document.addEventListener("keydown", function (e) {
+    if (!bareKey(e, "v")) return;
+    var door = document.querySelector("a.nav-activity");
+    if (!door) return;
+    e.preventDefault();
+    door.click();
   });
   // Enter asks, Shift+Enter breaks the line; nothing is sent while an answer
   // is still streaming (the server would refuse it as busy anyway).

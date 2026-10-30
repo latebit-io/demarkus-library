@@ -127,13 +127,7 @@ type librarianPaneVM struct {
 // librarian problem is a notice, not a tombstone.
 func (h librarianPanes) pane(c *echo.Context, t trail, i int) paneVM {
 	focused := i == t.Focus
-	mode := "spine"
-	switch {
-	case focused:
-		mode = "focused"
-	case i == t.Focus-1:
-		mode = "body"
-	}
+	mode := paneMode(t, i)
 	name := h.identity.name(c.Request().Context())
 	// The head names the librarian; the pane has no title heading of its own,
 	// so the conversation starts right under the head.
@@ -331,6 +325,8 @@ func (h librarianPanes) paneContextLabel(ctx context.Context, p paneAddr) string
 	switch p.Kind {
 	case paneLibrarian:
 		return "this librarian conversation"
+	case paneActivity:
+		return "the recent activity list"
 	case paneFloor:
 		if p.World == "" {
 			return "the " + h.identity.terms.UniverseLower() + " floor"

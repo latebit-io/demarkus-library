@@ -108,16 +108,20 @@ func TestFeedMapsNotices(t *testing.T) {
 		event(2, "rename", "/b.md"),
 		{Resync: true},
 		event(3, protocol.OpArchive, "/c.md"),
+		event(4, protocol.OpPublish, "/graph/worlds/team-a/9.md"),
+		event(5, protocol.OpPublish, "/graph.md"),
 	}}}}}
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
-	got := receive(t, newTestFeed(o).Changes(ctx), 3)
+	got := receive(t, newTestFeed(o).Changes(ctx), 5)
 
 	want := []domain.Change{
 		{World: "h.example.org:6309", Path: "/a.md", Op: domain.OpPublish, Version: 4, Agent: "claude-code", User: "ana@example.org"},
 		{World: "h.example.org:6309", Resync: true},
 		{World: "h.example.org:6309", Path: "/c.md", Op: domain.OpArchive},
+		{World: "h.example.org:6309", Path: "/graph/worlds/team-a/9.md", Op: domain.OpPublish, Derived: true},
+		{World: "h.example.org:6309", Path: "/graph.md", Op: domain.OpPublish, Derived: true},
 	}
 	for i := range want {
 		if got[i] != want[i] {

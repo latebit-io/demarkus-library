@@ -58,7 +58,7 @@ func (r Room) WithLibrarian(lib port.Librarian) Room {
 }
 
 // WithLiveEditions gives the focused document pane a stream that announces a
-// newer edition (live.go), and the focused floor its pulse (live_pulse.go).
+// newer edition (live.go), and the floor and activity pane their pulse (live_pulse.go).
 // The composition root calls it when a change feed is wired.
 func (r Room) WithLiveEditions(w port.LiveService) Room {
 	r.live = w
@@ -84,7 +84,7 @@ func (r Room) WithPaneScroll() Room {
 
 // chrome is the nav builder every surface shares (chrome.go).
 func (r Room) chrome() chromeBuilder {
-	return chromeBuilder{librarianOn: r.lib != nil, paneScroll: r.paneScroll}
+	return chromeBuilder{librarianOn: r.lib != nil, activityOn: r.live != nil, paneScroll: r.paneScroll}
 }
 
 // spatialPanes is the floor/map/graph pane builder the canvas and the spatial
@@ -171,7 +171,7 @@ func (r Room) brandingHandler() BrandingHandler {
 //   - /a, /a/ask, /a/stream      the AI librarian (Phase 4)
 //   - /a/stop, /a/new            stop the answer in flight; start the conversation over
 //   - /live?world=&path=&v=      the focused document's live-edition stream
-//   - /live/sources, /live/pulse the stale-answer stream; the focused floor's pulse
+//   - /live/sources, /live/pulse the stale-answer stream; the focused pulse (floor or activity)
 //
 // /w/ routes are the stable single-pane permalinks (and what the margin's
 // escape block points at); /t/ is where reading happens. The world-less 1a

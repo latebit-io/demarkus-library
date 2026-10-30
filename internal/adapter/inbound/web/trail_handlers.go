@@ -26,7 +26,7 @@ const (
 
 // canvasVM is the view model of the "canvas" template.
 type canvasVM struct {
-	navChrome        // the shared nav (chrome.go); LibrarianURL is re-pointed at THIS trail
+	navChrome        // the shared nav (chrome.go); its pane doors are re-pointed at THIS trail
 	Title     string // focused pane's title (the <title>)
 	World     string // focused pane's world (nav context)
 	Panes     []paneVM
@@ -88,6 +88,7 @@ type paneVM struct {
 	EscapeCopy  bool             // no pane head here (overlay, permalink): the escape row carries the copy button
 	Librarian   *librarianPaneVM // the librarian pane's transcript + ask form (kind "a" only)
 	Floor       *floorVM         // the universe pane's cards or map (the floor only)
+	Activity    *pulseVM         // the activity pane's list (kind "v" only)
 	ReaderURL   string           // header/margin affordance: open this pane in the reader overlay (R4)
 	GraphURL    string           // margin affordance: open this doc's graph overlay (empty ⇒ no references)
 	GraphDegree int              // reference edges the graph affordance advertises
@@ -113,6 +114,25 @@ type paneVM struct {
 	LiveURL string
 }
 
+// trailDoors re-points the doors the chrome opened at the CURRENT trail: the
+// pane joins beside the focus, carrying the reader's context, and the click
+// algebra focuses one already present instead of duplicating it.
+func trailDoors(nav *navChrome, t trail) {
+	door := func(kind string) string { return trailURL(trailAfterClick(t, t.Focus, paneAddr{Kind: kind})) }
+	if nav.LibrarianURL != "" {
+		nav.LibrarianURL = door(paneLibrarian)
+	}
+	if nav.ActivityURL != "" {
+		nav.ActivityURL = door(paneActivity)
+	}
+}
+
+// goneSpine is pane i collapsed to a tombstone: it no longer reads, and the
+// rest of the trail survives it.
+func goneSpine(t trail, i int, kind, title string) paneVM {
+	return paneVM{Mode: "spine", Kind: kind, Gone: true, FocusURL: trailURL(trailFocused(t, i)), Title: title}
+}
+
 // Trail renders the canvas for the trail encoded at /t/*.
 func (h *ReadingHandler) Trail(c *echo.Context) error {
 	t, err := parseTrail(c.Param("*"), c.QueryParam("focus"), c.QueryParam("reader"))
@@ -127,12 +147,7 @@ func (h *ReadingHandler) Trail(c *echo.Context) error {
 		Panes:     make([]paneVM, len(t.Panes)),
 	}
 	authed := vm.Authenticated
-	if h.librarian.enabled() {
-		// The nav's librarian door appends the pane to the CURRENT trail —
-		// the conversation arrives with the reader's context, and the click
-		// algebra focuses an already-present librarian instead of duplicating.
-		vm.LibrarianURL = trailURL(trailAfterClick(t, t.Focus, paneAddr{Kind: paneLibrarian}))
-	}
+	trailDoors(&vm.navChrome, t)
 	// The reader overlay (R4) is a lens over whichever pane ?reader= names —
 	// independent of focus. Every pane is read in this loop anyway (focused
 	// live, the rest cached), so capture the reader pane's already-fetched doc
@@ -164,8 +179,7 @@ func (h *ReadingHandler) Trail(c *echo.Context) error {
 				if focused {
 					return presentError(c, err, scope, "/")
 				}
-				vm.Panes[i] = paneVM{Mode: "spine", Kind: paneFloor, Gone: true,
-					FocusURL: trailURL(trailFocused(t, i)), Title: floorSpineTitle(addr, h.terms)}
+				vm.Panes[i] = goneSpine(t, i, paneFloor, floorSpineTitle(addr, h.terms))
 				continue
 			}
 			vm.Panes[i] = pane
@@ -184,6 +198,17 @@ func (h *ReadingHandler) Trail(c *echo.Context) error {
 			vm.Panes[i] = h.librarian.pane(c, t, i)
 			continue
 		}
+		if addr.Kind == paneActivity {
+			pane, err := h.spatial.activityPane(ctx, t, i)
+			switch {
+			case err != nil && focused:
+				return presentError(c, err, "activity", "/")
+			case err != nil:
+				pane = goneSpine(t, i, paneActivity, activityTitle)
+			}
+			vm.Panes[i] = pane
+			continue
+		}
 		doc, err := h.readPane(ctx, addr, focused)
 		switch {
 		case err != nil && focused:
@@ -193,11 +218,7 @@ func (h *ReadingHandler) Trail(c *echo.Context) error {
 			// A stale shared trail shouldn't die because one waypoint was
 			// archived: the pane renders as a tombstone spine, the rest of
 			// the path survives.
-			vm.Panes[i] = paneVM{
-				Mode: "spine", Kind: addr.Kind, Gone: true,
-				FocusURL: trailURL(trailFocused(t, i)),
-				Title:    paneFallbackTitle(addr),
-			}
+			vm.Panes[i] = goneSpine(t, i, addr.Kind, paneFallbackTitle(addr))
 		default:
 			if i == t.Reader {
 				readerDoc, readerAddr, haveReaderDoc = doc, addr, true
@@ -378,14 +399,9 @@ func (h *ReadingHandler) paneView(ctx context.Context, req *paneRequest) paneVM 
 	focused := paneIndex == trailState.Focus
 	reader := overlay == overlayReader
 
-	mode := "spine"
-	switch {
-	case overlay != "":
+	mode := paneMode(trailState, paneIndex)
+	if overlay != "" {
 		mode = overlay
-	case focused:
-		mode = "focused"
-	case paneIndex == trailState.Focus-1:
-		mode = "body"
 	}
 
 	vm := paneVM{

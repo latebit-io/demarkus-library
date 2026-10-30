@@ -219,6 +219,8 @@ func paneLabel(p paneAddr, terms Terms) (title, loc string) {
 	switch p.Kind {
 	case paneLibrarian:
 		return "librarian", ""
+	case paneActivity:
+		return "activity", ""
 	case paneFloor:
 		if p.World == "" {
 			return terms.UniverseLower(), ""

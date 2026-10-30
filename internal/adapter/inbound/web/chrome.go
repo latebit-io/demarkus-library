@@ -9,12 +9,16 @@ import "github.com/labstack/echo/v5"
 // just that pane. The canvas replaces it with a trail-carrying door.
 const librarianDoor = "/a"
 
+// activityDoor is the nav's entrance to recent activity, the same way.
+const activityDoor = "/t/" + paneActivity
+
 // navChrome is the assembled nav state. Templates reach its fields through the
 // view model that embeds it.
 type navChrome struct {
 	Authenticated bool   // behind the turnstile (broker mode) — shows sign-out
 	User          string // signed-in identity's email (empty ⇒ not shown)
 	LibrarianURL  string // nav door to the librarian (empty ⇒ not configured)
+	ActivityURL   string // nav door to recent activity (empty ⇒ no change feed)
 	PaneScroll    bool   // the pane-scroll room, ADR 0007 (canvas body class)
 
 	// The overlay pull-ups the nav advertises with their hotkeys (ADR 0006
@@ -26,9 +30,11 @@ type navChrome struct {
 }
 
 // chromeBuilder holds what the chrome needs beyond the request: whether a
-// librarian is wired and which room the composition root selected.
+// librarian and a change feed are wired, and which room the composition root
+// selected.
 type chromeBuilder struct {
 	librarianOn bool
+	activityOn  bool
 	paneScroll  bool
 }
 
@@ -41,6 +47,9 @@ func (b chromeBuilder) build(c *echo.Context) navChrome {
 	}
 	if b.librarianOn {
 		nav.LibrarianURL = librarianDoor
+	}
+	if b.activityOn {
+		nav.ActivityURL = activityDoor
 	}
 	return nav
 }
