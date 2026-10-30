@@ -65,24 +65,29 @@ func TestFloorPulseNeedsFocusAndAFeed(t *testing.T) {
 	}
 }
 
-// A failed list still mounts the stream, whose retry fills it in; a refused
-// one drops the pulse.
+// A failed list says so and still mounts the stream, whose retry swaps the
+// list in.
 func TestFloorPulseOnAFailedList(t *testing.T) {
-	tests := []struct {
-		name string
-		live *fakeWatcher
-		want bool
-	}{
-		{"transient failure", &fakeWatcher{pulseFails: 1}, true},
-		{"refused", &fakeWatcher{pulseErr: domain.ErrUnauthorized}, false},
+	body := get(roomApp(t, pulseRoom(&fakeWatcher{pulseFails: 1})), "/t/u").Body.String()
+	for _, want := range []string{
+		`<li class="pulse-quiet">Recent activity is unavailable right now</li>`,
+		`hx-sse:connect="`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("floor missing %q", want)
+		}
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			body := get(roomApp(t, pulseRoom(tt.live)), "/t/u").Body.String()
-			if got := strings.Contains(body, `class="pulse"`); got != tt.want {
-				t.Errorf("floor carries a pulse = %v, want %v", got, tt.want)
-			}
-		})
+	if strings.Contains(body, "Nothing written") {
+		t.Error("a failed list reads as a quiet room")
+	}
+}
+
+// A refused list refuses the floor, so the reader signs in again rather than
+// reading a floor that lost its pulse.
+func TestFloorPulseRefusedRefusesTheFloor(t *testing.T) {
+	rec := get(roomApp(t, pulseRoom(&fakeWatcher{pulseErr: domain.ErrUnauthorized})), "/t/u")
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
 	}
 }
 

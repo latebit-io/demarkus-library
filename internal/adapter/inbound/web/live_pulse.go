@@ -28,8 +28,9 @@ var pulseRegions = sseRegions{"pulse": {"find .pulse-list", "outerHTML"}}
 
 // pulseVM is the floor's recent activity and the stream that keeps it current.
 type pulseVM struct {
-	StreamURL string
-	Items     []pulseItemVM
+	StreamURL   string
+	Items       []pulseItemVM
+	Unavailable bool // the list failed; the stream's first list replaces the note
 }
 
 // pulseItemVM is one write: what happened to which document, and who wrote it.

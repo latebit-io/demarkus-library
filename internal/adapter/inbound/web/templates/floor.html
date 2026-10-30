@@ -16,7 +16,11 @@
      changes for this reader. */}}
 <section class="pulse" aria-labelledby="pulse-head" hx-sse:connect="{{ .StreamURL }}" hx-sse:close="done">
   <h2 id="pulse-head" class="pulse-head">Recent activity</h2>
+  {{- if .Unavailable }}
+  <ol class="pulse-list"><li class="pulse-quiet">Recent activity is unavailable right now</li></ol>
+  {{- else }}
   {{template "pulse-list" .Items}}
+  {{- end }}
 </section>
 {{- end }}
 {{end}}

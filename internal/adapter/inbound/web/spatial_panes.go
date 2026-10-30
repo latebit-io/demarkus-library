@@ -103,11 +103,13 @@ func (h spatialPanes) floorPane(ctx context.Context, t trail, i int, mapView boo
 			fv.Summary, fv.Cards = floorSummary(floor), worldCards(floor, t, i)
 		}
 		if h.pulse != nil && focused {
-			// A failed list still mounts the stream, whose retry fills it in;
-			// a refused one drops the pulse, since its stream would end at once.
-			if pulses, err := h.pulse.Pulse(ctx); !errors.Is(err, domain.ErrUnauthorized) {
-				fv.Pulse = &pulseVM{StreamURL: livePulseURL(t, i), Items: pulseItems(pulses, t, i)}
+			pulses, err := h.pulse.Pulse(ctx)
+			if errors.Is(err, domain.ErrUnauthorized) {
+				return paneVM{}, fmt.Errorf("list the floor's pulse: %w", err)
 			}
+			// A failed list says so and still mounts the stream, whose retry
+			// swaps the list in.
+			fv.Pulse = &pulseVM{StreamURL: livePulseURL(t, i), Items: pulseItems(pulses, t, i), Unavailable: err != nil}
 		}
 		vm.Floor = fv
 	}
