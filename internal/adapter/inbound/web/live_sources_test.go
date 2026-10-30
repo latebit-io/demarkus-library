@@ -4,6 +4,7 @@ import (
 	"context"
 	"maps"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -107,9 +108,11 @@ func TestLiveSourcesRefusals(t *testing.T) {
 		{"no source of known edition", LiveHandler{watcher: &fakeWatcher{}, history: unknown}, http.StatusNotFound},
 	}
 	for _, tt := range tests {
-		if rec := get(liveApp(tt.h), LiveSourcesPath); rec.Code != tt.want {
-			t.Errorf("%s: status = %d, want %d", tt.name, rec.Code, tt.want)
-		}
+		t.Run(tt.name, func(t *testing.T) {
+			if rec := get(liveApp(tt.h), LiveSourcesPath); rec.Code != tt.want {
+				t.Errorf("status = %d, want %d", rec.Code, tt.want)
+			}
+		})
 	}
 }
 
@@ -123,5 +126,85 @@ func TestAnswerSourcesKeepTheLatestEdition(t *testing.T) {
 	})
 	if len(got) != 1 || got[0].Version != "6" {
 		t.Errorf("sources = %+v, want one at edition 6", got)
+	}
+}
+
+// A long conversation watches only its newest maxLiveSources sources.
+func TestAnswerSourcesKeepTheNewest(t *testing.T) {
+	exchanges := make([]domain.LibrarianExchange, maxLiveSources+8)
+	for i := range exchanges {
+		path := "/doc-" + strconv.Itoa(i) + ".md"
+		exchanges[i].Sources = []domain.LibrarianSource{{Ref: domain.Ref{World: "w.io", Path: path}, Version: "1"}}
+	}
+	got := answerSources(exchanges)
+	if len(got) != maxLiveSources {
+		t.Fatalf("sources = %d, want %d", len(got), maxLiveSources)
+	}
+	for i, source := range got {
+		if want := "/doc-" + strconv.Itoa(maxLiveSources+7-i) + ".md"; source.Path != want {
+			t.Errorf("source[%d] = %s, want %s", i, source.Path, want)
+		}
+	}
+}
+
+// The pane always carries the stale-answer slot, so a pane's first answer has
+// somewhere to start its stream; the stream itself needs a change feed.
+func TestLibrarianPaneCarriesTheStaleSlot(t *testing.T) {
+	tests := []struct {
+		name    string
+		history []domain.LibrarianExchange
+		live    bool
+		want    string
+	}{
+		{"no change feed", answeredFrom, false, `<div id="librarian-stale"></div>`},
+		{"no answer yet", nil, true, `<div id="librarian-stale"></div>`},
+		{"answered", answeredFrom, true, `<div id="librarian-stale"><p class="live-edition" role="status" hx-sse:connect="/live/sources"`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if body := get(roomApp(t, liveRoom(&fakeLibrarian{history: tt.history}, tt.live)), "/t/a").Body.String(); !strings.Contains(body, tt.want) {
+				t.Errorf("pane lacks %q", tt.want)
+			}
+		})
+	}
+}
+
+// liveRoom is librarianRoom, with a change feed when live.
+func liveRoom(lib *fakeLibrarian, live bool) Room {
+	if live {
+		return librarianRoom(lib).WithLiveEditions(&fakeWatcher{})
+	}
+	return librarianRoom(lib)
+}
+
+// A settling answer refills the slot when the conversation has a source of
+// known edition, before done closes its stream.
+func TestSettledAnswerRefillsTheStaleSlot(t *testing.T) {
+	tests := []struct {
+		name    string
+		history []domain.LibrarianExchange
+		live    bool
+		want    bool
+	}{
+		{"answered from known editions", answeredFrom, true, true},
+		{"no change feed", answeredFrom, false, false},
+		{"no source of known edition", nil, true, false},
+	}
+	refill := `data: <hx-partial hx-target="#librarian-stale" hx-swap="innerHTML"><p class="live-edition" role="status" hx-sse:connect="/live/sources"`
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			lib := &fakeLibrarian{history: tt.history, events: []domain.LibrarianEvent{
+				{Kind: domain.LibrarianAnswer, Text: "So."}, {Kind: domain.LibrarianDone},
+			}}
+			e := roomApp(t, liveRoom(lib, tt.live))
+			body := get(e, askToken(t, e, "how?")).Body.String()
+			at := strings.Index(body, refill)
+			if got := at >= 0; got != tt.want {
+				t.Errorf("refilled = %v, want %v:\n%s", got, tt.want, body)
+			}
+			if at > strings.Index(body, "event: done") {
+				t.Error("the slot refilled after done")
+			}
+		})
 	}
 }

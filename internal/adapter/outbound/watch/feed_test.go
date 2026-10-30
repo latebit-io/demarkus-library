@@ -98,11 +98,13 @@ func receive(t *testing.T, changes <-chan domain.Change, n int) []domain.Change 
 	return got
 }
 
-// Events and resyncs become hints stamped with the world; an unknown op is
-// skipped, not fatal.
+// Events and resyncs become hints stamped with the world, carrying who wrote
+// what; an unknown op is skipped, not fatal.
 func TestFeedMapsNotices(t *testing.T) {
+	published := event(1, protocol.OpPublish, "/a.md")
+	published.Event.Version, published.Event.Agent, published.Event.User = 4, "claude-code", "ana@example.org"
 	o := &opener{script: []subscribeResult{{watch: &scriptedWatch{notices: []fetch.Notice{
-		event(1, protocol.OpPublish, "/a.md"),
+		published,
 		event(2, "rename", "/b.md"),
 		{Resync: true},
 		event(3, protocol.OpArchive, "/c.md"),
@@ -113,9 +115,9 @@ func TestFeedMapsNotices(t *testing.T) {
 	got := receive(t, newTestFeed(o).Changes(ctx), 3)
 
 	want := []domain.Change{
-		{World: "h.example.org:6309", Path: "/a.md"},
+		{World: "h.example.org:6309", Path: "/a.md", Op: domain.OpPublish, Version: 4, Agent: "claude-code", User: "ana@example.org"},
 		{World: "h.example.org:6309", Resync: true},
-		{World: "h.example.org:6309", Path: "/c.md"},
+		{World: "h.example.org:6309", Path: "/c.md", Op: domain.OpArchive},
 	}
 	for i := range want {
 		if got[i] != want[i] {

@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
@@ -15,7 +16,8 @@ import (
 type spatialPanes struct {
 	maps  port.MapService
 	graph port.GraphService
-	terms Terms // the universe's display name (floor title, spine, context labels)
+	terms Terms      // the universe's display name (floor title, spine, context labels)
+	pulse port.Pulse // the focused floor's recent activity; nil = no change feed
 }
 
 // worldMapPane builds the world-map pane on the trail canvas (focused-live
@@ -100,6 +102,15 @@ func (h spatialPanes) floorPane(ctx context.Context, t trail, i int, mapView boo
 		} else {
 			fv.Summary, fv.Cards = floorSummary(floor), worldCards(floor, t, i)
 		}
+		if h.pulse != nil && focused {
+			pulses, err := h.pulse.Pulse(ctx)
+			if errors.Is(err, domain.ErrUnauthorized) {
+				return paneVM{}, fmt.Errorf("list the floor's pulse: %w", err)
+			}
+			// A failed list says so and still mounts the stream, whose retry
+			// swaps the list in.
+			fv.Pulse = &pulseVM{StreamURL: livePulseURL(t, i), Items: pulseItems(pulses, t, i), Unavailable: err != nil}
+		}
 		vm.Floor = fv
 	}
 	return vm, nil
@@ -157,7 +168,7 @@ func trailNodeURL(t trail, from int) func(domain.Ref) string {
 		if len(t.Panes) == 0 {
 			return docRoute(r.World, r.Path)
 		}
-		return trailURL(trailAfterClick(t, from, paneAddr{Kind: paneDoc, World: r.World, Value: r.Path}))
+		return trailDocLink(r, t, from)
 	}
 }
 

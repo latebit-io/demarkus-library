@@ -31,13 +31,14 @@ type documentReader interface {
 	Open(ctx context.Context, world, path string) (domain.Document, error)
 }
 
-// LiveHandler serves the live-edition stream and the stale-answer stream
-// (live_sources.go).
+// LiveHandler serves the live-edition stream, the stale-answer stream
+// (live_sources.go) and the floor's pulse (live_pulse.go).
 type LiveHandler struct {
 	reader  documentReader
 	watcher port.DocumentWatcher // nil = no change feed; the panes carry no stream
 	sources sourceReader
 	history sourceHistory // nil = no librarian
+	pulse   port.Pulse    // nil = no change feed
 }
 
 // liveDoc is the document a stream watches and the edition its pane rendered.

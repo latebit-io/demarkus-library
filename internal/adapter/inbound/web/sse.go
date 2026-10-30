@@ -1,8 +1,8 @@
 package web
 
 // The SSE plumbing every stream shares: the librarian's answers
-// (librarian_stream.go) and the live-edition banner (live.go). Each stream
-// owns its regions.
+// (librarian_stream.go) and the live streams (live*.go). Each stream owns its
+// regions.
 
 import (
 	"context"
@@ -116,10 +116,10 @@ func (s *sseWriter) write(frame string) bool {
 // sseRegion is where a swapping event lands in the block that connected.
 type sseRegion struct{ target, swap string }
 
-// sseRegions maps one stream's swapping events onto regions of its connecting
-// block. htmx 4 swaps only UNNAMED frames, so each goes out as an <hx-partial>
-// aimed (hence `find`) at its region; an unmapped event such as done stays a
-// named event that hx-sse:close hears.
+// sseRegions maps one stream's swapping events onto regions: `find` for one
+// inside its connecting block, an id for one outside. htmx 4 swaps only
+// UNNAMED frames, so each goes out as an <hx-partial>; an unmapped event such
+// as done stays a named event that hx-sse:close hears.
 type sseRegions map[string]sseRegion
 
 // frame renders one complete wire frame (trailing blank line included);
@@ -147,4 +147,16 @@ func sseData(payload string) string {
 		b.WriteByte('\n')
 	}
 	return strings.TrimSuffix(b.String(), "\n")
+}
+
+// fragment renders one named template for a stream, so what a stream swaps in
+// is exactly the markup a reload renders. A failure is logged and frames
+// nothing: the reload still shows it whole.
+func fragment(c *echo.Context, name string, data any) string {
+	var b strings.Builder
+	if err := c.Echo().Renderer.Render(c, &b, name, data); err != nil {
+		c.Logger().Error("stream fragment render failed", "template", name, "err", err)
+		return ""
+	}
+	return b.String()
 }

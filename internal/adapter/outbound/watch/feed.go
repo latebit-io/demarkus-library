@@ -140,16 +140,26 @@ func (f *Feed) follow(ctx context.Context, watch noticeSource, out chan<- domain
 	}
 }
 
+// ops maps the protocol's event ops onto the domain's.
+var ops = map[string]string{
+	protocol.OpPublish: domain.OpPublish,
+	protocol.OpAppend:  domain.OpAppend,
+	protocol.OpArchive: domain.OpArchive,
+}
+
 // change maps a notice to a hint; ok is false for an op this client does not
 // know, which the protocol says to skip rather than fail on.
 func (f *Feed) change(notice fetch.Notice) (domain.Change, bool) {
 	if notice.Resync {
 		return domain.Change{World: f.world, Resync: true}, true
 	}
-	if !protocol.IsKnownOp(notice.Event.Op) {
+	event := notice.Event
+	op, known := ops[event.Op]
+	if !known {
 		return domain.Change{}, false
 	}
-	return domain.Change{World: f.world, Path: notice.Event.Path}, true
+	return domain.Change{World: f.world, Path: event.Path, Op: op, Version: event.Version,
+		Agent: event.Agent, User: event.User}, true
 }
 
 func sleep(ctx context.Context, d time.Duration) bool {

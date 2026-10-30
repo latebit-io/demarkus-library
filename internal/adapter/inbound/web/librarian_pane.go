@@ -56,6 +56,15 @@ type librarianPanes struct {
 // form hang off it.
 func (h librarianPanes) enabled() bool { return h.lib != nil }
 
+// staleSourcesURL is the stale-answer stream over a conversation; "" until an
+// answer read a source of known edition.
+func (h librarianPanes) staleSourcesURL(history []domain.LibrarianExchange) string {
+	if !h.liveEditions || len(answerSources(history)) == 0 {
+		return ""
+	}
+	return LiveSourcesPath
+}
+
 // librarianAskVM feeds the pane's ask form: the current trail context rides
 // as hidden fields so the POST can rebuild post-ask URLs and the stream can
 // trailize answer links.
@@ -110,7 +119,7 @@ type librarianPaneVM struct {
 	Enabled    bool
 	Exchanges  []librarianExchangeVM
 	Ask        *librarianAskVM // nil unless the pane is expanded and enabled
-	SourcesURL string          // the stale-answer stream (live_sources.go); empty ⇒ none
+	SourcesURL string          // the stale-answer stream (live_sources.go); empty ⇒ none yet
 }
 
 // pane builds the librarian pane: transcript from History, rendered like any
@@ -145,17 +154,15 @@ func (h librarianPanes) pane(c *echo.Context, t trail, i int) paneVM {
 		for _, ex := range history {
 			lp.Exchanges = append(lp.Exchanges, h.exchangeVM(ex, t, i))
 		}
-		// The stream covers the answers rendered here; a later answer joins
-		// at the pane's next render.
-		if h.liveEditions && len(answerSources(history)) > 0 {
-			lp.SourcesURL = LiveSourcesPath
-		}
+		// The stream covers the answers rendered here; a later answer
+		// refills the slot as it settles (librarian_stream.go).
+		lp.SourcesURL = h.staleSourcesURL(history)
 		// The ask form rides every EXPANDED librarian pane, focused or not:
 		// reading a cited document focuses the doc pane, and that is exactly
 		// when the follow-up question comes — losing the ask bar there would
 		// force a re-focus round trip. Only the collapsed spine drops it.
 		lp.Ask = &librarianAskVM{
-			TrailRest: strings.TrimPrefix(trailBasePath(t), "/t/"),
+			TrailRest: trailRest(t),
 			Idx:       i,
 			Focus:     t.Focus,
 			Notice:    c.QueryParam("notice"),
@@ -207,20 +214,14 @@ func sourcesVM(sources []librarianSourceVM, cited []domain.Ref, t trail, i int) 
 func stepVM(step domain.LibrarianStep, t trail, i int) librarianStepVM {
 	vm := librarianStepVM{Text: step.Text}
 	if step.Ref.Path != "" {
-		vm.Href, vm.Label = librarianDocLink(step.Ref, t, i), step.Ref.World+step.Ref.Path
+		vm.Href, vm.Label = trailDocLink(step.Ref, t, i), step.Ref.World+step.Ref.Path
 	}
 	return vm
 }
 
 // sourceVM links one grounding document from pane i.
 func sourceVM(src domain.LibrarianSource, t trail, i int) librarianSourceVM {
-	return librarianSourceVM{Title: src.Title, Href: librarianDocLink(src.Ref, t, i), Label: src.World + src.Path}
-}
-
-// librarianDocLink is the trail-continuing URL for a document the librarian
-// names: the click algebra from the librarian pane, like a cited link.
-func librarianDocLink(ref domain.Ref, t trail, i int) string {
-	return trailURL(trailAfterClick(t, i, paneAddr{Kind: paneDoc, World: ref.World, Value: ref.Path}))
+	return librarianSourceVM{Title: src.Title, Href: trailDocLink(src.Ref, t, i), Label: src.World + src.Path}
 }
 
 // starters suggests first questions: about the document in view when there

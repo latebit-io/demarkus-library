@@ -40,6 +40,7 @@ var librarianRegions = sseRegions{
 	"steps":    {"find .ask-steps", "outerHTML"},
 	"sources":  {"find .ask-sources", "outerHTML"},
 	"settled":  {"find .ask-live", "outerHTML"},
+	"stale":    {"#librarian-stale", "innerHTML"}, // the pane's slot, outside the exchange
 }
 
 // soakCap bounds the ?slow= soak so a crafted URL cannot pin a goroutine
@@ -196,14 +197,14 @@ func (h *LibrarianHandler) streamAnswer(c *echo.Context, t trail, events <-chan 
 		case domain.LibrarianTrace:
 			step := stepVM(domain.LibrarianStep{Text: ev.Text, Ref: ev.Ref}, t, t.Focus)
 			steps = append(steps, step)
-			out.send("trace", h.fragment(c, "librarian-step", step))
+			out.send("trace", fragment(c, "librarian-step", step))
 		case domain.LibrarianSourceOpened:
 			sources = append(sources, sourceVM(domain.LibrarianSource{Ref: ev.Ref, Title: ev.Text}, t, t.Focus))
 		case domain.LibrarianError:
 			c.Logger().Error("librarian run failed", "err", ev.Text)
 			step := librarianStepVM{Text: "⚠ the librarian hit an error mid-answer"}
 			steps = append(steps, step)
-			out.send("trace", h.fragment(c, "librarian-step", step))
+			out.send("trace", fragment(c, "librarian-step", step))
 		}
 	}
 	if out.ctx.Err() != nil {
@@ -216,10 +217,14 @@ func (h *LibrarianHandler) streamAnswer(c *echo.Context, t trail, events <-chan 
 }
 
 // finish settles a live exchange into its final markup: steps collapse,
-// sources appear, the stream closes.
+// sources appear, the stream closes. The run recorded the exchange before it
+// ended, so a refilled stale slot's stream covers this answer too.
 func (h *LibrarianHandler) finish(c *echo.Context, out *sseWriter, steps []librarianStepVM, sources librarianSourcesVM) {
-	out.send("steps", h.fragment(c, "librarian-steps", steps))
-	out.send("sources", h.fragment(c, "librarian-sources", sources))
+	out.send("steps", fragment(c, "librarian-steps", steps))
+	out.send("sources", fragment(c, "librarian-sources", sources))
+	if url := h.staleSourcesURL(h.lib.History(conversationKey(c))); url != "" {
+		out.send("stale", fragment(c, "librarian-stale", url))
+	}
 	settle(out)
 }
 
@@ -234,16 +239,4 @@ func settle(out *sseWriter) {
 // traceNote is a plain trace line: text only, no document.
 func traceNote(text string) string {
 	return "<li>" + html.EscapeString(text) + "</li>"
-}
-
-// fragment renders one named template for the stream, so a live exchange
-// settles into exactly the markup a reload renders from History. A failure
-// is logged and frames nothing: the reload still shows the exchange whole.
-func (h *LibrarianHandler) fragment(c *echo.Context, name string, data any) string {
-	var b strings.Builder
-	if err := c.Echo().Renderer.Render(c, &b, name, data); err != nil {
-		c.Logger().Error("librarian fragment render failed", "template", name, "err", err)
-		return ""
-	}
-	return b.String()
 }

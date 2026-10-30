@@ -11,7 +11,34 @@
 {{- else }}
 {{ .Map }}
 {{- end }}
+{{- with .Pulse }}
+{{/* Recent activity (live_pulse.go): the stream swaps the list whenever it
+     changes for this reader. */}}
+<section class="pulse" aria-labelledby="pulse-head" hx-sse:connect="{{ .StreamURL }}" hx-sse:close="done">
+  <h2 id="pulse-head" class="pulse-head">Recent activity</h2>
+  {{- if .Unavailable }}
+  <ol class="pulse-list"><li class="pulse-quiet">Recent activity is unavailable right now</li></ol>
+  {{- else }}
+  {{template "pulse-list" .Items}}
+  {{- end }}
+</section>
+{{- end }}
 {{end}}
+
+{{/* The pulse's writes, newest first: what happened to which document, and
+     the person and the agent behind it. */}}
+{{define "pulse-list"}}<ol class="pulse-list">
+  {{- range . }}
+  <li><time datetime="{{ .Stamp }}">{{ .At }}</time>
+    {{ if .Href }}<a href="{{ .Href }}">{{ .Path }}</a>{{ else }}<span class="pulse-gone">{{ .Path }}</span>{{ end }}
+    <span class="pulse-what">{{ .What }}</span>
+    <span class="pulse-world">{{ .World }}</span>
+    {{- with .Person }} <span class="pulse-by person" title="written by">{{ . }}</span>{{ end }}
+    {{- with .Agent }} <span class="pulse-by agent" title="written with">{{ . }}</span>{{ end }}</li>
+  {{- else }}
+  <li class="pulse-quiet">Nothing written since the room started listening</li>
+  {{- end }}
+</ol>{{end}}
 
 {{/* One world's door. The whole card enters the world's stacks (the door's
      stretched link); sections and featured documents are links of their own
