@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
@@ -102,9 +103,9 @@ func (h spatialPanes) floorPane(ctx context.Context, t trail, i int, mapView boo
 			fv.Summary, fv.Cards = floorSummary(floor), worldCards(floor, t, i)
 		}
 		if h.pulse != nil && focused {
-			// Best effort: the floor just read the same world list, so a
-			// failure is a blip, and the floor renders without its pulse.
-			if pulses, err := h.pulse.Pulse(ctx); err == nil {
+			// A failed list still mounts the stream, whose retry fills it in;
+			// a refused one drops the pulse, since its stream would end at once.
+			if pulses, err := h.pulse.Pulse(ctx); !errors.Is(err, domain.ErrUnauthorized) {
 				fv.Pulse = &pulseVM{StreamURL: livePulseURL(t, i), Items: pulseItems(pulses, t, i)}
 			}
 		}

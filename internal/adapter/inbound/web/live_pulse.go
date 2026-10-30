@@ -124,7 +124,8 @@ func (h LiveHandler) LivePulse(c *echo.Context) error {
 					return false
 				}
 				continue
-			case !slices.EqualFunc(pulses, shown, samePulse):
+			case first || !slices.EqualFunc(pulses, shown, samePulse):
+				// The first list always goes out, even empty: the render's may differ.
 				shown = pulses
 				out.send("pulse", fragment(c, "pulse-list", pulseItems(pulses, t, t.Focus)))
 			}

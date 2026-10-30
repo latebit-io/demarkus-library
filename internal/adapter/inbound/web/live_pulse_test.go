@@ -65,6 +65,27 @@ func TestFloorPulseNeedsFocusAndAFeed(t *testing.T) {
 	}
 }
 
+// A failed list still mounts the stream, whose retry fills it in; a refused
+// one drops the pulse.
+func TestFloorPulseOnAFailedList(t *testing.T) {
+	tests := []struct {
+		name string
+		live *fakeWatcher
+		want bool
+	}{
+		{"transient failure", &fakeWatcher{pulseFails: 1}, true},
+		{"refused", &fakeWatcher{pulseErr: domain.ErrUnauthorized}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body := get(roomApp(t, pulseRoom(tt.live)), "/t/u").Body.String()
+			if got := strings.Contains(body, `class="pulse"`); got != tt.want {
+				t.Errorf("floor carries a pulse = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 // pulseRoom is a room over the floor whose change feed is live.
 func pulseRoom(live *fakeWatcher) Room {
 	return NewRoom(&fakeReading{floor: testFloor()}, "soul.demarkus.io", "/index.md").WithLiveEditions(live)
@@ -83,6 +104,7 @@ func TestLivePulseStream(t *testing.T) {
 		wantDone   bool
 	}{
 		{name: "the first list goes out at connect", pulses: [][]domain.Pulse{{a}}, wantFrames: 1},
+		{name: "an empty first list still goes out", pulses: [][]domain.Pulse{{}}, wantFrames: 1},
 		{name: "a failed list retries with no write to prompt it", pulses: [][]domain.Pulse{{a}}, fails: 1, wantFrames: 1},
 		{name: "a write the reader cannot see sends nothing", pulses: [][]domain.Pulse{{a}, {a}}, signals: 1, wantFrames: 1},
 		{name: "a write the reader sees swaps the list", pulses: [][]domain.Pulse{{a}, {b, a}}, signals: 1, wantFrames: 2},
