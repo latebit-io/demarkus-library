@@ -60,6 +60,10 @@ const (
 	// session-keyed state), so shared trails stay shareable without leaking
 	// chat: the recipient sees their own librarian.
 	paneLibrarian = "a"
+	// paneActivity is the recent-activity pane: the floor's pulse, summoned
+	// beside any pane. A single-segment chunk too, listing what the reader
+	// may see, so a shared trail shows each reader their own activity.
+	paneActivity = "v"
 )
 
 // paneAddr addresses one pane: a document (or listing) in a world, or a
@@ -168,8 +172,8 @@ func parsePaneChunk(chunk string) (paneAddr, error) {
 	if chunk == paneFloor {
 		return paneAddr{Kind: paneFloor}, nil
 	}
-	if chunk == paneLibrarian {
-		return paneAddr{Kind: paneLibrarian}, nil
+	if chunk == paneLibrarian || chunk == paneActivity {
+		return paneAddr{Kind: chunk}, nil
 	}
 	world, rest, ok := strings.Cut(chunk, "/")
 	if !ok || world == "" {
@@ -338,8 +342,8 @@ func trailDocLink(doc domain.Ref, t trail, idx int) string {
 // paneChunk encodes one pane address as its chunk (no leading slash).
 func paneChunk(p paneAddr) string {
 	switch p.Kind {
-	case paneLibrarian:
-		return paneLibrarian
+	case paneLibrarian, paneActivity:
+		return p.Kind
 	case paneFloor:
 		if p.World == "" {
 			return paneFloor
@@ -413,4 +417,16 @@ func trailLayout(t trail, idx int, targets []paneAddr) trail {
 // trailFocused is the spine/header click: same path, attention moves.
 func trailFocused(t trail, idx int) trail {
 	return trail{Panes: t.Panes, Focus: idx, Reader: -1, Meta: -1}
+}
+
+// paneMode is how pane idx renders: the focus in full, its left neighbour's
+// body beside it, every other pane a spine.
+func paneMode(t trail, idx int) string {
+	switch idx {
+	case t.Focus:
+		return "focused"
+	case t.Focus - 1:
+		return "body"
+	}
+	return "spine"
 }

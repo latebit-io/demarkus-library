@@ -71,6 +71,27 @@ func TestPulseMasksByTheReadersWorlds(t *testing.T) {
 	}
 }
 
+// A derived write, such as a world-graph checkpoint, is no one's activity: it
+// neither lists nor signals.
+func TestPulseSkipsDerivedWrites(t *testing.T) {
+	ctx := port.WithReader(t.Context(), "a")
+	svc := NewReadingService(fakeGateway{worlds: []domain.WorldInfo{{Name: "team-a"}}}, fakeRenderer{}, nil)
+	signal := svc.WatchPulse(ctx)
+
+	svc.FollowChanges(ctx, fakeFeed{{World: "team-a", Path: "/graph/worlds/team-a/9.md", Op: "publish", Derived: true}})
+
+	got, err := svc.Pulse(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 0 {
+		t.Errorf("pulse = %v, want none", pulsePaths(got))
+	}
+	if pending(signal) {
+		t.Error("pulse watcher signalled by a derived write")
+	}
+}
+
 // A reader whose world list fails gets the error, never an unmasked pulse.
 func TestPulseFailsWithTheWorldList(t *testing.T) {
 	ctx := port.WithReader(t.Context(), "a")

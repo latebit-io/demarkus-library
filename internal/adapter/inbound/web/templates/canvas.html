@@ -15,10 +15,10 @@
     <article class="doc-body"{{if .MarkURL}} data-mark="{{ .MarkURL }}"{{end}}>
       {{- if .Librarian }}
       {{template "librarian-body" .Librarian}}
-      {{- else if .Floor }}
-      {{/* The pane head already names the universe; the heading stays for screen readers. */}}
+      {{- else if or .Floor .Activity }}
+      {{/* The pane head already names the pane; the heading stays for screen readers. */}}
       <h1 class="sr-only">{{ .Title }}</h1>
-      {{template "floor-body" .Floor}}
+      {{ with .Floor }}{{template "floor-body" .}}{{ else }}{{template "pulse" .Activity}}{{ end }}
       {{- else }}
       <h1{{if .TitleAnchor}} id="{{ .TitleAnchor }}"{{end}}>{{ .Title }}</h1>
       {{ .Content }}

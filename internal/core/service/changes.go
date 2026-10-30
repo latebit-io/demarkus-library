@@ -23,7 +23,7 @@ func (s *ReadingService) FollowChanges(ctx context.Context, feed port.ChangeFeed
 		for _, apply := range also {
 			apply(change)
 		}
-		if !change.Resync {
+		if change.Activity() {
 			s.pulse.record(domain.Pulse{Change: change, At: time.Now()})
 		}
 		s.watchers.notify(change)

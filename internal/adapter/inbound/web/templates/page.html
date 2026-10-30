@@ -64,6 +64,10 @@
     {{- if .OverlayMapURL }}
     <a class="nav-key map-open" href="{{ .OverlayMapURL }}" title="World map (m)" hx-boost="false">Map <kbd>m</kbd></a>
     {{- end }}
+    {{- if .ActivityURL }}
+    <!-- The activity door: joins the current trail like the librarian's. -->
+    <a class="nav-key nav-activity" href="{{ .ActivityURL }}" title="Recent activity (v)">Activity <kbd>v</kbd></a>
+    {{- end }}
     {{- if .LibrarianURL }}
     <!-- The librarian door: joins the CURRENT trail, so the conversation
          arrives with the reader's context (Phase 4). -->

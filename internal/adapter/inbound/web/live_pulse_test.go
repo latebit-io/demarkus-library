@@ -27,7 +27,8 @@ func TestFloorListsThePulse(t *testing.T) {
 	}}}
 	body := get(roomApp(t, pulseRoom(live)), "/t/u").Body.String()
 	for _, want := range []string{
-		`<h2 id="pulse-head" class="pulse-head">Recent activity</h2>`,
+		`<section class="pulse" aria-label="Recent activity" hx-sse:connect=`,
+		`<h2 class="pulse-head">Recent activity</h2>`,
 		`<time datetime="2026-10-30T12:36:00Z">12:36 UTC</time>`,
 		`<a href="/t/u/~/team-a/d/plans/q4.md">/plans/q4.md</a>`,
 		`<span class="pulse-what">published · edition 3</span>`,
@@ -93,7 +94,8 @@ func TestFloorPulseRefusedRefusesTheFloor(t *testing.T) {
 
 // pulseRoom is a room over the floor whose change feed is live.
 func pulseRoom(live *fakeWatcher) Room {
-	return NewRoom(&fakeReading{floor: testFloor()}, "soul.demarkus.io", "/index.md").WithLiveEditions(live)
+	svc := &fakeReading{floor: testFloor(), doc: domain.Document{Title: "Doc", Path: "/x.md", HTML: "<p>x</p>"}}
+	return NewRoom(svc, "soul.demarkus.io", "/index.md").WithLiveEditions(live)
 }
 
 func TestLivePulseStream(t *testing.T) {
@@ -134,15 +136,18 @@ func TestLivePulseStream(t *testing.T) {
 	}
 }
 
-func TestLivePulseRefusals(t *testing.T) {
+// The stream serves the floor and the activity pane, and refuses the rest.
+func TestLivePulseTargets(t *testing.T) {
 	t.Parallel()
 	live := pulseRoom(&fakeWatcher{})
+	activity := trail{Panes: []paneAddr{{Kind: paneActivity}}, Reader: -1, Meta: -1}
 	tests := []struct {
 		name   string
 		room   Room
 		target string
 		want   int
 	}{
+		{"the activity pane", live, livePulseURL(activity, 0), http.StatusOK},
 		{"no change feed", NewRoom(&fakeReading{}, "soul.demarkus.io", "/index.md"), livePulseURL(floorTrail, 0), http.StatusNotFound},
 		{"not the floor", live, LivePulsePath + "?trail=w.io%2Fd%2Fx.md&idx=0", http.StatusBadRequest},
 		{"junk trail", live, LivePulsePath + "?trail=%2F%2F&idx=0", http.StatusBadRequest},
