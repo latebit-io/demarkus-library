@@ -70,16 +70,29 @@ func TestActivityPaneWithoutAList(t *testing.T) {
 // The nav's activity door joins the current trail, opens a fresh one off the
 // canvas, and shows only with a change feed.
 func TestActivityDoor(t *testing.T) {
-	doors := map[string]string{
-		"/t/u":               `<a class="nav-key nav-activity" href="/t/u/~/v"`,
-		"/w/w.io/search?q=x": `<a class="nav-key nav-activity" href="/t/v"`,
+	plain := NewRoom(&fakeReading{floor: testFloor()}, "soul.demarkus.io", "/index.md")
+	tests := []struct {
+		name string
+		room Room
+		path string
+		want string // "" ⇒ no door at all
+	}{
+		{"on the canvas", pulseRoom(&fakeWatcher{}), "/t/u", `<a class="nav-key nav-activity" href="/t/u/~/v"`},
+		{"off the canvas", pulseRoom(&fakeWatcher{}), "/w/w.io/search?q=x", `<a class="nav-key nav-activity" href="/t/v"`},
+		{"no change feed", plain, "/t/u", ""},
 	}
-	for path, door := range doors {
-		if body := get(roomApp(t, pulseRoom(&fakeWatcher{})), path).Body.String(); !strings.Contains(body, door) {
-			t.Errorf("%s lacks the activity door %q", path, door)
-		}
-	}
-	if body := get(readingApp(t, &fakeReading{floor: testFloor()}), "/t/u").Body.String(); strings.Contains(body, "nav-activity") {
-		t.Error("a room without a change feed shows the activity door")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body := get(roomApp(t, tt.room), tt.path).Body.String()
+			if tt.want == "" {
+				if strings.Contains(body, "nav-activity") {
+					t.Error("a room without a change feed shows the activity door")
+				}
+				return
+			}
+			if !strings.Contains(body, tt.want) {
+				t.Errorf("%s lacks the activity door %q", tt.path, tt.want)
+			}
+		})
 	}
 }
