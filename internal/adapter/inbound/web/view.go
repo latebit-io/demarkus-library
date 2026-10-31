@@ -84,6 +84,7 @@ type View struct {
 	templates *template.Template
 	branding  Branding
 	worlds    *WorldBrands // in-world branding (ADR 0008); nil ⇒ file manifest only
+	version   string       // the running build, shown on the floor; "" hides it
 }
 
 // NewView parses the embedded templates. Returns an error so wiring can fail
@@ -104,6 +105,7 @@ func NewView() (*View, error) {
 			"favicon":    func() string { return "" },
 			"universe":   func() string { return "" },
 			"librarian":  func() string { return "" },
+			"version":    func() string { return "" },
 			// Static: shared by previewize and the preview-link template.
 			"previewTrigger": func() string { return previewTrigger },
 		}).
@@ -136,6 +138,12 @@ func (v *View) WithBranding(b Branding) *View {
 // resolved ahead of the manifest's per-world entries.
 func (v *View) WithWorldBrands(w *WorldBrands) *View {
 	v.worlds = w
+	return v
+}
+
+// WithVersion names the running build, so readers can see what is installed.
+func (v *View) WithVersion(version string) *View {
+	v.version = version
 	return v
 }
 
@@ -187,6 +195,7 @@ func (v *View) Render(c *echo.Context, w io.Writer, name string, data any) error
 		"favicon":   func() string { return b.FaviconURL },
 		"universe":  func() string { return b.Terms.Universe },
 		"librarian": func() string { return librarianIdentity{brands: v.worlds, terms: b.Terms}.name(ctx) },
+		"version":   func() string { return v.version },
 	})
 	return cl.ExecuteTemplate(w, name, data)
 }

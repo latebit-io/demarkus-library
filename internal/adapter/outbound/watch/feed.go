@@ -102,7 +102,14 @@ func (f *Feed) run(ctx context.Context, out chan<- domain.Change) {
 		if err == nil {
 			started := time.Now()
 			f.logger.Info("watch: subscribed", "world", f.world, "resumed", !since.IsZero())
-			err = f.follow(ctx, watch, out)
+			if since.IsZero() {
+				// Without a cursor nothing replays what landed before this watch: views
+				// cached first, or a quiet world's pause (an MCP ack carries no cursor).
+				err = send(ctx, out, domain.Change{World: f.world, Resync: true})
+			}
+			if err == nil {
+				err = f.follow(ctx, watch, out)
+			}
 			since = watch.Cursor()
 			watch.Close()
 			if time.Since(started) >= f.retryMax {
@@ -133,11 +140,19 @@ func (f *Feed) follow(ctx context.Context, watch noticeSource, out chan<- domain
 		if !ok {
 			continue
 		}
-		select {
-		case out <- change:
-		case <-ctx.Done():
-			return ctx.Err()
+		if err := send(ctx, out, change); err != nil {
+			return err
 		}
+	}
+}
+
+// send hands out one change, or reports that ctx ended first.
+func send(ctx context.Context, out chan<- domain.Change, change domain.Change) error {
+	select {
+	case out <- change:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 

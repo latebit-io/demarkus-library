@@ -8,8 +8,12 @@ import (
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
 )
 
-// activityTitle names the activity pane on its spine and in the dock's tooltip.
-const activityTitle = "Recent activity"
+// activityTitle names the activity pane on its spine and in the dock's tooltip;
+// activityLabel in its head, the dock and the palette.
+const (
+	activityTitle = "Recent activity"
+	activityLabel = "activity"
+)
 
 // activityPane builds the recent-activity pane: the floor's pulse beside any
 // pane, its stream live while the pane holds focus. A room without a change
@@ -20,7 +24,7 @@ func (h spatialPanes) activityPane(ctx context.Context, t trail, i int) (paneVM,
 		Kind:     paneActivity,
 		FocusURL: trailURL(trailFocused(t, i)),
 		Title:    activityTitle,
-		World:    "activity",
+		Label:    activityLabel,
 	}
 	if vm.Mode == "spine" {
 		return vm, nil

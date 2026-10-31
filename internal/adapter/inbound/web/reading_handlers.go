@@ -317,6 +317,21 @@ func (h *ReadingHandler) present(c *echo.Context, doc domain.Document, err error
 // presentError maps domain errors to HTTP errors — shared by the rendered
 // views and the raw-source escape.
 func presentError(c *echo.Context, err error, world, path string) error {
+	return presentReadError(c, err, readSite{world: world, place: world, path: path})
+}
+
+// presentRoomError is presentError for a view outside any world, such as the
+// floor or recent activity: the room brands the page, and place names it.
+func presentRoomError(c *echo.Context, err error, place string) error {
+	return presentReadError(c, err, readSite{place: place, path: "/"})
+}
+
+// readSite is where a read failed: the world that brands the error page ("" for
+// the room), and the place and path its message names.
+type readSite struct{ world, place, path string }
+
+func presentReadError(c *echo.Context, err error, site readSite) error {
+	world, path := site.world, site.path
 	switch {
 	case errors.Is(err, domain.ErrArchived):
 		// Checked before ErrNotFound, which it wraps. A retired document is not
@@ -342,9 +357,9 @@ func presentError(c *echo.Context, err error, world, path string) error {
 		return renderError(c, errorView{Status: http.StatusUnauthorized, World: world,
 			Title: "Not authorized", Detail: "This world does not permit reading " + path + " here."})
 	default:
-		c.Logger().Error("read failed", "world", world, "path", path, "err", err)
+		c.Logger().Error("read failed", "world", site.place, "path", path, "err", err)
 		return renderError(c, errorView{Status: http.StatusBadGateway, World: world,
-			Title: "Unreachable", Detail: "The reading room could not reach " + world + "."})
+			Title: "Unreachable", Detail: "The reading room could not reach " + site.place + "."})
 	}
 }
 
