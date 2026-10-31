@@ -63,7 +63,7 @@ func indexHosts(worlds []domain.WorldInfo) hostIndex {
 			joinAddr = w.URL
 		}
 		if h := hostOf(joinAddr); h != "" {
-			idx.host2name[hostKey(h)] = w.Name
+			idx.host2name[domain.HostKey(h)] = w.Name
 		}
 	}
 	return idx
@@ -143,7 +143,7 @@ func hostName(world string, host2name map[string]string, authorized map[string]b
 	if host, _, err := net.SplitHostPort(world); err == nil && authorized[host] {
 		return host, false
 	}
-	if name, ok := host2name[hostKey(world)]; ok {
+	if name, ok := host2name[domain.HostKey(world)]; ok {
 		return name, false
 	}
 	return world, true // unmatched host → portal (kept verbatim)
@@ -162,42 +162,11 @@ func hostOf(address string) string {
 	return strings.ToLower(host)
 }
 
-// defaultHostPort is the demarkus protocol's default QUIC port (protocol.DefaultPort).
-// A mark:// URL may omit it, so a document that links mark://soul.demarkus.io and the
-// world named soul.demarkus.io:6309 name the same host.
-const defaultHostPort = "6309"
-
-// hostKey normalizes a host to its explicit-port form so the topology join is
-// port-stable: a port-less host (a document link, or a DEMARKUS_HOST with no
-// port) gets the default port appended, while a host that already carries one
-// is left alone. Without this, mark://soul.demarkus.io/... edges never join the
-// world named soul.demarkus.io:6309 — the world map renders edgeless and the
-// floor sprouts a phantom port-less portal beside the real world. An explicit
-// non-default port (127.0.0.1:6401) is preserved, so distinct dev worlds on one
-// host stay distinct.
-func hostKey(h string) string {
-	h = strings.ToLower(strings.TrimSpace(h))
-	if h == "" {
-		return h
-	}
-	// Already host:port (incl. bracketed IPv6 with a port) — leave it.
-	if _, _, err := net.SplitHostPort(h); err == nil {
-		return h
-	}
-	// A bare IPv6 literal has ≥2 colons and no brackets — its colons are the
-	// address, not a port, so bracket it before appending the default port.
-	if strings.Count(h, ":") >= 2 && !strings.HasPrefix(h, "[") {
-		return "[" + h + "]:" + defaultHostPort
-	}
-	// DNS/IPv4 host, or a bracketed IPv6 with no port.
-	return h + ":" + defaultHostPort
-}
-
 // portalLabel canonicalizes an external (unmatched) host into the label the
 // floor draws for its portal, or reports ok=false for a host that must never
 // surface as one.
 //
-// Canonicalize: hostKey makes the label port-stable, so a document link
+// Canonicalize: domain.HostKey makes the label port-stable, so a document link
 // (mark://soul.demarkus.io) and its explicit-port form (soul.demarkus.io:6309)
 // collapse to ONE portal instead of two; the default port is then elided for a
 // clean label while an explicit non-default port is kept (a real distinct dev
@@ -214,7 +183,7 @@ func hostKey(h string) string {
 // Hide: a label that is not host-shaped ("secret", from a crawler-normalized
 // mark://secret link) names a knowledge-system world the reader may not read.
 func portalLabel(host string) (string, bool) {
-	hk := hostKey(host)
+	hk := domain.HostKey(host)
 	h, hp, err := net.SplitHostPort(hk)
 	if err != nil {
 		h, hp = hk, ""
@@ -223,7 +192,7 @@ func portalLabel(host string) (string, bool) {
 		return "", false
 	}
 	label := h
-	if hp != "" && hp != defaultHostPort {
+	if hp != "" && hp != domain.DefaultHostPort {
 		label = net.JoinHostPort(h, hp)
 	}
 	if !domain.IsHostShaped(label) {

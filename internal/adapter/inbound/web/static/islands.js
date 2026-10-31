@@ -338,6 +338,7 @@
   document.addEventListener("htmx:before:swap", function (e) {
     if (e.detail && e.detail.ctx && e.detail.ctx.target === document.body) {
       savePositions();
+      stopGraph();
       releaseBackground();
       endPan(false);
       stopMotion();
@@ -488,9 +489,11 @@
     panel.querySelectorAll(".graph-canvas svg").forEach(function (svg) {
       if (wmStates.has(svg)) wmSyncView(svg);
     });
+    watchGraph(el);
   }
   function hideOverlay(el) {
     if (!el || el.hidden || el.classList.contains("closing")) return;
+    stopGraph();
     stopMotion();
     endPan(false);
     releaseBackground();
@@ -534,7 +537,12 @@
     if (!overlay || !panel) return;
     var svg = panel.querySelector(zoomable), action = button.dataset.graphAction;
     if (action === "close") { hideOverlay(overlay); return; }
-    if (action === "refresh") { loadMap(overlay, true); return; }
+    if (action === "refresh") {
+      delete button.dataset.fresh;
+      button.textContent = "Refresh";
+      loadMap(overlay, true);
+      return;
+    }
     if (action === "explore") {
       var on = panel.classList.toggle("exploring");
       button.setAttribute("aria-pressed", String(on));
@@ -547,6 +555,77 @@
     if (action === "fit") resetBox(svg);
     else glideBox(svg, zoomTarget(svg, action === "in" ? wmKeyStep : 1 / wmKeyStep, null));
   });
+
+  // --- live graph (live_graph.go) ---------------------------------------
+  // While a graph overlay is open and visible, one stream names each write the
+  // reader may see: the matching node pulses, an archived one fades, and a
+  // first edition marks Refresh, since placing a new node needs the server.
+  var graphStream = null;
+  function watchGraph(overlay) {
+    stopGraph();
+    var url = overlay.dataset.liveGraph;
+    if (!url || !window.EventSource || document.hidden) return;
+    graphStream = new EventSource(url);
+    graphStream.addEventListener("write", function (e) { graphWrite(overlay, new URLSearchParams(e.data)); });
+    graphStream.addEventListener("done", stopGraph); // refused: a reconnect would be too
+  }
+  function stopGraph() {
+    if (graphStream) graphStream.close();
+    graphStream = null;
+  }
+  // A hidden tab holds no stream, as hx-sse pauses its own.
+  document.addEventListener("visibilitychange", function () {
+    var o = openOverlay();
+    if (document.hidden || !o) stopGraph();
+    else watchGraph(o);
+  });
+  function graphWrite(overlay, write) {
+    var svg = overlay.querySelector(zoomable);
+    if (!svg) return;
+    var world = write.get("world"), path = write.get("path");
+    if (svg.matches(".floor:not(.world-map)")) { // the universe: the world pulses
+      var system = svg.querySelector('[data-world="' + CSS.escape(world) + '"]');
+      if (system) pulseNode(system);
+      return;
+    }
+    var node = liveNode(svg, world, path);
+    if (!node) {
+      if (write.get("new") && svg.matches(".world-map") && svg.dataset.world === world) markFresh(overlay);
+    } else if (write.get("op") === "archive" && node.getAttribute("data-node") === path) {
+      node.classList.add("gone");
+    } else {
+      pulseNode(node); // a folded document pulses the group that holds it
+    }
+  }
+  // The node a write lands on. A local graph's neighbours may share a path
+  // across worlds; a world map is one world, its folded documents held by groups.
+  function liveNode(svg, world, path) {
+    if (svg.matches(".graph")) {
+      return Array.prototype.find.call(svg.querySelectorAll('[data-node="' + CSS.escape(path) + '"]'), function (n) {
+        return (n.dataset.world || svg.dataset.world) === world;
+      });
+    }
+    if (svg.dataset.world !== world) return undefined;
+    var st = wmState(svg);
+    return st.nodes.get(path) || st.nodes.get(st.owners.get(path));
+  }
+  // A timer, not animationend, ends the pulse: reduced motion runs no animation.
+  function pulseNode(node) {
+    clearTimeout(node._pulse);
+    node.classList.remove("gone");
+    if (node.classList.contains("node-pulse")) {
+      node.classList.remove("node-pulse");
+      node.getBoundingClientRect(); // restart the running animation
+    }
+    node.classList.add("node-pulse");
+    node._pulse = setTimeout(function () { node.classList.remove("node-pulse"); }, 1600);
+  }
+  function markFresh(overlay) {
+    var refresh = overlay.querySelector('[data-graph-action="refresh"]');
+    if (!refresh) return;
+    refresh.dataset.fresh = (+refresh.dataset.fresh || 0) + 1;
+    refresh.textContent = "Refresh · " + refresh.dataset.fresh + " new";
+  }
 
   // --- graph overlay (g) — ADR 0006 §4 ----------------------------------
   // The overlay is server-rendered (templates/graph-overlay); this is the
@@ -854,7 +933,7 @@
     var v = svg.viewBox.baseVal;
     st = { base: [v.x, v.y, v.width, v.height], box: null, pending: null, rect: null,
       hot: "", query: "", matches: [], matchNodes: [], sel: 0, live: null,
-      lines: new Map(), nodes: new Map(), search: [],
+      lines: new Map(), nodes: new Map(), owners: new Map(), search: [],
       stage: null, dim: null, focus: null };
     svg.querySelectorAll("path[data-from]").forEach(function (l) {
       [l.getAttribute("data-from"), l.getAttribute("data-to")].forEach(function (k) {
@@ -872,6 +951,7 @@
     svg.querySelectorAll(".wm-members [data-path]").forEach(function (m) {
       var path = m.getAttribute("data-path"), owner = m.parentNode.getAttribute("data-owner");
       if (!st.nodes.has(owner)) return;
+      st.owners.set(path, owner);
       st.search.push({ path: path, node: owner, title: m.textContent,
         text: (m.textContent + " \u2014 " + path).toLowerCase() });
     });

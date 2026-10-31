@@ -68,8 +68,8 @@ func (s *ReadingService) Publish(ctx context.Context, req domain.PublishRequest)
 // every spelling of the world, so a write shows at once instead of at the next
 // TTL rebuild. The hub only moves when its graph export does.
 func (s *ReadingService) invalidateTopology(change domain.Change) {
-	world := worldKey(change.World)
-	sameWorld := func(scope string) bool { return worldKey(scope) == world }
+	world := domain.WorldKey(change.World)
+	sameWorld := func(scope string) bool { return domain.WorldKey(scope) == world }
 	s.floor.invalidate(universe)
 	s.worldMaps.invalidateMatching(sameWorld)
 	s.names.invalidateMatching(sameWorld)

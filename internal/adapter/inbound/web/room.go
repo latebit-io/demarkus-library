@@ -194,7 +194,7 @@ func RoomRoutes(e *echo.Echo, room Room, middleware ...echo.MiddlewareFunc) {
 // as the reader watches, so a request timeout must not apply to it.
 func LongLived(path string) bool {
 	switch path {
-	case LibrarianStreamPath, LibrarianAskPath, LiveEditionPath, LiveSourcesPath, LivePulsePath:
+	case LibrarianStreamPath, LibrarianAskPath, LiveEditionPath, LiveSourcesPath, LivePulsePath, LiveGraphPath:
 		return true
 	}
 	return false

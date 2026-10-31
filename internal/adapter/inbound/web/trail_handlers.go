@@ -46,6 +46,8 @@ type canvasVM struct {
 	// floor is on the canvas, where its "view as map" trigger lives. Lazy — the
 	// floorSVG htmx-loads only when the reader pulls it up.
 	FloorHas bool
+
+	LiveGraphURL string // the overlays' write stream (live_graph.go); "" without a change feed
 }
 
 // graphOverlayVM is the focused doc's graph overlay (ADR 0006 §4): summoned by
@@ -56,6 +58,7 @@ type graphOverlayVM struct {
 	Degree  int // reference edges in and out — the affordance's visible count
 	Title   string
 	Content template.HTML
+	LiveURL string // the canvas's LiveGraphURL, for a template handed only this
 }
 
 // paneVM is one pane on the canvas. The margin fields mirror the page VM so
@@ -153,8 +156,9 @@ func (h *ReadingHandler) Trail(c *echo.Context) error {
 	ctx := c.Request().Context()
 
 	vm := canvasVM{
-		navChrome: h.chrome.build(c),
-		Panes:     make([]paneVM, len(t.Panes)),
+		navChrome:    h.chrome.build(c),
+		Panes:        make([]paneVM, len(t.Panes)),
+		LiveGraphURL: h.liveGraphURL(),
 	}
 	authed := vm.Authenticated
 	trailDoors(&vm.navChrome, t)
@@ -304,6 +308,7 @@ func (h *ReadingHandler) Trail(c *echo.Context) error {
 func (h *ReadingHandler) settleOverlays(ctx context.Context, vm *canvasVM, t trail) {
 	if fa := t.Panes[t.Focus]; fa.Kind == paneDoc && !domain.IsListingPath(fa.Value) {
 		vm.Graph = h.spatial.graphOverlay(ctx, t, fa)
+		vm.Graph.LiveURL = vm.LiveGraphURL
 	}
 	// One settled URL for both affordances, so the nav and the margin can never
 	// disagree: a pane rendered after the focus can add the reference that turns

@@ -152,8 +152,8 @@ func worldMapRender(wm domain.WorldMap, docURL func(string) string, newURL strin
 		// The filter unfolds a hidden match by asking for this state plus &reveal=<path>.
 		revealAttr = ` data-reveal-url="` + html.EscapeString(opts.openURL(open.keys())+"&reveal=") + `"`
 	}
-	fmt.Fprintf(&b, `<svg class="floor world-map" viewBox="0 0 %d %d" width="%d" height="%d" role="img" aria-label="%s map"%s>`,
-		width, height, width, height, html.EscapeString(wm.World.Name), revealAttr)
+	fmt.Fprintf(&b, `<svg class="floor world-map" viewBox="0 0 %d %d" width="%d" height="%d" role="img" aria-label="%s map" data-world="%s"%s>`,
+		width, height, width, height, html.EscapeString(wm.World.Name), html.EscapeString(domain.WorldKey(wm.World.Name)), revealAttr)
 	caption := fmt.Sprintf("%d connected · %d unlinked", linked, len(docs)-linked)
 	if shown := wmShownDocs(items); shown < len(docs) {
 		caption += fmt.Sprintf(" · %d of %d shown", shown, len(docs))

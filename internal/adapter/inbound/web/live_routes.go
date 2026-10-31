@@ -14,4 +14,5 @@ func liveRoutes(e *echo.Echo, handler LiveHandler, mw ...echo.MiddlewareFunc) {
 	e.GET(LiveEditionPath, handler.LiveEdition, mw...)
 	e.GET(LiveSourcesPath, handler.LiveSources, mw...)
 	e.GET(LivePulsePath, handler.LivePulse, mw...)
+	e.GET(LiveGraphPath, handler.LiveGraph, mw...)
 }

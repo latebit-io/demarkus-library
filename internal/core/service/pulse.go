@@ -20,11 +20,11 @@ type pulseLog struct {
 }
 
 func (l *pulseLog) record(p domain.Pulse) {
-	world := worldKey(p.World)
+	world := domain.WorldKey(p.World)
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.recent = slices.DeleteFunc(l.recent, func(old domain.Pulse) bool {
-		return old.Path == p.Path && worldKey(old.World) == world
+		return old.Path == p.Path && domain.WorldKey(old.World) == world
 	})
 	l.recent = slices.Insert(l.recent, 0, p)
 	l.recent = l.recent[:min(len(l.recent), pulseCap)]

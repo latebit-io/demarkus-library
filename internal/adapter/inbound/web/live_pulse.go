@@ -102,17 +102,30 @@ func (h LiveHandler) LivePulse(c *echo.Context) error {
 	if err != nil || !showsPulse(t.Panes[t.Focus]) {
 		return echo.NewHTTPError(http.StatusBadRequest, "the pulse streams to the universe floor or the activity pane")
 	}
+	var shown []domain.Pulse
+	return h.followPulse(c, pulseRegions, func(out *sseWriter, pulses []domain.Pulse, first bool) {
+		// The first list always goes out, even empty: the render's may differ,
+		// and it catches a write between the floor's render and now.
+		if first || !slices.EqualFunc(pulses, shown, samePulse) {
+			shown = pulses
+			out.send("pulse", fragment(c, "pulse-list", pulseItems(pulses, t, t.Focus)))
+		}
+	})
+}
+
+// followPulse streams the reader's recent activity into regions: it lists at
+// connect and again, settled, after writes, handing each list to show, until
+// the reader leaves or the world list is refused.
+func (h LiveHandler) followPulse(c *echo.Context, regions sseRegions, show func(out *sseWriter, pulses []domain.Pulse, first bool)) error {
 	ctx := c.Request().Context()
 	// Subscribe before the first list, so a write between them still signals.
 	changed := h.pulse.WatchPulse(ctx)
-	out, err := openSSE(c, pulseRegions)
+	out, err := openSSE(c, regions)
 	if err != nil {
 		return err
 	}
 	defer out.close()
-	var shown []domain.Pulse
-	// relist swaps the list in when it changed; false ends the stream: the
-	// reader left, or the world list was refused.
+	// relist hands one list to show; false ends the stream.
 	relist := func(first bool) bool {
 		for {
 			pulses, err := h.pulse.Pulse(ctx)
@@ -129,15 +142,11 @@ func (h LiveHandler) LivePulse(c *echo.Context) error {
 					return false
 				}
 				continue
-			case first || !slices.EqualFunc(pulses, shown, samePulse):
-				// The first list always goes out, even empty: the render's may differ.
-				shown = pulses
-				out.send("pulse", fragment(c, "pulse-list", pulseItems(pulses, t, t.Focus)))
 			}
+			show(out, pulses, first)
 			return true
 		}
 	}
-	// The first list catches a write between the floor's render and now.
 	if !relist(true) {
 		return nil
 	}

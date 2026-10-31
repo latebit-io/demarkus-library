@@ -36,7 +36,7 @@ func (s *ReadingService) WatchDocument(ctx context.Context, world, path string) 
 }
 
 func (s *ReadingService) applyChange(change domain.Change) {
-	world := worldKey(change.World)
+	world := domain.WorldKey(change.World)
 	if s.cache != nil {
 		s.fence.mu.Lock()
 		s.fence.gen++
@@ -66,7 +66,7 @@ func (f *docFence) epoch() uint64 {
 // retention may prune them), a listing above it, or any tag page, since a
 // hint does not say which tags moved. A resync evicts the whole world.
 func staleAfter(key port.CacheKey, change domain.Change, world string) bool {
-	if worldKey(key.World) != world {
+	if domain.WorldKey(key.World) != world {
 		return false
 	}
 	if change.Resync || key.Kind != kindDoc {
@@ -80,14 +80,4 @@ func staleAfter(key port.CacheKey, change domain.Change, world string) bool {
 // itself, or a listing above it.
 func shows(name, changed string) bool {
 	return name == changed || (domain.IsListingPath(name) && strings.HasPrefix(changed, name))
-}
-
-// worldKey is the one spelling of a world identifier: a host gets hostKey's
-// explicit port, so "h" and "h:6309" (both appear in links) match, while a
-// world name is kept as is.
-func worldKey(worldID string) string {
-	if !domain.IsHostShaped(worldID) {
-		return worldID
-	}
-	return hostKey(worldID)
 }

@@ -1,6 +1,7 @@
 package domain
 
 import (
+	"net"
 	"net/url"
 	"path"
 	"strings"
@@ -96,4 +97,39 @@ func ResolveHref(href, world, basePath string) (LinkTarget, bool) {
 		worldPath += "/"
 	}
 	return LinkTarget{Ref: Ref{World: targetWorld, Path: worldPath}, Fragment: u.Fragment}, true
+}
+
+// DefaultHostPort is the demarkus protocol's default QUIC port (protocol.DefaultPort).
+// A mark:// URL may omit it, so mark://soul.demarkus.io and the world named
+// soul.demarkus.io:6309 name the same host.
+const DefaultHostPort = "6309"
+
+// HostKey is a host in its explicit-port form, so joins on hosts are port-stable;
+// an explicit non-default port (127.0.0.1:6401) is kept, so distinct dev worlds
+// on one host stay distinct.
+func HostKey(h string) string {
+	h = strings.ToLower(strings.TrimSpace(h))
+	if h == "" {
+		return h
+	}
+	// Already host:port (incl. bracketed IPv6 with a port) — leave it.
+	if _, _, err := net.SplitHostPort(h); err == nil {
+		return h
+	}
+	// A bare IPv6 literal has ≥2 colons and no brackets — its colons are the
+	// address, not a port, so bracket it before appending the default port.
+	if strings.Count(h, ":") >= 2 && !strings.HasPrefix(h, "[") {
+		return "[" + h + "]:" + DefaultHostPort
+	}
+	return h + ":" + DefaultHostPort
+}
+
+// WorldKey is the one spelling of a world identifier: a host gets HostKey's
+// explicit port, so "h" and "h:6309" (both appear in links) match, while a
+// world name is kept as is.
+func WorldKey(worldID string) string {
+	if !IsHostShaped(worldID) {
+		return worldID
+	}
+	return HostKey(worldID)
 }

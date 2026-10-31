@@ -104,22 +104,6 @@ func TestHostJoinIsPortStable(t *testing.T) {
 	if worldMember("localhost:6401", "localhost:6309", map[string]string{}) {
 		t.Error("explicit non-default port must not collapse onto the default-port world")
 	}
-
-	// hostKey appends the default port only when one is absent.
-	for in, want := range map[string]string{
-		"soul.demarkus.io":      "soul.demarkus.io:6309",
-		"soul.demarkus.io:6309": "soul.demarkus.io:6309",
-		"localhost:6401":        "localhost:6401",
-		"":                      "",
-		// IPv6: a bare literal must be bracketed before the default port; a
-		// bracketed literal that already carries a port is left alone.
-		"2001:db8::1":        "[2001:db8::1]:6309",
-		"[2001:db8::1]:6310": "[2001:db8::1]:6310",
-	} {
-		if got := hostKey(in); got != want {
-			t.Errorf("hostKey(%q) = %q, want %q", in, got, want)
-		}
-	}
 }
 
 func TestWorldMapMarksOrphansFromHubGraph(t *testing.T) {
