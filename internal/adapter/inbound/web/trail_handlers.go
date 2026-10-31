@@ -384,7 +384,11 @@ func (h *ReadingHandler) headAffordances(vm *paneVM, req *paneRequest) {
 	// Only the focused pane streams: one stream per tab. A listing streams
 	// too; the rest of the head is a document's.
 	if h.liveEditions && i == t.Focus {
-		vm.LiveURL = liveEditionURL(liveDoc{world: addr.World, path: req.doc.Path, shown: req.doc.Version})
+		doc := liveDoc{world: addr.World, path: req.doc.Path, shown: req.doc.Version}
+		if !domain.IsListingPath(addr.Value) {
+			doc.tail = &liveTail{trail: t}
+		}
+		vm.LiveURL = liveEditionURL(doc)
 	}
 	if domain.IsListingPath(addr.Value) {
 		return
@@ -445,7 +449,7 @@ func (h *ReadingHandler) paneView(ctx context.Context, req *paneRequest) paneVM 
 	// previewize runs on /w/ hrefs (it derives each card's source from them),
 	// then trailizeLinks rewrites those hrefs to post-click trail URLs — in the
 	// overlay (reader=true) those become reader-persisting URLs.
-	vm.Content = template.HTML(trailizeLinks(previewize(content), trailState, paneIndex, reader)) //nolint:gosec // sanitized in the markdown adapter; these passes only rewrite/wrap links, adding no unescaped content
+	vm.Content = template.HTML(paneBody(content, trailState, paneIndex, reader)) //nolint:gosec // sanitized in the markdown adapter; these passes only rewrite/wrap links, adding no unescaped content
 	if addr.Kind == paneDoc {
 		vm.MarkURL = markURL(addr.World, doc.Path) // the copy affordance (#94)
 		vm.EscapeCopy = overlay != ""

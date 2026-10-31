@@ -252,14 +252,21 @@ func readingApp(t *testing.T, svc *fakeReading) *echo.Echo {
 
 func roomApp(t *testing.T, room Room, mw ...echo.MiddlewareFunc) *echo.Echo {
 	t.Helper()
+	app := viewApp(t)
+	app.HTTPErrorHandler = HTMLErrorHandler
+	RoomRoutes(app, room, mw...)
+	return app
+}
+
+// viewApp is an Echo app rendering with the room's templates.
+func viewApp(t *testing.T) *echo.Echo {
+	t.Helper()
 	app := echo.New()
 	view, err := NewView()
 	if err != nil {
 		t.Fatalf("NewView: %v", err)
 	}
 	app.Renderer = view
-	app.HTTPErrorHandler = HTMLErrorHandler
-	RoomRoutes(app, room, mw...)
 	return app
 }
 

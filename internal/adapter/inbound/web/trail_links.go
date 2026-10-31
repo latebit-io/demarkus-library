@@ -31,6 +31,13 @@ func trailizeLinks(fragment string, t trail, paneIdx int, reader bool) string {
 	return out
 }
 
+// paneBody is the last step of every pane body: preview cards on /w/ links,
+// then those links pointed along the trail. The journal tail renders its
+// growth through it too, so what it adds matches a reload.
+func paneBody(content string, t trail, paneIdx int, reader bool) string {
+	return trailizeLinks(previewize(content), t, paneIdx, reader)
+}
+
 func trailizeNode(n *html.Node, t trail, paneIdx int, reader bool) {
 	if n.Type == html.ElementNode && n.DataAtom == atom.A {
 		for i, attr := range n.Attr {
