@@ -306,14 +306,24 @@ func TestTrailFloorPaneFocusedLive(t *testing.T) {
 
 // The floor names the installed build; an unversioned view shows nothing.
 func TestFloorShowsVersion(t *testing.T) {
-	app := readingApp(t, &fakeReading{floor: testFloor()})
-	if body := get(app, "/t/u").Body.String(); strings.Contains(body, "colophon") {
-		t.Error("unversioned floor shows a colophon")
+	tests := []struct {
+		name, version, want string // want: the colophon; "" for none
+	}{
+		{"unversioned", "", ""},
+		{"versioned", "0.48.0", `<footer class="colophon">demarkus-library 0.48.0</footer>`},
 	}
-	app.Renderer.(*View).WithVersion("0.48.0")
-	want := `<footer class="colophon">demarkus-library 0.48.0</footer>`
-	if body := get(app, "/t/u").Body.String(); !strings.Contains(body, want) {
-		t.Errorf("floor missing %s", want)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			app := readingApp(t, &fakeReading{floor: testFloor()})
+			app.Renderer.(*View).WithVersion(tt.version)
+			body := get(app, "/t/u").Body.String()
+			switch {
+			case tt.want == "" && strings.Contains(body, "colophon"):
+				t.Error("unversioned floor shows a colophon")
+			case !strings.Contains(body, tt.want):
+				t.Errorf("floor missing %s", tt.want)
+			}
+		})
 	}
 }
 
