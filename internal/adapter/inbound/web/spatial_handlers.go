@@ -32,7 +32,7 @@ func (h *SpatialHandler) FloorPage(c *echo.Context) error {
 	}
 	floor, err := h.maps.Floor(c.Request().Context())
 	if err != nil {
-		return presentError(c, err, "universe", "/")
+		return presentRoomError(c, err, h.terms.UniverseLower())
 	}
 	t := currentTrail(c)
 	return c.HTML(http.StatusOK, string(floorSVG(floor, t, t.Focus, h.terms)))

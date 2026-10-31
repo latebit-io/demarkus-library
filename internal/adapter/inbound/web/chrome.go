@@ -20,6 +20,7 @@ type navChrome struct {
 	LibrarianURL  string // nav door to the librarian (empty ⇒ not configured)
 	ActivityURL   string // nav door to recent activity (empty ⇒ no change feed)
 	PaneScroll    bool   // the pane-scroll room, ADR 0007 (canvas body class)
+	Place         string // the nav's name for a focus outside any world; "" shows the world
 
 	// The overlay pull-ups the nav advertises with their hotkeys (ADR 0006
 	// §4/§5): the keys were named only inside the overlays they open. Empty

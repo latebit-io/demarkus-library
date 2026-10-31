@@ -77,6 +77,44 @@ func TestInWorldBrandingRendersAndServes(t *testing.T) {
 	}
 }
 
+// A pane outside any world is branded by the room, so a world named like its
+// label cannot dress it; the nav still names the pane.
+func TestPlacesOutsideAWorldKeepTheRoomBrand(t *testing.T) {
+	tests := []struct{ name, label, path string }{
+		{"the floor", "universe", "/t/u"},
+		{"recent activity", activityLabel, "/t/v"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := inWorldSvc("# Logo\n\nThe mark.\n\n```svg\n<svg xmlns='http://www.w3.org/2000/svg'/>\n```\n")
+			svc.rawsWorld, svc.floor = tt.label, testFloor()
+			app, _ := inWorldApp(t, svc)
+			body := get(app, tt.path).Body.String()
+			if strings.Contains(body, "Soul Room") || strings.Contains(body, "/theme/worlds/") {
+				t.Errorf("the world %q branded %s", tt.label, tt.path)
+			}
+			if want := `<span class="world">` + tt.label + `</span>`; !strings.Contains(body, want) {
+				t.Errorf("nav lacks %q", want)
+			}
+		})
+	}
+}
+
+// The floor's error page is the room's too, and still names what it could not reach.
+func TestFloorErrorKeepsTheRoomBrand(t *testing.T) {
+	svc := inWorldSvc("")
+	svc.rawsWorld, svc.floorErr = "universe", errors.New("dial failed")
+	app, _ := inWorldApp(t, svc)
+	rec := get(app, "/t/u")
+	body := rec.Body.String()
+	if rec.Code != http.StatusBadGateway || !strings.Contains(body, "could not reach universe.") {
+		t.Errorf("status = %d, body = %s", rec.Code, body)
+	}
+	if strings.Contains(body, "Soul Room") {
+		t.Error("the world named universe branded the floor's error page")
+	}
+}
+
 func TestInWorldLogoBase64(t *testing.T) {
 	png := []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 0, 0, 0, 0}
 	body := fencedLogo("base64", "image/png", base64.StdEncoding.EncodeToString(png))

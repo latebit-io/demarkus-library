@@ -136,7 +136,7 @@ func (h librarianPanes) pane(c *echo.Context, t trail, i int) paneVM {
 		Kind:     paneLibrarian,
 		FocusURL: trailURL(trailFocused(t, i)),
 		Title:    name,
-		World:    name,
+		Label:    name,
 	}
 	if mode == "spine" {
 		return vm
@@ -322,27 +322,14 @@ func (h librarianPanes) trailContext(ctx context.Context, t trail, focus int) st
 
 // paneContextLabel names one pane for the context block.
 func (h librarianPanes) paneContextLabel(ctx context.Context, p paneAddr) string {
-	switch p.Kind {
-	case paneLibrarian:
-		return "this librarian conversation"
-	case paneActivity:
-		return "the recent activity list"
-	case paneFloor:
-		if p.World == "" {
-			return "the " + h.identity.terms.UniverseLower() + " floor"
-		}
-		return "map of world " + p.World
-	case paneGraph:
-		return "graph of mark://" + p.World + p.Value
-	case paneTag:
-		return "tag page #" + p.Value + " in world " + p.World
-	default:
-		label := markURL(p.World, p.Value)
-		if doc, err := h.reader.OpenCached(ctx, p.World, p.Value); err == nil && doc.Title != "" {
-			label += " — " + strconv.Quote(neutralizeContextTags(doc.Title))
-		}
-		return label
+	if about := paneKinds[p.Kind].about; about != nil {
+		return about(p, h.identity.terms)
 	}
+	label := markURL(p.World, p.Value)
+	if doc, err := h.reader.OpenCached(ctx, p.World, p.Value); err == nil && doc.Title != "" {
+		label += " — " + strconv.Quote(neutralizeContextTags(doc.Title))
+	}
+	return label
 }
 
 // contextTagPattern matches any spelling of the reader-context wrapper tag

@@ -30,7 +30,7 @@ require (
 	github.com/aymerick/douceur v0.2.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/css v1.0.1 // indirect
-	github.com/latebit-io/demarkus/client v0.71.0
+	github.com/latebit-io/demarkus/client v0.72.1
 	github.com/latebit-io/demarkus/protocol v0.31.0
 	github.com/quic-go/quic-go v0.59.1 // indirect
 	github.com/spf13/cast v1.7.1 // indirect

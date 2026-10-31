@@ -50,7 +50,7 @@
 
 {{define "nav"}}{{template "world-theme" .}}{{template "svg-defs"}}<template id="copy-mark-proto">{{template "copy-mark" ""}}</template><nav>
     <a class="brand" href="/">{{ with logoURL .World }}<img src="{{ . }}" alt="">{{ end }}{{ brand .World }}</a>
-    <span class="world">{{ .World }}</span>
+    <span class="world">{{ or .Place .World }}</span>
     <!-- Search affordance: a real link to the catalog page (works with JS off);
          islands.js intercepts the click to open the ⌃K palette overlay instead. -->
     <a class="nav-search nav-key" href="/search" title="Search (⌃K)" hx-boost="false">Search <kbd>⌃K</kbd></a>

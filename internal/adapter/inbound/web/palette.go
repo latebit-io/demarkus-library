@@ -216,23 +216,5 @@ func matchRank(q, hay string) (int, bool) {
 
 // paneLabel gives a recent row its title + location from a pane address.
 func paneLabel(p paneAddr, terms Terms) (title, loc string) {
-	switch p.Kind {
-	case paneLibrarian:
-		return "librarian", ""
-	case paneActivity:
-		return "activity", ""
-	case paneFloor:
-		if p.World == "" {
-			return terms.UniverseLower(), ""
-		}
-		return p.World + " — map", p.World
-	case paneTag:
-		return "#" + p.Value, p.World
-	default: // paneDoc, paneGraph
-		name := docName(p.Value)
-		if p.Kind == paneGraph {
-			name = "graph: " + name
-		}
-		return name, p.World + p.Value
-	}
+	return paneKinds[p.Kind].label(p, terms)
 }

@@ -12,6 +12,9 @@
 {{ .Map }}
 {{- end }}
 {{- with .Pulse }}{{template "pulse" .}}{{ end }}
+{{- with version }}
+<footer class="colophon">demarkus-library {{ . }}</footer>
+{{- end }}
 {{end}}
 
 {{/* Recent activity (live_pulse.go), on the floor and in the activity pane:

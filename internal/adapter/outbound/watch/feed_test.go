@@ -114,9 +114,10 @@ func TestFeedMapsNotices(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
-	got := receive(t, newTestFeed(o).Changes(ctx), 5)
+	got := receive(t, newTestFeed(o).Changes(ctx), 6)
 
 	want := []domain.Change{
+		{World: "h.example.org:6309", Resync: true}, // the first watch has no cursor
 		{World: "h.example.org:6309", Path: "/a.md", Op: domain.OpPublish, Version: 4, Agent: "claude-code", User: "ana@example.org"},
 		{World: "h.example.org:6309", Resync: true},
 		{World: "h.example.org:6309", Path: "/c.md", Op: domain.OpArchive},
@@ -141,10 +142,10 @@ func TestFeedReopensFromLastCursor(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
-	got := receive(t, newTestFeed(o).Changes(ctx), 2)
+	got := receive(t, newTestFeed(o).Changes(ctx), 3)
 
-	if got[0].Path != "/a.md" || got[1].Path != "/b.md" {
-		t.Fatalf("changes = %+v", got)
+	if !got[0].Resync || got[1].Path != "/a.md" || got[2].Path != "/b.md" {
+		t.Fatalf("changes = %+v, want the first watch's resync, /a.md, /b.md", got)
 	}
 	o.mu.Lock()
 	defer o.mu.Unlock()
@@ -154,17 +155,22 @@ func TestFeedReopensFromLastCursor(t *testing.T) {
 	}
 }
 
+// The channel closes once ctx ends; the first watch's resync may race the
+// cancel, so it is drained.
 func TestFeedClosesWhenContextEnds(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	changes := newTestFeed(&opener{}).Changes(ctx)
 	cancel()
-	select {
-	case _, open := <-changes:
-		if open {
-			t.Error("got a change from an empty feed")
+	deadline := time.After(2 * time.Second)
+	for {
+		select {
+		case _, open := <-changes:
+			if !open {
+				return
+			}
+		case <-deadline:
+			t.Fatal("channel still open after ctx ended")
 		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("channel still open after ctx ended")
 	}
 }
 
@@ -178,7 +184,33 @@ func TestFeedPollsAnEmptyRoom(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
-	if got := receive(t, f.Changes(ctx), 1); got[0].Path != "/a.md" {
-		t.Errorf("change = %+v", got[0])
+	if got := receive(t, f.Changes(ctx), 2); got[1].Path != "/a.md" {
+		t.Errorf("changes = %+v", got)
+	}
+}
+
+// A watch opened without a cursor cannot replay what landed before it, so it
+// starts with a resync: a quiet world's MCP watch reopens cursorless after a
+// pause. A reopen from a cursor, here an acknowledgement's, does not.
+func TestFeedResyncsWithoutACursor(t *testing.T) {
+	lapsed := fmt.Errorf("lend: %w", bearer.ErrNoReader)
+	acked := protocol.Cursor{Epoch: "e", Seq: 3}
+	o := &opener{script: []subscribeResult{
+		{watch: &scriptedWatch{end: lapsed}},
+		{watch: &scriptedWatch{cursor: acked, end: lapsed}},
+		{watch: &scriptedWatch{notices: []fetch.Notice{event(4, protocol.OpPublish, "/a.md")}}},
+	}}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	got := receive(t, newTestFeed(o).Changes(ctx), 3)
+
+	if !got[0].Resync || !got[1].Resync || got[2].Path != "/a.md" {
+		t.Errorf("changes = %+v, want resync, resync, /a.md", got)
+	}
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if len(o.sinces) < 3 || !o.sinces[1].IsZero() || o.sinces[2] != acked {
+		t.Errorf("subscribe cursors = %v, want [zero zero %v]", o.sinces, acked)
 	}
 }

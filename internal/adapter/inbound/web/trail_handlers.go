@@ -28,7 +28,7 @@ const (
 type canvasVM struct {
 	navChrome        // the shared nav (chrome.go); its pane doors are re-pointed at THIS trail
 	Title     string // focused pane's title (the <title>)
-	World     string // focused pane's world (nav context)
+	World     string // focused pane's world, which brands the page; "" for the room
 	Panes     []paneVM
 	Reader    *paneVM        // the reader overlay (R4); nil when closed
 	MetaPane  *paneVM        // the metadata overlay (the record lens); nil when closed
@@ -69,7 +69,8 @@ type paneVM struct {
 
 	Title       string
 	TitleAnchor string // the lifted H1's anchor: the pane's <h1> is the #fragment target
-	World       string
+	World       string // the pane's world; "" outside any (the floor, the librarian, activity)
+	Label       string // the head's name for a pane outside any world
 	WorldPath   string
 	Path        string
 	Content     template.HTML
@@ -133,6 +134,15 @@ func goneSpine(t trail, i int, kind, title string) paneVM {
 	return paneVM{Mode: "spine", Kind: kind, Gone: true, FocusURL: trailURL(trailFocused(t, i)), Title: title}
 }
 
+// presentFloorError answers a focused floor pane's failure: the universe floor
+// is the room's page, a world's map that world's.
+func (h *ReadingHandler) presentFloorError(c *echo.Context, err error, addr paneAddr) error {
+	if addr.World == "" {
+		return presentRoomError(c, err, h.terms.UniverseLower())
+	}
+	return presentError(c, err, addr.World, "/")
+}
+
 // Trail renders the canvas for the trail encoded at /t/*.
 func (h *ReadingHandler) Trail(c *echo.Context) error {
 	t, err := parseTrail(c.Param("*"), c.QueryParam("focus"), c.QueryParam("reader"))
@@ -165,19 +175,17 @@ func (h *ReadingHandler) Trail(c *echo.Context) error {
 			// (the same component one zoom in).
 			var pane paneVM
 			var err error
-			scope := "universe"
 			if addr.World == "" {
 				// The universe floor is on the canvas → its "view as map"
 				// trigger exists, so render the overlay shell (ADR 0006 §6).
 				vm.FloorHas = true
 				pane, err = h.spatial.floorPane(ctx, t, i, c.QueryParam("view") == "map")
 			} else {
-				scope = addr.World
 				pane, err = h.spatial.worldMapPane(ctx, paneSlot{trail: t, index: i, addr: addr, authed: authed})
 			}
 			if err != nil {
 				if focused {
-					return presentError(c, err, scope, "/")
+					return h.presentFloorError(c, err, addr)
 				}
 				vm.Panes[i] = goneSpine(t, i, paneFloor, floorSpineTitle(addr, h.terms))
 				continue
@@ -202,7 +210,7 @@ func (h *ReadingHandler) Trail(c *echo.Context) error {
 			pane, err := h.spatial.activityPane(ctx, t, i)
 			switch {
 			case err != nil && focused:
-				return presentError(c, err, "activity", "/")
+				return presentRoomError(c, err, activityLabel)
 			case err != nil:
 				pane = goneSpine(t, i, paneActivity, activityTitle)
 			}
@@ -236,7 +244,7 @@ func (h *ReadingHandler) Trail(c *echo.Context) error {
 
 	focusedPane := vm.Panes[t.Focus]
 	vm.Title = focusedPane.Title
-	vm.World = focusedPane.World
+	vm.World, vm.Place = focusedPane.World, focusedPane.Label
 
 	// The world-map overlay is available whenever the focus sits in a world (a
 	// doc, listing, tag, or world-map pane) — the bare universe floor has none.
