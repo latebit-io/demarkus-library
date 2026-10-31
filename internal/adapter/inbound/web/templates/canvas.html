@@ -1,3 +1,8 @@
+{{/* Live-edition banner (live.go): hidden until the stream fills .edition-text;
+     the reload link re-reads the focused pane live. A stream that grew the
+     pane in place (live_tail.go) swaps this block for one at the new edition. */}}
+{{define "live-edition"}}<p class="live-edition" id="live-edition" role="status" hx-sse:connect="{{ .LiveURL }}" hx-sse:close="done"><span class="edition-text"></span> · <a href="{{ .FocusURL }}">reload</a></p>{{end}}
+
 {{/* A collapsed pane is a spatial re-expand rail only (ADR 0006 §2 / D2): title
      to identify it, click to re-focus. Orientation (status, path, walk/jump,
      cross-world) moved to the bottom dock, so the spine stays minimal. */}}
@@ -7,12 +12,10 @@
 </a>{{else}}<section class="pane {{ .Mode }}">
   <header class="pane-head"><a href="{{ .FocusURL }}"><code>{{ or .Label .World }}{{ .Path }}</code></a>{{if .MarkURL}}{{template "copy-mark" .MarkURL}}{{end}}{{if .HeadStatus}} <span class="status status-{{ .HeadStatus }}">{{ .HeadStatus }}</span>{{end}}{{if .ReaderURL}} <a class="reader-link" href="{{ .ReaderURL }}">reader</a>{{end}}{{if .MetaURL}} <a class="reader-link" href="{{ .MetaURL }}">meta</a>{{end}}{{if .AskURL}} <a class="reader-link ask-link" href="{{ .AskURL }}" title="Ask {{ librarian }} about this document">ask</a>{{end}}{{if .Librarian}}{{if .Librarian.Ask}}{{template "librarian-reset" .Librarian.Ask}}{{end}}{{end}}</header>
   {{- if .LiveURL }}
-  {{/* Live-edition banner (live.go): hidden until the stream fills .edition-text;
-       the reload link re-reads the focused pane live. */}}
-  <p class="live-edition" role="status" hx-sse:connect="{{ .LiveURL }}" hx-sse:close="done"><span class="edition-text"></span> · <a href="{{ .FocusURL }}">reload</a></p>
+  {{template "live-edition" .}}
   {{- end }}
   <div class="pane-cols">
-    <article class="doc-body"{{if .MarkURL}} data-mark="{{ .MarkURL }}"{{end}}>
+    <article class="doc-body"{{if .LiveURL}} id="live-doc"{{end}}{{if .MarkURL}} data-mark="{{ .MarkURL }}"{{end}}>
       {{- if .Librarian }}
       {{template "librarian-body" .Librarian}}
       {{- else if or .Floor .Activity }}

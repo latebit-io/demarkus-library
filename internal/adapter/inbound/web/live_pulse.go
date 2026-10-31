@@ -8,7 +8,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"net/url"
 	"slices"
 	"strconv"
 	"time"
@@ -48,8 +47,7 @@ type pulseItemVM struct {
 // livePulseURL is the stream the focused pane idx connects to; the trail
 // rides along so the list's links continue it.
 func livePulseURL(t trail, idx int) string {
-	query := url.Values{"trail": {trailRest(t)}, "idx": {strconv.Itoa(idx)}}
-	return LivePulsePath + "?" + query.Encode()
+	return LivePulsePath + "?" + trailQuery(t, idx).Encode()
 }
 
 // pulseItems words each write for the list; links open the document beside
@@ -100,7 +98,7 @@ func (h LiveHandler) LivePulse(c *echo.Context) error {
 	if h.pulse == nil {
 		return echo.NewHTTPError(http.StatusNotFound, "the pulse is off")
 	}
-	t, err := parseTrail(c.QueryParam("trail"), c.QueryParam("idx"), "")
+	t, err := streamTrail(c)
 	if err != nil || !showsPulse(t.Panes[t.Focus]) {
 		return echo.NewHTTPError(http.StatusBadRequest, "the pulse streams to the universe floor or the activity pane")
 	}

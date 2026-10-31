@@ -103,29 +103,61 @@ type readResult struct {
 }
 
 // scriptedReader answers each Read with the next scripted result, repeating
-// the last; it fails a read made before the watcher subscribed.
+// the last, and a pinned edition from pinned; it fails a read made before the
+// watcher subscribed.
 type scriptedReader struct {
 	watcher *fakeWatcher
 	results []readResult
-	reads   int
+	pinned  map[string]readResult // by version path, e.g. /x.md/v1
+	reads   int                   // every read, pinned ones included
+	current int                   // reads of the current edition
 }
 
-func (r *scriptedReader) Open(context.Context, string, string) (domain.Document, error) {
+func (r *scriptedReader) Open(_ context.Context, _, path string) (domain.Document, error) {
 	r.watcher.mu.Lock()
 	subscribed := len(r.watcher.watched) > 0
 	r.watcher.mu.Unlock()
 	if !subscribed {
 		return domain.Document{}, errors.New("read before subscribe: a write in between would be missed")
 	}
-	result := r.results[min(r.reads, len(r.results)-1)]
 	r.reads++
+	if domain.IsVersionPath(path) {
+		result, ok := r.pinned[path]
+		if !ok {
+			return domain.Document{}, domain.ErrNotFound
+		}
+		return result.doc, result.err
+	}
+	result := r.results[min(r.current, len(r.results)-1)]
+	r.current++
 	return result.doc, result.err
 }
 
-func liveApp(h LiveHandler) *echo.Echo {
-	app := echo.New()
+// liveApp serves the streams with the room's templates, which a grown pane's
+// re-armed block renders from.
+func liveApp(t *testing.T, h LiveHandler) *echo.Echo {
+	t.Helper()
+	app := viewApp(t)
 	liveRoutes(app, h)
 	return app
+}
+
+// liveCanvasApp is a room showing doc, with live editions on.
+func liveCanvasApp(t *testing.T, doc domain.Document) *echo.Echo {
+	t.Helper()
+	room := NewRoom(&fakeReading{doc: doc}, "soul.demarkus.io", "/index.md").
+		WithLiveEditions(&fakeWatcher{signals: signalsThenClose(0)})
+	return roomApp(t, room)
+}
+
+// testTrail is the trail a canvas URL names; rest is its path past /t/.
+func testTrail(t *testing.T, rest string) trail {
+	t.Helper()
+	parsed, err := parseTrail(rest, "", "")
+	if err != nil {
+		t.Fatalf("parseTrail(%q): %v", rest, err)
+	}
+	return parsed
 }
 
 func liveGet(app *echo.Echo, target string, header http.Header) *httptest.ResponseRecorder {
@@ -177,7 +209,7 @@ func TestLiveEditionStream(t *testing.T) {
 			t.Parallel()
 			watcher := &fakeWatcher{signals: signalsThenClose(tt.signals)}
 			reader := &scriptedReader{watcher: watcher, results: tt.results}
-			rec := get(liveApp(LiveHandler{reader: reader, watcher: watcher}), liveTarget)
+			rec := get(liveApp(t, LiveHandler{reader: reader, watcher: watcher}), liveTarget)
 
 			body := rec.Body.String()
 			if ct := rec.Header().Get(echo.HeaderContentType); ct != "text/event-stream" {
@@ -208,7 +240,7 @@ func TestLiveEditionEscapesWriter(t *testing.T) {
 	watcher := &fakeWatcher{signals: signalsThenClose(0)}
 	reader := &scriptedReader{watcher: watcher,
 		results: []readResult{{doc: domain.Document{Version: "2", Agent: `<img src=x onerror=alert(1)>`}}}}
-	body := get(liveApp(LiveHandler{reader: reader, watcher: watcher}), liveTarget).Body.String()
+	body := get(liveApp(t, LiveHandler{reader: reader, watcher: watcher}), liveTarget).Body.String()
 	if strings.Contains(body, "<img") || !strings.Contains(body, "&lt;img") {
 		t.Errorf("writer not escaped:\n%s", body)
 	}
@@ -237,7 +269,7 @@ func TestLiveEditionRefusals(t *testing.T) {
 			if tt.watcher {
 				h.watcher = &fakeWatcher{signals: signalsThenClose(0)}
 			}
-			if rec := liveGet(liveApp(h), tt.target, tt.header); rec.Code != tt.want {
+			if rec := liveGet(liveApp(t, h), tt.target, tt.header); rec.Code != tt.want {
 				t.Errorf("status = %d, want %d", rec.Code, tt.want)
 			}
 		})
@@ -245,18 +277,10 @@ func TestLiveEditionRefusals(t *testing.T) {
 }
 
 // Only the focused document pane of a room with live editions connects a
-// stream, carrying the edition it rendered.
+// stream, carrying the edition it rendered and the pane it may grow.
 func TestCanvasLiveEditionStream(t *testing.T) {
 	t.Parallel()
 	doc := domain.Document{Title: "X", Path: "/x.md", HTML: "<p>x</p>", Version: "3"}
-	room := func(live bool) *echo.Echo {
-		r := NewRoom(&fakeReading{doc: doc}, "soul.demarkus.io", "/index.md")
-		if live {
-			r = r.WithLiveEditions(&fakeWatcher{signals: signalsThenClose(0)})
-		}
-		return roomApp(t, r)
-	}
-	const stream = `hx-sse:connect="/live?path=%2Fx.md&amp;v=3&amp;world=soul.demarkus.io"`
 	tests := []struct {
 		name   string
 		live   bool
@@ -270,12 +294,24 @@ func TestCanvasLiveEditionStream(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			rec := get(room(tt.live), tt.target)
+			app := roomApp(t, NewRoom(&fakeReading{doc: doc}, "soul.demarkus.io", "/index.md"))
+			if tt.live {
+				app = liveCanvasApp(t, doc)
+			}
+			rec := get(app, tt.target)
 			if rec.Code != http.StatusOK {
 				t.Fatalf("status = %d", rec.Code)
 			}
-			if got := strings.Count(rec.Body.String(), stream); got != tt.want {
-				t.Errorf("streams = %d, want %d", got, tt.want)
+			body := rec.Body.String()
+			if got := strings.Count(body, `hx-sse:connect="/live?`); got != tt.want {
+				t.Fatalf("streams = %d, want %d", got, tt.want)
+			}
+			if tt.want == 0 {
+				return
+			}
+			pane := &liveTail{trail: testTrail(t, strings.TrimPrefix(tt.target, "/t/"))}
+			if want := liveEditionURL(liveDoc{world: "soul.demarkus.io", path: "/x.md", shown: "3", tail: pane}); streamURL(body) != want {
+				t.Errorf("stream = %q, want %q", streamURL(body), want)
 			}
 		})
 	}
@@ -285,9 +321,7 @@ func TestCanvasLiveEditionStream(t *testing.T) {
 func TestCanvasLiveListingStream(t *testing.T) {
 	t.Parallel()
 	listing := domain.Document{Title: "Index of /plans/", Path: "/plans/", HTML: "<ul><li>a.md</li></ul>", Version: "d1"}
-	room := NewRoom(&fakeReading{doc: listing}, "soul.demarkus.io", "/index.md").
-		WithLiveEditions(&fakeWatcher{signals: signalsThenClose(0)})
-	rec := get(roomApp(t, room), "/t/soul.demarkus.io/d/plans/")
+	rec := get(liveCanvasApp(t, listing), "/t/soul.demarkus.io/d/plans/")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d", rec.Code)
 	}
@@ -309,7 +343,7 @@ func TestLiveEditionNoteAtTheEditDesk(t *testing.T) {
 	}{{liveTarget + "&editing=1", true}, {liveTarget, false}} {
 		watcher := &fakeWatcher{signals: signalsThenClose(0)}
 		reader := &scriptedReader{watcher: watcher, results: []readResult{v2}}
-		body := get(liveApp(LiveHandler{reader: reader, watcher: watcher}), tt.target).Body.String()
+		body := get(liveApp(t, LiveHandler{reader: reader, watcher: watcher}), tt.target).Body.String()
 		if got := strings.Contains(body, "Edition 2 published by fritz@latebit.io "+merges); got != tt.want {
 			t.Errorf("%s: merge note = %v, want %v:\n%s", tt.target, got, tt.want, body)
 		}
@@ -335,7 +369,7 @@ func TestLiveListingStream(t *testing.T) {
 			t.Parallel()
 			watcher := &fakeWatcher{signals: signalsThenClose(1)}
 			reader := &scriptedReader{watcher: watcher, results: tt.results}
-			body := get(liveApp(LiveHandler{reader: reader, watcher: watcher}), target).Body.String()
+			body := get(liveApp(t, LiveHandler{reader: reader, watcher: watcher}), target).Body.String()
 			if got := editionFrames(body); got != tt.wantFrames {
 				t.Errorf("frames = %d, want %d:\n%s", got, tt.wantFrames, body)
 			}
@@ -387,7 +421,7 @@ func TestLiveStreamsCloseForRenewal(t *testing.T) {
 			rec := httptest.NewRecorder()
 			served := make(chan struct{})
 			go func() {
-				liveApp(tt.h).ServeHTTP(rec, req)
+				liveApp(t, tt.h).ServeHTTP(rec, req)
 				close(served)
 			}()
 			select {

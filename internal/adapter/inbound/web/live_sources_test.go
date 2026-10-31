@@ -72,7 +72,7 @@ func TestLiveSourcesStream(t *testing.T) {
 			maps.Copy(watcher.byPath, tt.signals)
 			readers := sourceReaders(watcher, tt.results)
 			h := LiveHandler{watcher: watcher, history: &fakeLibrarian{history: answeredFrom}, sources: readers}
-			rec := get(liveApp(h), LiveSourcesPath)
+			rec := get(liveApp(t, h), LiveSourcesPath)
 			body := rec.Body.String()
 			if rec.Code != http.StatusOK {
 				t.Fatalf("status = %d: %s", rec.Code, body)
@@ -109,7 +109,7 @@ func TestLiveSourcesRefusals(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if rec := get(liveApp(tt.h), LiveSourcesPath); rec.Code != tt.want {
+			if rec := get(liveApp(t, tt.h), LiveSourcesPath); rec.Code != tt.want {
 				t.Errorf("status = %d, want %d", rec.Code, tt.want)
 			}
 		})

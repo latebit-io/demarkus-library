@@ -10,8 +10,10 @@ import (
 	"context"
 	"errors"
 	"html"
+	"maps"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -23,8 +25,13 @@ import (
 // looks at the document, so it is LongLived.
 const LiveEditionPath = "/live"
 
-// liveRegions places the banner text in the pane's live-edition block.
-var liveRegions = sseRegions{"edition": {"find .edition-text", "innerHTML"}}
+// liveRegions places the banner text in the pane's live-edition block; a
+// grown pane (live_tail.go) takes the added body and a block at its new edition.
+var liveRegions = sseRegions{
+	"edition": {"find .edition-text", "innerHTML"},
+	"tail":    {"#live-doc", "beforeend"},
+	"rearm":   {"#live-edition", "outerHTML"},
+}
 
 // documentReader is the one read the stream makes: a document, or a listing.
 type documentReader interface {
@@ -44,7 +51,8 @@ type LiveHandler struct {
 // liveDoc is the document a stream watches and the edition its pane rendered.
 type liveDoc struct {
 	world, path, shown string
-	editing            bool // the edit desk holds it: the note says what a save does
+	editing            bool      // the edit desk holds it: the note says what a save does
+	tail               *liveTail // the canvas pane it may grow; nil for a listing or the desk
 }
 
 // liveEditionURL is the stream a focused pane or the edit desk connects to;
@@ -57,7 +65,20 @@ func liveEditionURL(doc liveDoc) string {
 	if doc.editing {
 		query.Set("editing", "1")
 	}
+	if doc.tail != nil {
+		maps.Copy(query, trailQuery(doc.tail.trail, doc.tail.trail.Focus))
+	}
 	return LiveEditionPath + "?" + query.Encode()
+}
+
+// trailQuery names the pane a stream serves: the trail its links continue
+// and the pane's index on it. streamTrail reads it back.
+func trailQuery(t trail, idx int) url.Values {
+	return url.Values{"trail": {trailRest(t)}, "idx": {strconv.Itoa(idx)}}
+}
+
+func streamTrail(c *echo.Context) (trail, error) {
+	return parseTrail(c.QueryParam("trail"), c.QueryParam("idx"), "")
 }
 
 // liveWatchable reports a shown edition that can move on: a document or a
@@ -81,6 +102,7 @@ func (h LiveHandler) LiveEdition(c *echo.Context) error {
 	if !liveWatchable(doc) {
 		return echo.NewHTTPError(http.StatusBadRequest, "not a document whose edition can change")
 	}
+	doc.tail = tailOf(c, doc)
 	// Subscribe before the first read, so a write between them still signals.
 	changed := h.watcher.WatchDocument(c.Request().Context(), doc.world, doc.path)
 	out, err := openSSE(c, liveRegions)
@@ -110,9 +132,9 @@ func endRefused(out *sseWriter, first bool) {
 	}
 }
 
-// report re-reads the document and fills the banner when its edition moved
-// past the one shown. false ends the stream: the reader left, the document is
-// gone, or the read was refused.
+// report re-reads the document and grows the pane, or fills the banner, when
+// its edition moved past the one shown. false ends the stream: the reader
+// left, the document is gone, the read was refused, or the pane re-armed.
 func (h LiveHandler) report(c *echo.Context, out *sseWriter, doc liveDoc, first bool) bool {
 	ctx := c.Request().Context()
 	current, err := h.reader.Open(ctx, doc.world, doc.path)
@@ -130,8 +152,11 @@ func (h LiveHandler) report(c *echo.Context, out *sseWriter, doc liveDoc, first 
 		// Transient (timeout, dropped connection): the next hint re-reads.
 		c.Logger().Warn("live edition re-read failed", "world", doc.world, "path", doc.path, "err", err)
 	case current.Version == doc.shown:
+		doc.tail.know(current)
 	case domain.IsListingPath(doc.path):
 		out.send("edition", "This listing changed since you opened it")
+	case h.grow(c, out, doc, current):
+		return false // the pane's new block streams from the new edition
 	default:
 		out.send("edition", html.EscapeString(editionNote(current, doc.editing)))
 	}
