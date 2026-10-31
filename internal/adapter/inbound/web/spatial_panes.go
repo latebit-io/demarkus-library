@@ -78,7 +78,7 @@ func (h spatialPanes) floorPane(ctx context.Context, t trail, i int, mapView boo
 		Kind:     paneFloor,
 		FocusURL: trailURL(trailFocused(t, i)),
 		Title:    h.terms.Universe,
-		World:    h.terms.UniverseLower(),
+		Label:    h.terms.UniverseLower(),
 	}
 	if mode != "spine" {
 		// World door cards by default (ADR 0006 §5); the SVG topology is the

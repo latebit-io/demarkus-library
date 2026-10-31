@@ -86,10 +86,10 @@ func pulseWhat(change domain.Change) string {
 
 func samePulse(a, b domain.Pulse) bool { return a.Change == b.Change && a.At.Equal(b.At) }
 
-// showsPulse reports a pane that lists recent activity: the universe floor or
-// the activity pane.
+// showsPulse reports a pane that lists recent activity: a pulse kind's bare
+// form, so the universe floor but not a world's map.
 func showsPulse(p paneAddr) bool {
-	return p == paneAddr{Kind: paneFloor} || p == paneAddr{Kind: paneActivity}
+	return paneKinds[p.Kind].pulse && p == paneAddr{Kind: p.Kind}
 }
 
 // LivePulse streams a pane's recent activity until the reader leaves.

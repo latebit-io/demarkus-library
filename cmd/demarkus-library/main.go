@@ -127,7 +127,7 @@ func main() {
 		logger.Error("branding invalid", "err", err)
 		os.Exit(1)
 	}
-	app.Renderer = view.WithBranding(branding)
+	app.Renderer = view.WithBranding(branding).WithVersion(version)
 
 	web.StaticRoutes(app, config.StaticDir)
 	web.HealthRoutes(app, web.NewHealthHandler())

@@ -37,9 +37,9 @@ const (
 )
 
 // Pane address kinds — the path segment that names them in both /w/ routes
-// and trail chunks. paneFloor is the universe view (pane zero, ADR 0005
-// decision 4): a single-segment chunk with no world — the floor IS the
-// whole universe.
+// and trail chunks; paneKinds (pane_kinds.go) describes each. paneFloor is the
+// universe view (pane zero, ADR 0005 decision 4): a single-segment chunk with
+// no world — the floor IS the whole universe.
 const (
 	paneDoc = "d"
 	paneTag = "tags"
@@ -169,10 +169,7 @@ func trailChunks(rest string) []string {
 // parsePaneChunk decodes one <world>/<kind>/<value> chunk, or the bare
 // "u" floor chunk.
 func parsePaneChunk(chunk string) (paneAddr, error) {
-	if chunk == paneFloor {
-		return paneAddr{Kind: paneFloor}, nil
-	}
-	if chunk == paneLibrarian || chunk == paneActivity {
+	if paneKinds[chunk].bare {
 		return paneAddr{Kind: chunk}, nil
 	}
 	world, rest, ok := strings.Cut(chunk, "/")
@@ -341,13 +338,11 @@ func trailDocLink(doc domain.Ref, t trail, idx int) string {
 
 // paneChunk encodes one pane address as its chunk (no leading slash).
 func paneChunk(p paneAddr) string {
-	switch p.Kind {
-	case paneLibrarian, paneActivity:
+	if paneKinds[p.Kind].bare && p.World == "" {
 		return p.Kind
+	}
+	switch p.Kind {
 	case paneFloor:
-		if p.World == "" {
-			return paneFloor
-		}
 		return url.PathEscape(p.World) + "/" + paneFloor + "/"
 	case paneTag:
 		return url.PathEscape(p.World) + "/" + paneTag + "/" + url.PathEscape(p.Value)

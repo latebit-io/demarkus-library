@@ -846,6 +846,8 @@ body.edit-page { max-width: none; padding: 1.5rem 1.5rem 2rem; }
 .pulse-list a { color: var(--ink); }
 .pulse-gone { color: var(--muted); text-decoration: line-through; }
 .pulse-by.agent { border-style: dashed; }
+/* The installed build, at the floor's foot. */
+.colophon { margin: 1.6rem 0 0; font: .72rem var(--font-ui); color: var(--muted); }
 @media (max-width: 34rem) {
   .world-card { grid-template-columns: minmax(0, 1fr); gap: .6rem; }
   .world-sky { width: 5rem; }
