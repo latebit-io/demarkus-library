@@ -348,7 +348,7 @@ svg.floor text { fill: var(--muted); font-family: var(--font-ui); }
 .floor-doc.status-accepted { stroke: var(--ok); }
 .floor-doc.status-wip      { stroke: var(--warn); }
 .floor-doc.status-archived { stroke-dasharray: 3 2; opacity: .6; }
-.floor-world.gone, .floor-portal-node.gone { stroke-dasharray: 4 3; opacity: .5; }
+.floor-world.gone, .floor-portal-node.gone, svg a.gone .soma, .soma.gone { stroke-dasharray: 4 3; opacity: .5; }
 /* The dendritic arbor: fine processes off the rim, drawn under the soma.
    Paint-time alpha (stroke-opacity), not element opacity: hundreds of
    isolated groups is the repaint trap the hover scrim exists to avoid. */
@@ -512,7 +512,11 @@ svg.graph text { fill: var(--muted); font-family: var(--font-ui); }
         stroke-dasharray: 7 3; animation: ink-flow .9s linear infinite; }
 .graph-edge.edge-hot.edge-rel { stroke-dasharray: 3 2; }
 @keyframes ink-flow { from { stroke-dashoffset: 20; } to { stroke-dashoffset: 0; } }
-.node-hot .soma, .soma.node-hot { stroke: var(--ink); stroke-width: 3; }
+.node-hot .soma, .soma.node-hot, .node-pulse .soma, .soma.node-pulse { stroke: var(--ink); stroke-width: 3; }
+/* The live graph (live_graph.go): a node written while its graph is open
+   swells once into the hot highlight; reduced motion keeps only the highlight. */
+@keyframes node-pulse { from { stroke-width: 10; stroke-opacity: .85; } }
+.node-pulse .soma, .soma.node-pulse { animation: node-pulse 1.6s ease-out; }
 svg .node-hot text { fill: var(--ink); font-weight: 600; }
 /* The graph is small enough to recede in place: everything off the hot
    neighbourhood steps back (the map uses its scrim instead). */
@@ -712,7 +716,7 @@ body.edit-page { max-width: none; padding: 1.5rem 1.5rem 2rem; }
 .graph-tool { font-family: var(--font-ui); font-size: .8rem; line-height: 1;
         min-width: 2.2rem; min-height: 2.2rem; padding: .45rem .6rem; cursor: pointer;
         border: 1px solid transparent; border-radius: 5px; background: transparent; color: var(--muted); }
-.graph-tool:hover, .graph-tool[aria-pressed="true"] { color: var(--ink); background: var(--paper); border-color: var(--rule); }
+.graph-tool:hover, .graph-tool[aria-pressed="true"], .graph-tool[data-fresh] { color: var(--ink); background: var(--paper); border-color: var(--rule); }
 .graph-tool:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .graph-close { margin-left: .45rem; }
 .graph-fit { min-width: 3.4rem; font-variant-numeric: tabular-nums; }

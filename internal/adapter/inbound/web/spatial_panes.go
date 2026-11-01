@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
 	"github.com/latebit-io/demarkus-library/internal/core/port"
@@ -124,6 +125,7 @@ func (h spatialPanes) graphPane(ctx context.Context, t trail, i int, addr paneAd
 // overlay (ADR 0006 §4). Node clicks jump from the focus, so it replaces the
 // in-trail graph pane rather than docking beside it.
 func (h spatialPanes) graphOverlay(ctx context.Context, t trail, addr paneAddr) graphOverlayVM {
+	read := time.Now()
 	n := h.graph.Neighborhood(ctx, addr.World, addr.Value)
 	degree := n.Degree()
 	return graphOverlayVM{
@@ -133,7 +135,7 @@ func (h spatialPanes) graphOverlay(ctx context.Context, t trail, addr paneAddr) 
 		Has:     degree > 0,
 		Degree:  degree,
 		Title:   refTitle(n.Center),
-		Content: graphSVG(n, trailNodeURL(t, t.Focus), graphRecenterURL, trailDocRefs(t)),
+		Content: drawnAt(graphSVG(n, trailNodeURL(t, t.Focus), graphRecenterURL, trailDocRefs(t)), read),
 	}
 }
 

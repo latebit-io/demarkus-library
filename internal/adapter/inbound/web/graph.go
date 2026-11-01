@@ -59,8 +59,8 @@ func graphSVG(n domain.Neighborhood, urlFor, recenterFor func(domain.Ref) string
 	cx, cy := width/2, height/2
 
 	var b strings.Builder
-	fmt.Fprintf(&b, `<svg class="graph" viewBox="0 0 %d %d" width="%d" height="%d" role="img" aria-label="document neighborhood">`,
-		width, height, width, height)
+	fmt.Fprintf(&b, `<svg class="graph" viewBox="0 0 %d %d" width="%d" height="%d" role="img" aria-label="document neighborhood" data-world="%s">`,
+		width, height, width, height, html.EscapeString(domain.WorldKey(n.Center.World)))
 
 	// Place backlinks across the left half (π/2 … 3π/2) and outbound links
 	// across the right half (-π/2 … π/2); a lone node sits at the pole.
@@ -104,7 +104,9 @@ func graphSVG(n domain.Neighborhood, urlFor, recenterFor func(domain.Ref) string
 		if recenterFor != nil {
 			recenter = ` data-recenter="` + html.EscapeString(recenterFor(pn.ref)) + `"`
 		}
-		fmt.Fprintf(&b, `<a href="%s" data-node="%s"%s>`, html.EscapeString(urlFor(pn.ref)), html.EscapeString(pn.ref.Path), recenter)
+		// data-world too: a neighbour may live in another world (islands.js matches both).
+		fmt.Fprintf(&b, `<a href="%s" data-node="%s" data-world="%s"%s>`,
+			html.EscapeString(urlFor(pn.ref)), html.EscapeString(pn.ref.Path), html.EscapeString(domain.WorldKey(pn.ref.World)), recenter)
 		dendrites(&b, somaSpec{x: pn.x, y: pn.y, r: graphNodeR, seed: pn.ref.Path, label: -math.Pi / 2})
 		fmt.Fprintf(&b, `<circle class="%s" cx="%d" cy="%d" r="%d"/>`, html.EscapeString(cls), pn.x, pn.y, graphNodeR)
 		anchor := "middle"

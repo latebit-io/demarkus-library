@@ -114,29 +114,6 @@ func TestApplyChangeInvalidatesTopology(t *testing.T) {
 	}
 }
 
-func TestWorldKey(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		a, b string
-		want bool
-	}{
-		{"equal names", "root", "root", true},
-		{"different names", "root", "team-a", false},
-		{"host with and without port", "soul.demarkus.io", "soul.demarkus.io:6309", true},
-		{"host case", "Soul.Demarkus.io:6309", "soul.demarkus.io", true},
-		{"different ports, same host", "localhost:6309", "localhost:7000", false},
-		{"different hosts", "a.example.org", "b.example.org", false},
-		{"name never matches a host", "root", "root:6309", false},
-		{"bracketed ipv6", "[::1]:6309", "::1", true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := worldKey(tc.a) == worldKey(tc.b); got != tc.want {
-				t.Errorf("worldKey(%q) == worldKey(%q) is %v, want %v", tc.a, tc.b, got, tc.want)
-			}
-		})
-	}
-}
-
 type fakeFeed []domain.Change
 
 func (f fakeFeed) Changes(context.Context) <-chan domain.Change {

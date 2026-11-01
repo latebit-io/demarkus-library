@@ -113,12 +113,13 @@ func worldMapRender(wm domain.WorldMap, docURL func(string) string, newURL strin
 		if wm.Unreadable {
 			return template.HTML(`<p class="floor-empty">This world's catalog could not be read.</p>`) //nolint:gosec // static markup
 		}
-		msg := `<p class="floor-empty">This world's catalog is empty.`
+		// Keyed, so a live first edition still marks the overlay's Refresh.
+		msg := `<p class="floor-empty" data-world="` + html.EscapeString(domain.WorldKey(wm.World.Name)) + `">This world's catalog is empty.`
 		if newURL != "" {
 			msg += ` <a href="` + html.EscapeString(newURL) + `" hx-boost="false">Create the first document.</a>`
 		}
 		msg += `</p>`
-		return template.HTML(msg) //nolint:gosec // newURL is server-constructed (/w/<escaped world>/new), text is static
+		return template.HTML(msg) //nolint:gosec // newURL is server-constructed (/w/<escaped world>/new), world escaped, text static
 	}
 
 	ranking, linked := wmRankDocs(docs, wm.Edges)
@@ -152,8 +153,8 @@ func worldMapRender(wm domain.WorldMap, docURL func(string) string, newURL strin
 		// The filter unfolds a hidden match by asking for this state plus &reveal=<path>.
 		revealAttr = ` data-reveal-url="` + html.EscapeString(opts.openURL(open.keys())+"&reveal=") + `"`
 	}
-	fmt.Fprintf(&b, `<svg class="floor world-map" viewBox="0 0 %d %d" width="%d" height="%d" role="img" aria-label="%s map"%s>`,
-		width, height, width, height, html.EscapeString(wm.World.Name), revealAttr)
+	fmt.Fprintf(&b, `<svg class="floor world-map" viewBox="0 0 %d %d" width="%d" height="%d" role="img" aria-label="%s map" data-world="%s"%s>`,
+		width, height, width, height, html.EscapeString(wm.World.Name), html.EscapeString(domain.WorldKey(wm.World.Name)), revealAttr)
 	caption := fmt.Sprintf("%d connected · %d unlinked", linked, len(docs)-linked)
 	if shown := wmShownDocs(items); shown < len(docs) {
 		caption += fmt.Sprintf(" · %d of %d shown", shown, len(docs))

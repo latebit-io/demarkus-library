@@ -83,3 +83,44 @@ func TestIsHostShaped(t *testing.T) {
 		}
 	}
 }
+
+// HostKey appends the default port only when one is absent.
+func TestHostKey(t *testing.T) {
+	for in, want := range map[string]string{
+		"soul.demarkus.io":      "soul.demarkus.io:6309",
+		"soul.demarkus.io:6309": "soul.demarkus.io:6309",
+		"localhost:6401":        "localhost:6401",
+		"":                      "",
+		// IPv6: a bare literal must be bracketed before the default port; a
+		// bracketed literal that already carries a port is left alone.
+		"2001:db8::1":        "[2001:db8::1]:6309",
+		"[2001:db8::1]:6310": "[2001:db8::1]:6310",
+	} {
+		if got := HostKey(in); got != want {
+			t.Errorf("HostKey(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestWorldKey(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		a, b string
+		want bool
+	}{
+		{"equal names", "root", "root", true},
+		{"different names", "root", "team-a", false},
+		{"host with and without port", "soul.demarkus.io", "soul.demarkus.io:6309", true},
+		{"host case", "Soul.Demarkus.io:6309", "soul.demarkus.io", true},
+		{"different ports, same host", "localhost:6309", "localhost:7000", false},
+		{"different hosts", "a.example.org", "b.example.org", false},
+		{"name never matches a host", "root", "root:6309", false},
+		{"bracketed ipv6", "[::1]:6309", "::1", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := WorldKey(tc.a) == WorldKey(tc.b); got != tc.want {
+				t.Errorf("WorldKey(%q) == WorldKey(%q) is %v, want %v", tc.a, tc.b, got, tc.want)
+			}
+		})
+	}
+}

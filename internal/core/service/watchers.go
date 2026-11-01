@@ -57,8 +57,8 @@ func (w *documentWatchers) notify(change domain.Change) {
 // showing wants a change that can show at path in world: a resync of the
 // world, or a write that shows there.
 func showing(world, path string) func(domain.Change) bool {
-	world = worldKey(world)
+	world = domain.WorldKey(world)
 	return func(change domain.Change) bool {
-		return worldKey(change.World) == world && (change.Resync || shows(path, change.Path))
+		return domain.WorldKey(change.World) == world && (change.Resync || shows(path, change.Path))
 	}
 }

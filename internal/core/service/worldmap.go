@@ -158,8 +158,8 @@ func intraWorldEdges(world string, host2name map[string]string, all []domain.Edg
 // graph, via host2name).
 func worldMember(refWorld, world string, host2name map[string]string) bool {
 	return refWorld == world ||
-		host2name[hostKey(refWorld)] == world ||
-		hostKey(refWorld) == hostKey(world)
+		host2name[domain.HostKey(refWorld)] == world ||
+		domain.HostKey(refWorld) == domain.HostKey(world)
 }
 
 // worldOrphans returns the set of this world's document paths that the durable
