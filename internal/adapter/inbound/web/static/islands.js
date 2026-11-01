@@ -593,27 +593,26 @@
       if (system) pulseNode(system);
       return;
     }
-    var node = drawing.matches("svg") && liveNode(drawing, world, path);
-    if (!node) {
-      // An empty world draws a paragraph, not a map, but still names its world.
-      if (write.get("new") && drawing.matches(".world-map, .floor-empty") && drawing.dataset.world === world) markFresh(overlay);
-    } else if (write.get("op") === "archive" && node.getAttribute("data-node") === path) {
-      node.classList.add("gone");
-    } else {
-      pulseNode(node); // a folded document pulses the group that holds it
-    }
+    var nodes = drawing.matches("svg") ? liveNodes(drawing, world, path) : [];
+    // An empty world draws a paragraph, not a map, but still names its world.
+    if (!nodes.length && write.get("new") && drawing.matches(".world-map, .floor-empty") && drawing.dataset.world === world) markFresh(overlay);
+    nodes.forEach(function (node) {
+      if (write.get("op") === "archive" && node.getAttribute("data-node") === path) node.classList.add("gone");
+      else pulseNode(node); // a folded document pulses the group that holds it
+    });
   }
-  // The node a write lands on. A local graph's neighbours may share a path
-  // across worlds; a world map is one world, its folded documents held by groups.
-  function liveNode(svg, world, path) {
+  // The nodes a write lands on. A local graph draws a document once per side
+  // it links on, and its neighbours may share a path across worlds; a world
+  // map is one world, its folded documents held by groups.
+  function liveNodes(svg, world, path) {
     if (svg.matches(".graph")) {
-      return Array.prototype.find.call(svg.querySelectorAll('[data-node="' + CSS.escape(path) + '"]'), function (n) {
+      return Array.prototype.filter.call(svg.querySelectorAll('[data-node="' + CSS.escape(path) + '"]'), function (n) {
         return (n.dataset.world || svg.dataset.world) === world;
       });
     }
-    if (svg.dataset.world !== world) return undefined;
-    var st = wmState(svg);
-    return st.nodes.get(path) || st.nodes.get(st.owners.get(path));
+    if (svg.dataset.world !== world) return [];
+    var st = wmState(svg), node = st.nodes.get(path) || st.nodes.get(st.owners.get(path));
+    return node ? [node] : [];
   }
   // A timer, not animationend, ends the pulse: reduced motion runs no animation.
   function pulseNode(node) {
