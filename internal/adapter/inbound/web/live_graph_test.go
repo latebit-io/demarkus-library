@@ -78,15 +78,25 @@ func TestLiveGraphResumesAfterLastEventID(t *testing.T) {
 // connects with.
 func TestOverlayDrawingsCarryTheirReadTime(t *testing.T) {
 	t.Parallel()
-	svc := &fakeReading{floor: testFloor(), worldMap: testWorldMap(), neighbor: map[string]domain.Neighborhood{
-		"/b.md": {Center: domain.Ref{World: "w.io", Path: "/b.md"}, In: []domain.Ref{{World: "w.io", Path: "/a.md"}}},
-	}}
-	app := readingApp(t, svc)
-	for _, target := range []string{"/u?overlay=1", "/w/team-a/u?overlay=1", "/w/w.io/g/b.md?overlay=1"} {
-		root, _, _ := strings.Cut(getFrom(app, target, "http://x/t/u").Body.String(), ">")
-		if !strings.Contains(root, ` data-drawn="`) {
-			t.Errorf("%s: root lacks data-drawn: %s", target, root)
-		}
+	tests := []struct {
+		name   string
+		target string
+	}{
+		{"universe map", "/u?overlay=1"},
+		{"world map", "/w/team-a/u?overlay=1"},
+		{"local graph", "/w/w.io/g/b.md?overlay=1"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			svc := &fakeReading{floor: testFloor(), worldMap: testWorldMap(), neighbor: map[string]domain.Neighborhood{
+				"/b.md": {Center: domain.Ref{World: "w.io", Path: "/b.md"}, In: []domain.Ref{{World: "w.io", Path: "/a.md"}}},
+			}}
+			root, _, _ := strings.Cut(getFrom(readingApp(t, svc), tt.target, "http://x/t/u").Body.String(), ">")
+			if !strings.Contains(root, ` data-drawn="`) {
+				t.Errorf("root lacks data-drawn: %s", root)
+			}
+		})
 	}
 }
 
