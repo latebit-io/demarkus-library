@@ -113,12 +113,13 @@ func worldMapRender(wm domain.WorldMap, docURL func(string) string, newURL strin
 		if wm.Unreadable {
 			return template.HTML(`<p class="floor-empty">This world's catalog could not be read.</p>`) //nolint:gosec // static markup
 		}
-		msg := `<p class="floor-empty">This world's catalog is empty.`
+		// Keyed, so a live first edition still marks the overlay's Refresh.
+		msg := `<p class="floor-empty" data-world="` + html.EscapeString(domain.WorldKey(wm.World.Name)) + `">This world's catalog is empty.`
 		if newURL != "" {
 			msg += ` <a href="` + html.EscapeString(newURL) + `" hx-boost="false">Create the first document.</a>`
 		}
 		msg += `</p>`
-		return template.HTML(msg) //nolint:gosec // newURL is server-constructed (/w/<escaped world>/new), text is static
+		return template.HTML(msg) //nolint:gosec // newURL is server-constructed (/w/<escaped world>/new), world escaped, text static
 	}
 
 	ranking, linked := wmRankDocs(docs, wm.Edges)

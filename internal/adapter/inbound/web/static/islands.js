@@ -561,12 +561,16 @@
   // reader may see: the matching node pulses, an archived one fades, and a
   // first edition marks Refresh, since placing a new node needs the server.
   var graphStream = null;
+  // The drawing's data-drawn is when the server read it, advanced past each
+  // write applied, so a (re)connect replays only the writes it lacks.
+  function graphDrawing(overlay) { return overlay.querySelector(".graph-canvas [data-drawn]"); }
   function watchGraph(overlay) {
     stopGraph();
-    var url = overlay.dataset.liveGraph;
-    if (!url || !window.EventSource || document.hidden) return;
-    graphStream = new EventSource(url);
-    graphStream.addEventListener("write", function (e) { graphWrite(overlay, new URLSearchParams(e.data)); });
+    var url = overlay.dataset.liveGraph, drawing = graphDrawing(overlay);
+    // A map not loaded yet has no drawing: loadMap watches once it lands.
+    if (!url || !drawing || !window.EventSource || document.hidden) return;
+    graphStream = new EventSource(url + "?since=" + encodeURIComponent(drawing.dataset.drawn));
+    graphStream.addEventListener("write", function (e) { graphWrite(overlay, new URLSearchParams(e.data), e.lastEventId); });
     graphStream.addEventListener("done", stopGraph); // refused: a reconnect would be too
   }
   function stopGraph() {
@@ -579,18 +583,20 @@
     if (document.hidden || !o) stopGraph();
     else watchGraph(o);
   });
-  function graphWrite(overlay, write) {
-    var svg = overlay.querySelector(zoomable);
-    if (!svg) return;
+  function graphWrite(overlay, write, at) {
+    var drawing = graphDrawing(overlay);
+    if (!drawing) return;
+    if (+at > +drawing.dataset.drawn) drawing.dataset.drawn = at;
     var world = write.get("world"), path = write.get("path");
-    if (svg.matches(".floor:not(.world-map)")) { // the universe: the world pulses
-      var system = svg.querySelector('[data-world="' + CSS.escape(world) + '"]');
+    if (drawing.matches(".floor:not(.world-map)")) { // the universe: the world pulses
+      var system = drawing.querySelector('[data-world="' + CSS.escape(world) + '"]');
       if (system) pulseNode(system);
       return;
     }
-    var node = liveNode(svg, world, path);
+    var node = drawing.matches("svg") && liveNode(drawing, world, path);
     if (!node) {
-      if (write.get("new") && svg.matches(".world-map") && svg.dataset.world === world) markFresh(overlay);
+      // An empty world draws a paragraph, not a map, but still names its world.
+      if (write.get("new") && drawing.matches(".world-map, .floor-empty") && drawing.dataset.world === world) markFresh(overlay);
     } else if (write.get("op") === "archive" && node.getAttribute("data-node") === path) {
       node.classList.add("gone");
     } else {
@@ -766,6 +772,7 @@
         throw new Error("graph response was not rendered");
       }
       overlay._loaded = true;
+      if (shown(overlay)) watchGraph(overlay); // from the new drawing's stamp
     }).catch(function (err) {
       console.warn("map unavailable:", err);
       canvas.setAttribute("data-error", "Graph unavailable. Use Refresh to try again.");

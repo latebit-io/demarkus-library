@@ -348,7 +348,7 @@ svg.floor text { fill: var(--muted); font-family: var(--font-ui); }
 .floor-doc.status-accepted { stroke: var(--ok); }
 .floor-doc.status-wip      { stroke: var(--warn); }
 .floor-doc.status-archived { stroke-dasharray: 3 2; opacity: .6; }
-.floor-world.gone, .floor-portal-node.gone, svg a.gone .soma { stroke-dasharray: 4 3; opacity: .5; }
+.floor-world.gone, .floor-portal-node.gone, svg a.gone .soma, .soma.gone { stroke-dasharray: 4 3; opacity: .5; }
 /* The dendritic arbor: fine processes off the rim, drawn under the soma.
    Paint-time alpha (stroke-opacity), not element opacity: hundreds of
    isolated groups is the repaint trap the hover scrim exists to avoid. */

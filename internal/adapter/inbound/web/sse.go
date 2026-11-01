@@ -89,6 +89,12 @@ func (s *sseWriter) send(event, markup string) bool {
 	return s.write(s.regions.frame(event, markup))
 }
 
+// sendID also names the frame's id, which EventSource echoes as Last-Event-ID
+// when it reconnects, so the stream resumes after the last frame it saw.
+func (s *sseWriter) sendID(event, id, markup string) bool {
+	return s.write("id: " + id + "\n" + s.regions.frame(event, markup))
+}
+
 // finish ends the stream for the client: hx-sse:close hears done and closes,
 // where a bare disconnect would make EventSource reconnect.
 func (s *sseWriter) finish() {

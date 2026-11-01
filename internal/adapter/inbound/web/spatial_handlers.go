@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v5"
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
@@ -30,12 +31,13 @@ func (h *SpatialHandler) FloorPage(c *echo.Context) error {
 		home := trail{Panes: []paneAddr{{Kind: paneFloor}}, Focus: 0}
 		return c.Redirect(http.StatusSeeOther, trailURL(home))
 	}
+	read := time.Now()
 	floor, err := h.maps.Floor(c.Request().Context())
 	if err != nil {
 		return presentRoomError(c, err, h.terms.UniverseLower())
 	}
 	t := currentTrail(c)
-	return c.HTML(http.StatusOK, string(floorSVG(floor, t, t.Focus, h.terms)))
+	return c.HTML(http.StatusOK, string(drawnAt(floorSVG(floor, t, t.Focus, h.terms), read)))
 }
 
 // GraphPage renders the graph neighborhood as a standalone permalink —
@@ -49,8 +51,9 @@ func (h *SpatialHandler) GraphPage(c *echo.Context) error {
 	// trail (from HX-Current-URL), and can re-centre again.
 	if c.QueryParam("overlay") == "1" {
 		t := currentTrail(c)
+		read := time.Now()
 		n := h.graph.Neighborhood(c.Request().Context(), world, p)
-		return c.HTML(http.StatusOK, string(graphSVG(n, trailNodeURL(t, t.Focus), graphRecenterURL, trailDocRefs(t))))
+		return c.HTML(http.StatusOK, string(drawnAt(graphSVG(n, trailNodeURL(t, t.Focus), graphRecenterURL, trailDocRefs(t)), read)))
 	}
 	if u := canvasTrailURL(c, paneAddr{Kind: paneGraph, World: world, Value: p}); u != "" {
 		return c.Redirect(http.StatusSeeOther, u)
@@ -82,6 +85,7 @@ func (h *SpatialHandler) WorldMapPage(c *echo.Context) error {
 			return c.Redirect(http.StatusSeeOther, u)
 		}
 	}
+	read := time.Now()
 	wm, err := h.maps.WorldMap(c.Request().Context(), world)
 	if err != nil {
 		return presentError(c, err, world, "/")
@@ -104,7 +108,7 @@ func (h *SpatialHandler) WorldMapPage(c *echo.Context) error {
 		svg := worldMapRender(wm, func(p string) string {
 			return nodeURL(domain.Ref{World: world, Path: p})
 		}, worldNewURL(world, nav.Authenticated), opts)
-		return c.HTML(http.StatusOK, string(svg))
+		return c.HTML(http.StatusOK, string(drawnAt(svg, read)))
 	}
 
 	// Single-pane permalink: nodes link to /w/ permalinks.

@@ -4,19 +4,25 @@ package web
 
 import (
 	"testing"
+	"time"
 
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
 )
 
-// With the local graph open, a write to a neighbour pulses it in place and
-// an archive fades one, without redrawing the graph.
+// With the local graph open, a write to a neighbour pulses it in place, and
+// an archive between the page and the overlay still fades its node, all
+// without redrawing the graph.
 func TestBrowserLiveGraphPulsesAndFades(t *testing.T) {
+	// After the drawing, which the page stamps when it renders.
+	archived := pulseOf(domain.OpArchive, "w.io", "/c.md", 3)
+	archived.At = time.Now().Add(time.Minute)
 	written := pulseOf(domain.OpAppend, "w.io", "/b.md", 2)
+	written.At = archived.At.Add(time.Minute)
 	live := &fakeWatcher{
 		// The pane's edition stream ends at once: the test server serves one request at a time.
 		signals:      signalsThenClose(0),
-		pulseSignals: 2,
-		pulses:       [][]domain.Pulse{{}, {written}, {pulseOf(domain.OpArchive, "w.io", "/c.md", 3), written}},
+		pulseSignals: 1,
+		pulses:       [][]domain.Pulse{{archived}, {written, archived}},
 	}
 	srv := browserServer(t, roomApp(t, NewRoom(graphFixture(), "soul.demarkus.io", "/index.md").WithLiveEditions(live)))
 	b := launchBrowser(t)
