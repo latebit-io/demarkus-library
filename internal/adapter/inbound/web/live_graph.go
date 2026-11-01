@@ -1,8 +1,8 @@
 package web
 
-// The live graph (plans/watch-realtime.md): while a graph overlay is open, its
-// stream names each write the reader may see, and islands.js pulses or fades
-// the matching node in place, keeping the reader's zoom, pan and exploration.
+// The live graph (plans/watch-realtime.md), a conceded island (ADR 0003): its
+// frames name each write the reader may see, not markup, since a swap would
+// reset the reader's zoom, pan and exploration; islands.js marks nodes in place.
 
 import (
 	"html/template"
