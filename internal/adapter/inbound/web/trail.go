@@ -414,14 +414,25 @@ func trailFocused(t trail, idx int) trail {
 	return trail{Panes: t.Panes, Focus: idx, Reader: -1, Meta: -1}
 }
 
-// paneMode is how pane idx renders: the focus in full, its left neighbour's
-// body beside it, every other pane a spine.
+// paneMode is how pane idx renders: the focus in full, one neighbour's body
+// beside it, every other pane a spine. The neighbour is the left one; pane
+// zero has none, so its right neighbour opens instead of leaving half the room bare.
 func paneMode(t trail, idx int) string {
-	switch idx {
-	case t.Focus:
+	switch {
+	case idx == t.Focus:
 		return "focused"
-	case t.Focus - 1:
+	case idx == t.Focus-1, t.Focus == 0 && idx == 1:
 		return "body"
 	}
 	return "spine"
+}
+
+// homeTrail is where the room opens: the universe floor in focus, with the
+// librarian beside it when one is on duty.
+func homeTrail(librarian bool) trail {
+	panes := []paneAddr{{Kind: paneFloor}}
+	if librarian {
+		panes = append(panes, paneAddr{Kind: paneLibrarian})
+	}
+	return trail{Panes: panes, Focus: 0, Reader: -1, Meta: -1}
 }

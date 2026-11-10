@@ -196,6 +196,12 @@ func previewSnippet(htmlStr string) string {
 	if err != nil {
 		return ""
 	}
+	return openingSnippet(nodes)
+}
+
+// openingSnippet is the first non-empty paragraph of parsed content, trimmed
+// for a card.
+func openingSnippet(nodes []*html.Node) string {
 	for _, n := range nodes {
 		if p := firstParagraphText(n); p != "" {
 			return trimSnippet(p)

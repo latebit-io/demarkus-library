@@ -356,6 +356,37 @@ func TestTrailReaderURLRoundTrip(t *testing.T) {
 	}
 }
 
+// Two panes stay open: the focus and its left neighbour, or its right
+// neighbour when the focus is pane zero and has none on the left.
+func TestPaneModeKeepsTwoPanesOpen(t *testing.T) {
+	panes := make([]paneAddr, 4)
+	for _, tt := range []struct {
+		focus int
+		want  string
+	}{
+		{focus: 0, want: "focused body spine spine"},
+		{focus: 1, want: "body focused spine spine"},
+		{focus: 3, want: "spine spine body focused"},
+	} {
+		modes := make([]string, len(panes))
+		for i := range panes {
+			modes[i] = paneMode(trail{Panes: panes, Focus: tt.focus}, i)
+		}
+		if got := strings.Join(modes, " "); got != tt.want {
+			t.Errorf("focus %d: modes = %q, want %q", tt.focus, got, tt.want)
+		}
+	}
+}
+
+func TestHomeTrailSeatsLibrarianWhenOnDuty(t *testing.T) {
+	if got := trailURL(homeTrail(false)); got != "/t/u" {
+		t.Errorf("home without a librarian = %q", got)
+	}
+	if got := trailURL(homeTrail(true)); got != "/t/u/~/a?focus=0" {
+		t.Errorf("home with a librarian = %q", got)
+	}
+}
+
 func TestTrailFocusedMovesAttentionOnly(t *testing.T) {
 	start := trail{Panes: []paneAddr{doc("w", "/a.md"), doc("w", "/b.md")}, Focus: 1}
 	got := trailFocused(start, 0)

@@ -348,6 +348,33 @@ func TestRootRedirectsToFloor(t *testing.T) {
 	}
 }
 
+// With a librarian on duty the room opens with it beside the floor: the floor
+// keeps the focus, and pane zero's right neighbour fills the other half.
+func TestRootOpensLibrarianBesideFloor(t *testing.T) {
+	app := librarianApp(t, &fakeLibrarian{})
+	rec := get(app, "/")
+	if rec.Code != http.StatusFound || rec.Header().Get("Location") != "/t/u/~/a?focus=0" {
+		t.Fatalf("root: %d → %q", rec.Code, rec.Header().Get("Location"))
+	}
+	body := get(app, "/t/u/~/a?focus=0").Body.String()
+	for _, want := range []string{
+		`<p class="ask-intro-title">Ask Librarian</p>`,
+		`class="ask-form"`,
+		`<a class="dock-link" href="/t/u/~/a">librarian</a>`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("home canvas missing %q", want)
+		}
+	}
+	if strings.Contains(body, `class="pane spine"`) || strings.Contains(body, " autofocus") {
+		t.Error("the librarian beside the floor collapsed, or took the cursor from the floor")
+	}
+	// A pane outside any world has no world chip to show.
+	if strings.Contains(body, `<span class="dock-world"></span>`) {
+		t.Error("dock drew an empty world chip")
+	}
+}
+
 // The universe overlay shell (ADR 0006 §6) is embedded on the landing floor,
 // and the floor's "view as map" link carries the universe-open class so
 // islands.js summons the overlay (degrading to the inline ?view=map href).
@@ -396,8 +423,8 @@ func TestFloorOverlayFragment(t *testing.T) {
 // has no standalone permalink.
 func TestFloorPageRedirectsWhenNotOverlay(t *testing.T) {
 	rec := get(readingApp(t, &fakeReading{floor: testFloor()}), "/u")
-	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/t/u" {
-		t.Errorf("/u -> %d %q, want 303 /t/u", rec.Code, rec.Header().Get("Location"))
+	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/" {
+		t.Errorf("/u -> %d %q, want 303 /", rec.Code, rec.Header().Get("Location"))
 	}
 }
 

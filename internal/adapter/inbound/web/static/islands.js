@@ -267,25 +267,31 @@
 
   // --- reading position and progress ----------------------------------
   // Every click rebuilds the canvas, so panes would land at their top: keep
-  // each document's position (pane head's world+path) for the session.
+  // each document's reading (pane head's world+path) for the session: its
+  // scroll offset, and for a document how far it is read and how long it runs.
   // Presentational only; storage failing just means starting at the top.
-  var positionsKey = "demarkus:positions", positionsMax = 300;
+  var positionsKey = "demarkus:readings", positionsMax = 300;
   var positions = (function () {
-    try { return JSON.parse(sessionStorage.getItem(positionsKey)) || {}; } catch (err) { return {}; }
+    // Anything but a plain object would make every later save throw.
+    try {
+      var saved = JSON.parse(sessionStorage.getItem(positionsKey));
+      return saved && typeof saved === "object" && !Array.isArray(saved) ? saved : {};
+    } catch (err) { return {}; }
   })();
   function scrollPanes() {
     return document.querySelectorAll("body.pane-scroll .pane:not(.spine)");
   }
   function paneKey(pane) {
-    var code = pane.querySelector(".pane-head code");
-    return code ? code.textContent : "";
+    return pane.getAttribute("data-key") || "";
   }
   function savePositions() {
     scrollPanes().forEach(function (p) {
       var k = paneKey(p);
       if (!k) return;
       delete positions[k]; // re-insert so the newest stays last when trimming
-      positions[k] = Math.round(p.scrollTop);
+      var reading = progressEl(p) ? measureProgress(p) : {};
+      reading.top = Math.round(p.scrollTop);
+      positions[k] = reading;
     });
     var keys = Object.keys(positions);
     keys.slice(0, Math.max(0, keys.length - positionsMax)).forEach(function (k) { delete positions[k]; });
@@ -293,8 +299,8 @@
   }
   function restorePositions() {
     scrollPanes().forEach(function (p) {
-      var top = positions[paneKey(p)];
-      if (top) p.scrollTop = top;
+      var reading = positions[paneKey(p)];
+      if (reading && reading.top) p.scrollTop = reading.top;
     });
   }
   // E-reader furniture: a document pane's head reads "38% · 6 min left".
@@ -311,16 +317,50 @@
     }
     return el;
   }
+  // done is null for a document that fits its pane: nothing to scroll through.
+  function measureProgress(pane) {
+    var max = pane.scrollHeight - pane.clientHeight;
+    return { minutes: Math.max(1, Math.round(pane._words / wordsPerMinute)),
+             done: max > 0 ? Math.min(1, pane.scrollTop / max) : null };
+  }
+  function timeLeft(progress) {
+    if (progress.done === null) return progress.minutes + " min read";
+    var left = Math.round(progress.minutes * (1 - progress.done));
+    return left > 0 ? left + " min left" : "end";
+  }
+  function percentRead(progress) {
+    return progress.done === null ? 100 : Math.round(progress.done * 100);
+  }
+  function progressText(progress) {
+    var left = timeLeft(progress);
+    return progress.done === null ? left : percentRead(progress) + "% \u00b7 " + left;
+  }
   function showProgress(pane, el) {
     el = el || progressEl(pane);
     if (!el) return;
-    var max = pane.scrollHeight - pane.clientHeight;
-    var total = Math.max(1, Math.round(pane._words / wordsPerMinute)), text = total + " min read";
-    if (max > 0) {
-      var done = Math.min(1, pane.scrollTop / max), left = Math.round(total * (1 - done));
-      text = Math.round(done * 100) + "% \u00b7 " + (left > 0 ? left + " min left" : "end");
-    }
+    var text = progressText(measureProgress(pane));
     if (el.textContent !== text) el.textContent = text;
+  }
+  // A collapsed document (spine.html) shows the reading it was left at: the
+  // thumb index fills to it, and the peek marks the section the reader is in.
+  function showSpineProgress() {
+    document.querySelectorAll(".pane.spine").forEach(function (spine) {
+      // Only a document's spine has the furniture; a graph pane shares its key.
+      var reading = positions[paneKey(spine)];
+      var left = spine.querySelector(".spine-left"), label = spine.querySelector(".spine-progress");
+      if (!left || !label || !reading || !reading.minutes) return;
+      var percent = percentRead(reading), here = null;
+      spine.style.setProperty("--read", percent + "%");
+      spine.querySelectorAll("[data-at]").forEach(function (mark) {
+        var read = Number(mark.getAttribute("data-at")) <= percent;
+        mark.classList.toggle("read", read);
+        mark.classList.remove("here"); // re-marked below, so a rerun moves it
+        if (read && mark.parentNode.classList.contains("peek-sections")) here = mark;
+      });
+      if (here) here.classList.add("here");
+      left.textContent = timeLeft(reading);
+      label.textContent = progressText(reading);
+    });
   }
   // Every span is added before any pane is measured: one layout, not one each.
   function showAllProgress() {
@@ -1516,6 +1556,7 @@
   document.addEventListener("DOMContentLoaded", function () {
     restorePositions();
     showAllProgress();
+    showSpineProgress();
     scan(document.body);
     showFocusedPane();
   });
@@ -1527,7 +1568,7 @@
   // document: a body-level swap keeps the element, but this survives either way.
   document.addEventListener("htmx:after:settle", function (e) {
     var t = e.target;
-    if (t === document.body) { restorePositions(); showAllProgress(); }
+    if (t === document.body) { restorePositions(); showAllProgress(); showSpineProgress(); }
     scan(t);
     if (t === document.body ||
         (t.matches && t.matches("main.canvas, .pane")) ||

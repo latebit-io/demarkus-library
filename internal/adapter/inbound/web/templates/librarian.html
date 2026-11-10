@@ -24,6 +24,14 @@
      it, so its stream covers that answer too. */}}
 <div id="librarian-stale">{{template "librarian-stale" .SourcesURL}}</div>
 {{- if .Ask }}
+{{- if .Ask.Starters }}
+{{/* The empty pane says what the librarian is for; it steps aside with the
+     starters once the first exchange lands (library.css :has). */}}
+<div class="ask-intro">
+  <p class="ask-intro-title">Ask {{ librarian }}</p>
+  <p>Answers come from the documents here, with every source cited.</p>
+</div>
+{{- end }}
 {{- if .Ask.Notice }}<p class="ask-notice">{{ .Ask.Notice }}</p>{{ end }}
 <form class="ask-form" method="post" action="/a/ask"
       hx-post="/a/ask" hx-target="#librarian-exchanges" hx-swap="beforeend">
@@ -31,6 +39,12 @@
   <input type="hidden" name="trail" value="{{ .Ask.TrailRest }}">
   <input type="hidden" name="idx" value="{{ .Ask.Idx }}">
   <input type="hidden" name="focus" value="{{ .Ask.Focus }}">
+  <div class="ask-row">
+    <textarea class="ask-input" name="question" rows="1" placeholder="ask a question…"
+              aria-label="Question for {{ librarian }}" maxlength="4096" required
+              {{- if .Ask.Autofocus }} autofocus{{ end }}></textarea>
+    <button type="submit" class="ask-send" title="Ask (Enter; Shift+Enter for a new line)">ask</button>
+  </div>
   {{- if .Ask.Starters }}
   {{/* Starters submit themselves as the question (preset) and step aside
        once the first exchange lands (library.css :has). */}}
@@ -40,12 +54,6 @@
     {{- end }}
   </div>
   {{- end }}
-  <div class="ask-row">
-    <textarea class="ask-input" name="question" rows="1" placeholder="ask a question…"
-              aria-label="Question for {{ librarian }}" maxlength="4096" required
-              {{- if .Ask.Autofocus }} autofocus{{ end }}></textarea>
-    <button type="submit" class="ask-send" title="Ask (Enter; Shift+Enter for a new line)">ask</button>
-  </div>
 </form>
 {{- end }}
 </div>
@@ -109,5 +117,5 @@
      cited in the prose or not — and, when the prose cites documents not yet
      open, one link that lays them out as panes. */}}
 {{define "librarian-sources"}}{{ if or .Items .OpenAll }}<p class="ask-sources">
-  {{- if .Items }}sources:{{ range $i, $src := .Items }}{{ if $i }} ·{{ end }} <a href="{{ $src.Href }}" title="{{ $src.Label }}">{{ $src.Title }}</a>{{ end }}{{ end }}
-  {{- if .OpenAll }}{{ if .Items }} — {{ end }}<a class="ask-open" href="{{ .OpenAll }}">open the {{ if eq .Opened 1 }}cited document as a pane{{ else }}{{ .Opened }} cited documents as panes{{ end }}</a>{{ end }}</p>{{ end }}{{end}}
+  {{- if .Items }}<span class="ask-sources-label">sources</span>{{ range .Items }} <a class="ask-source" href="{{ .Href }}" title="{{ .Label }}">{{ .Title }}</a>{{ end }}{{ end }}
+  {{- if .OpenAll }} <a class="ask-open" href="{{ .OpenAll }}">open the {{ if eq .Opened 1 }}cited document as a pane{{ else }}{{ .Opened }} cited documents as panes{{ end }}</a>{{ end }}</p>{{ end }}{{end}}

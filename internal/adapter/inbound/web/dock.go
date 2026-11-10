@@ -11,8 +11,8 @@ import (
 // The trail dock (ADR 0006 §2 / D2): the bottom orientation strip. It does the
 // jobs a per-world column stack structurally can't — show the whole path at a
 // glance, cross-world hops, walk-vs-jump connectors, and a "from here →" set of
-// one-hop reference neighbors to extend into. The left spine is demoted to pure
-// spatial re-expand rails; this strip carries orientation + backtrack.
+// one-hop reference neighbors to extend into. Spines (spine.go) show one
+// document's shape and progress; this strip carries orientation + backtrack.
 //
 // Everything here is server-rendered from the parsed trail; `via` is derived,
 // not stored (D5): a hop is a "walk" when a reference edge joins the two panes
@@ -54,13 +54,15 @@ func (h *ReadingHandler) buildDock(ctx context.Context, t trail) dockVM {
 	d := dockVM{Entries: make([]dockEntry, len(t.Panes))}
 	for i, p := range t.Panes {
 		label, _ := paneLabel(p, h.terms)
+		world := dockWorld(p, h.terms)
 		e := dockEntry{
-			Label:     label,
-			World:     dockWorld(p, h.terms),
-			URL:       trailURL(trailFocused(t, i)),
-			Active:    i == t.Focus,
-			First:     i == 0,
-			ShowWorld: i == 0 || dockWorld(p, h.terms) != dockWorld(t.Panes[i-1], h.terms),
+			Label:  label,
+			World:  world,
+			URL:    trailURL(trailFocused(t, i)),
+			Active: i == t.Focus,
+			First:  i == 0,
+			// A pane outside any world (the librarian, activity) has no chip.
+			ShowWorld: world != "" && (i == 0 || world != dockWorld(t.Panes[i-1], h.terms)),
 		}
 		if i > 0 {
 			e.Walked = h.refEdgeBetween(ctx, t.Panes[i-1], p)

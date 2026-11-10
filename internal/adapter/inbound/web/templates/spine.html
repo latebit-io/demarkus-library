@@ -1,0 +1,40 @@
+{{/* A collapsed pane (ADR 0006 §2, amended): a book spine that names the pane
+     and its place on the trail. A document adds a thumb index and a peek card;
+     islands.js fills in how far the reader got. */}}
+{{define "spine"}}<a class="pane spine{{if .Gone}} gone{{end}}" href="{{ .FocusURL }}" data-key="{{template "pane-address" .}}"
+  {{- if and .Spine .Spine.Peek }} aria-label="{{ .Title }}"{{ else }} title="{{ .Title }}"{{ end }}>
+  {{- with .Spine }}{{ with .Peek }}
+  <span class="spine-track" aria-hidden="true">{{range .Sections}}<i class="spine-tick" data-at="{{ .At }}" style="top:{{ .At }}%"></i>{{end}}</span>
+  {{- end }}{{ end }}
+  <span class="spine-ord">{{ .Ordinal }}</span>
+  {{- with .Spine }}{{ if .Kind }}
+  <span class="spine-kind">{{ .Kind }}</span>
+  {{- end }}{{ end }}
+  <span class="spine-title">{{ .Title }}</span>
+  {{- if .Gone }}<span class="status">gone</span>{{ end }}
+  {{- with .Spine }}
+  {{- if .Peek }}
+  <span class="spine-left"></span>
+  {{- end }}
+  {{- if .Foot }}
+  <span class="spine-foot">{{ .Foot }}</span>
+  {{- end }}
+  {{- end }}
+  {{- if .Status }}
+  <span class="spine-status status-{{ .Status }}" title="{{ .Status }}"></span>
+  {{- end }}
+  {{- with .Spine }}{{ with .Peek }}
+  <span class="spine-peek">
+    <span class="peek-where">{{ with $.Spine.Kind }}{{ . }} · {{ end }}{{ $.World }}{{ $.Spine.Foot }}</span>
+    <strong class="peek-title">{{ $.Title }}</strong>
+    <span class="peek-meta">{{ if $.Status }}<span class="status status-{{ $.Status }}">{{ $.Status }}</span> {{ end }}{{ if .Modified }}<span>modified {{ .Modified }}</span> {{ end }}<span class="spine-progress"></span></span>
+    {{- if .Lede }}
+    <span class="peek-lede">{{ .Lede }}</span>
+    {{- end }}
+    {{- if .Sections }}
+    <span class="peek-sections" role="list">{{range .Sections}}<span role="listitem" data-at="{{ .At }}">{{ .Title }}</span>{{end}}</span>
+    {{- end }}
+    <span>Resume reading →</span>
+  </span>
+  {{- end }}{{ end }}
+</a>{{end}}
