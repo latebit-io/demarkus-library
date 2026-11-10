@@ -21,8 +21,9 @@ type Room struct {
 	asks         *pendingAsks             // POST /a/ask → SSE handoff tokens, shared by both librarian routes
 	defaultWorld string
 	defaultDoc   string
-	terms        Terms // display vocabulary (Branding.Terms); handler-built labels read it
-	paneScroll   bool  // the pane-scroll room, ADR 0007 (DEMARKUS_PANE_SCROLL opts out)
+	terms        Terms         // display vocabulary (Branding.Terms); handler-built labels read it
+	paneScroll   bool          // the pane-scroll room, ADR 0007 (DEMARKUS_PANE_SCROLL opts out)
+	logoReads    chan struct{} // the universe map's brand-read slots, one set for the room
 }
 
 // NewRoom binds the reading service, the world served at /, and the document
@@ -34,6 +35,7 @@ func NewRoom(reading port.ReadingService, defaultWorld, defaultDoc string) Room 
 		defaultWorld: defaultWorld,
 		defaultDoc:   defaultDoc,
 		terms:        DefaultTerms(),
+		logoReads:    make(chan struct{}, floorLogoReads),
 	}
 }
 
@@ -93,7 +95,7 @@ func (r Room) chrome() chromeBuilder {
 // permalinks share.
 func (r Room) spatialPanes() spatialPanes {
 	return spatialPanes{maps: r.reading, graph: r.reading, terms: r.terms, pulse: r.live,
-		identity: worldIdentity{manifest: r.manifest, brands: r.brands}}
+		identity: worldIdentity{manifest: r.manifest, brands: r.brands}, logoReads: r.logoReads}
 }
 
 // librarianPanes is the pane builder the canvas and the librarian's own routes

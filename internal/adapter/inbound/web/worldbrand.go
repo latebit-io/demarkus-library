@@ -131,7 +131,24 @@ func (w *WorldBrands) Hub() string {
 // For returns the world's identity as URLs the templates can use; ok is false
 // when the world declares no branding of its own.
 func (w *WorldBrands) For(ctx context.Context, world string) (WorldBranding, bool) {
-	brand := w.get(ctx, world)
+	return brandURLs(world, w.get(ctx, world))
+}
+
+// Cached is For without a read: the brand last resolved for the world, fresh
+// or stale, for a caller out of time to wait on one.
+func (w *WorldBrands) Cached(world string) (WorldBranding, bool) {
+	if w == nil {
+		return WorldBranding{}, false
+	}
+	w.mu.Lock()
+	brand := w.byWorld[world]
+	w.mu.Unlock()
+	return brandURLs(world, brand)
+}
+
+// brandURLs turns a resolved brand into the URLs templates use; ok is false
+// when it declares nothing.
+func brandURLs(world string, brand worldBrand) (WorldBranding, bool) {
 	if brand.empty() {
 		return WorldBranding{}, false
 	}
