@@ -1080,7 +1080,7 @@ body.pane-scroll .librarian:not(:has(.exchange)) { justify-content: center; padd
 /* Starters step aside once a conversation begins (a live exchange counts);
    starting over appears only then. */
 .librarian:has(.exchange) .ask-starters, .librarian:has(.exchange) .ask-intro,
-.pane:not(:has(.exchange)) .ask-reset { display: none; }
+.pane[data-kind="a"]:not(:has(.exchange)) .ask-reset { display: none; }
 /* Suggested first questions: a short list under the box, one to a line. */
 .ask-starters { display: flex; flex-direction: column; }
 .ask-starters button { display: flex; justify-content: space-between; gap: 1rem;

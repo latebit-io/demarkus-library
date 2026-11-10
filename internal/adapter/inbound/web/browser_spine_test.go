@@ -49,6 +49,25 @@ func TestBrowserSpineShowsSavedReading(t *testing.T) {
 	}
 }
 
+// A reading left behind by something else under the storage key must not
+// break saving: the next navigation still records where the pane was.
+func TestBrowserReadingsSurviveCorruptStorage(t *testing.T) {
+	svc := &fakeReading{docs: map[string]domain.Document{
+		"/a.md": {Title: "A", Path: "/a.md", HTML: `<p><a href="b.md">next</a></p>`},
+		"/b.md": {Title: "B", Path: "/b.md", HTML: "<p>b</p>"},
+	}}
+	srv := browserServer(t, paneScrollApp(t, svc))
+	b := launchBrowser(t)
+	b.navigate(t, srv.URL+"/t/w.io/d/a.md")
+	b.eval(t, `sessionStorage.setItem("demarkus:readings", JSON.stringify("not a map"))`)
+	b.navigate(t, srv.URL+"/t/w.io/d/a.md")
+	b.eval(t, `document.querySelector('.pane.focused .doc-body a[href^="/t/"]').click()`)
+	b.waitFor(t, `location.pathname.endsWith("/b.md")`)
+	if saved, _ := b.eval(t, `"w.io/a.md" in JSON.parse(sessionStorage.getItem("demarkus:readings"))`).(bool); !saved {
+		t.Error("a corrupt stored value stopped the reading from being saved")
+	}
+}
+
 // Right of the focus the room's edge is near, so a spine's peek opens leftward;
 // left of it the peek opens rightward. CSS alone decides, from pane order.
 func TestBrowserSpinePeekOpensTowardTheRoom(t *testing.T) {

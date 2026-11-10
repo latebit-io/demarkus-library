@@ -272,7 +272,11 @@
   // Presentational only; storage failing just means starting at the top.
   var positionsKey = "demarkus:readings", positionsMax = 300;
   var positions = (function () {
-    try { return JSON.parse(sessionStorage.getItem(positionsKey)) || {}; } catch (err) { return {}; }
+    // Anything but a plain object would make every later save throw.
+    try {
+      var saved = JSON.parse(sessionStorage.getItem(positionsKey));
+      return saved && typeof saved === "object" && !Array.isArray(saved) ? saved : {};
+    } catch (err) { return {}; }
   })();
   function scrollPanes() {
     return document.querySelectorAll("body.pane-scroll .pane:not(.spine)");
@@ -342,18 +346,20 @@
   function showSpineProgress() {
     document.querySelectorAll(".pane.spine").forEach(function (spine) {
       // Only a document's spine has the furniture; a graph pane shares its key.
-      var reading = positions[paneKey(spine)], left = spine.querySelector(".spine-left");
-      if (!left || !reading || !reading.minutes) return;
+      var reading = positions[paneKey(spine)];
+      var left = spine.querySelector(".spine-left"), label = spine.querySelector(".spine-progress");
+      if (!left || !label || !reading || !reading.minutes) return;
       var percent = percentRead(reading), here = null;
       spine.style.setProperty("--read", percent + "%");
       spine.querySelectorAll("[data-at]").forEach(function (mark) {
         var read = Number(mark.getAttribute("data-at")) <= percent;
         mark.classList.toggle("read", read);
+        mark.classList.remove("here"); // re-marked below, so a rerun moves it
         if (read && mark.parentNode.classList.contains("peek-sections")) here = mark;
       });
       if (here) here.classList.add("here");
       left.textContent = timeLeft(reading);
-      spine.querySelector(".spine-progress").textContent = progressText(reading);
+      label.textContent = progressText(reading);
     });
   }
   // Every span is added before any pane is measured: one layout, not one each.
