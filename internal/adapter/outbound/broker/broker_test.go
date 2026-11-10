@@ -137,6 +137,9 @@ func TestVerbsAndArgs(t *testing.T) {
 	if got := fc.gotArgs["limit"]; got != 500 {
 		t.Errorf("limit arg = %v, want 500", got)
 	}
+	if got := fc.gotArgs["verbose"]; got != true {
+		t.Errorf("verbose arg = %v, want every tag asked for", got)
+	}
 	if _, present := fc.gotArgs["match"]; present {
 		t.Errorf("empty match must be omitted (catalog mode), got %v", fc.gotArgs["match"])
 	}
@@ -173,7 +176,7 @@ func TestLookupAllBuildsArgsAndAcceptsPartial(t *testing.T) {
 	if fc.gotTool != "mark_lookup_all" {
 		t.Errorf("tool = %q, want mark_lookup_all", fc.gotTool)
 	}
-	if fc.gotArgs["scope"] != "/docs/" || fc.gotArgs["query"] != "architecture" ||
+	if fc.gotArgs["scope"] != "/docs/" || fc.gotArgs["query"] != "architecture" || fc.gotArgs["verbose"] != true ||
 		fc.gotArgs["filter"] != "tag=guide" || fc.gotArgs["limit"] != 250 {
 		t.Errorf("args = %#v", fc.gotArgs)
 	}

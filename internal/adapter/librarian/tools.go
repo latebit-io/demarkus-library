@@ -187,11 +187,7 @@ func (t *findTool) Execute(ctx context.Context, call llm.ToolCall) nibagent.Tool
 	if strings.TrimSpace(in.Query) == "" {
 		return errResult(fmt.Errorf("find: query is required"))
 	}
-	scope := "universe"
-	if in.World != "" {
-		scope = "world"
-	}
-	entries, err := t.reader.NameIndex(ctx, scope, in.World)
+	entries, err := t.reader.NameIndex(ctx, in.World)
 	var partial *domain.PartialLookupError
 	if err != nil && !errors.As(err, &partial) {
 		return errResult(err)

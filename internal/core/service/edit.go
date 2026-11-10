@@ -64,15 +64,20 @@ func (s *ReadingService) Publish(ctx context.Context, req domain.PublishRequest)
 	return doc, nil, err
 }
 
-// invalidateTopology drops the floor and the world's map and name index under
-// every spelling of the world, so a write shows at once instead of at the next
-// TTL rebuild. The hub only moves when its graph export does.
+// invalidateTopology drops the floor, the universe name index and the world's
+// map and name index under every spelling of the world, so a write shows at
+// once instead of at the next TTL rebuild. The hub moves with its export.
 func (s *ReadingService) invalidateTopology(change domain.Change) {
 	world := domain.WorldKey(change.World)
 	sameWorld := func(scope string) bool { return domain.WorldKey(scope) == world }
 	s.floor.invalidate(universe)
 	s.worldMaps.invalidateMatching(sameWorld)
 	s.names.invalidateMatching(sameWorld)
+	// Generated graph data is no catalog row, so its writes leave the
+	// universe index standing.
+	if !change.Derived {
+		s.names.invalidate(universe)
+	}
 	if s.hub != "" && sameWorld(s.hub) && (change.Resync || change.Path == hubGraphPath) {
 		s.hubs.invalidate(universe)
 	}

@@ -79,7 +79,7 @@ func (p *evalPorts) Floor(context.Context) (domain.Floor, error) {
 	}}}, nil
 }
 
-func (p *evalPorts) NameIndex(context.Context, string, string) ([]domain.IndexEntry, error) {
+func (p *evalPorts) NameIndex(context.Context, string) ([]domain.IndexEntry, error) {
 	p.record("find")
 	out := make([]domain.IndexEntry, 0, len(evalCorpus))
 	for path, doc := range evalCorpus {
@@ -100,7 +100,7 @@ func (p *evalPorts) Lookup(_ context.Context, q domain.CatalogQuery) (domain.Cat
 		if doc.tags == "" || !strings.Contains(hay, needle) || (q.Tag != "" && !strings.Contains(doc.tags, q.Tag)) {
 			continue
 		}
-		result.Hits = append(result.Hits, domain.CatalogHit{Ref: domain.Ref{World: "ops", Path: path}, Title: doc.title})
+		result.Hits = append(result.Hits, domain.CatalogHit{World: "ops", Path: path, Title: doc.title})
 	}
 	return result, nil
 }

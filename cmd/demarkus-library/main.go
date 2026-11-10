@@ -249,7 +249,7 @@ func main() {
 		go reading.FollowChanges(followCtx, changes, brands.ApplyChange)
 	}
 	web.WorldThemeRoutes(app, branding, brands, themeBearer...)
-	room := web.NewRoom(reading, defaultWorld, config.DefaultDoc).WithBranding(branding).WithWorldBrands(brands)
+	room := web.NewRoom(reading, defaultWorld, config.DefaultDoc).WithBranding(branding).WithWorldBrands(brands).WithTextSearch(reading)
 	if changes != nil {
 		room = room.WithLiveEditions(reading)
 	}

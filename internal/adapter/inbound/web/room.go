@@ -18,6 +18,7 @@ type Room struct {
 	brands       *WorldBrands             // in-world branding resolver (ADR 0008); nil ⇒ manifest only
 	manifest     map[string]WorldBranding // the branding file's per-world entries, under the in-world ones
 	live         port.LiveService         // change hints for the live streams; nil = off
+	text         textSearcher             // section-text search under the palette; nil = names only
 	asks         *pendingAsks             // POST /a/ask → SSE handoff tokens, shared by both librarian routes
 	defaultWorld string
 	defaultDoc   string
@@ -58,6 +59,13 @@ func (r Room) WithBranding(b Branding) Room {
 // renders its not-on-duty state, the nav door is absent, and asks are rejected.
 func (r Room) WithLibrarian(lib port.Librarian) Room {
 	r.lib = lib
+	return r
+}
+
+// WithTextSearch gives the palette section-text matches under its name
+// matches. Without it the palette matches names only.
+func (r Room) WithTextSearch(s textSearcher) Room {
+	r.text = s
 	return r
 }
 
@@ -140,7 +148,7 @@ func (r Room) spatialHandler() SpatialHandler {
 
 // paletteHandler builds the command palette over the catalog's name index.
 func (r Room) paletteHandler() PaletteHandler {
-	return PaletteHandler{index: r.reading, defaultWorld: r.defaultWorld, terms: r.terms}
+	return PaletteHandler{index: r.reading, text: r.text, defaultWorld: r.defaultWorld, terms: r.terms}
 }
 
 // librarianHandler builds the librarian's request surface. The pending-ask

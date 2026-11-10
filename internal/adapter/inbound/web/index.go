@@ -24,7 +24,7 @@ func (h *ReadingHandler) richIndex(ctx context.Context, world, fragment string, 
 	var entries []domain.IndexEntry
 	var err error
 	if live {
-		entries, err = h.reading.NameIndex(ctx, "world", world)
+		entries, err = h.reading.NameIndex(ctx, world)
 	} else {
 		entries, err = h.reading.NameIndexCached(ctx, world)
 	}

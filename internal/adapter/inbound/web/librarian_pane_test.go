@@ -429,7 +429,7 @@ func TestLibrarianPane_CitationsOfferOpenAll(t *testing.T) {
 		Question: "what next?",
 		Answer: `Read <a href="mark://w.io/ops/deploy.md">deploy</a>, then <a href="mark://w.io/ops/rollback.md">rollback</a>; ` +
 			`<a href="mark://w.io/x.md">this</a> you have.`,
-		Sources: []domain.LibrarianSource{{Ref: domain.Ref{World: "w.io", Path: "/ops/deploy.md"}, Title: "Deploy runbook"}},
+		Sources: []domain.LibrarianSource{{World: "w.io", Path: "/ops/deploy.md", Title: "Deploy runbook"}},
 	}}}
 	e := librarianApp(t, lib)
 	rec := httptest.NewRecorder()
@@ -515,7 +515,7 @@ func TestLibrarianPane_StreamsItsSources(t *testing.T) {
 	t.Parallel()
 	answer := func(version string) []domain.LibrarianExchange {
 		return []domain.LibrarianExchange{{Question: "where?", Answer: "In ops.", Sources: []domain.LibrarianSource{
-			{Ref: domain.Ref{World: "w.io", Path: "/ops/deploy.md"}, Title: "Deploy runbook", Version: version}}}}
+			{World: "w.io", Path: "/ops/deploy.md", Title: "Deploy runbook", Version: version}}}}
 	}
 	versioned, unversioned := answer("4"), answer("")
 	tests := []struct {

@@ -5,8 +5,9 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
-	"sort"
+	"slices"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/labstack/echo/v5"
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
@@ -25,37 +26,53 @@ import (
 // matches, not the whole catalog.
 const paletteMaxRows = 50
 
-// nameIndexer is all the palette needs from the reading core: the catalog's
-// name index. It renders its own fragment, so no document read is involved.
+// paletteTextRows caps the section-text matches under the name matches.
+const paletteTextRows = 8
+
+// paletteTextMin is the shortest query searched in section text: shorter
+// ones match too much to be worth a catalog round trip per keystroke.
+const paletteTextMin = 3
+
+// scopeUniverse is the scope parameter's value for every authorized world.
+const scopeUniverse = "universe"
+
+// nameIndexer is the catalog's name index, cached: the palette matches it
+// on every keystroke.
 type nameIndexer interface {
-	NameIndex(ctx context.Context, scope, world string) ([]domain.IndexEntry, error)
+	NameIndexCached(ctx context.Context, world string) ([]domain.IndexEntry, error)
 }
 
-// PaletteHandler serves the command palette's htmx active-search fragment
-// (ADR 0006 §3) — one route, one template.
+// textSearcher is the catalog's section-text search.
+type textSearcher interface {
+	Lookup(ctx context.Context, q domain.CatalogQuery) (domain.CatalogResult, error)
+}
+
+// PaletteHandler serves the command palette's htmx fragments (ADR 0006 §3):
+// name matches, and the section-text matches loaded under them.
 type PaletteHandler struct {
 	index        nameIndexer
+	text         textSearcher
 	defaultWorld string
 	terms        Terms
 }
 
 type paletteRow struct {
-	Title  string
-	Loc    string // world + path, the mono secondary line
-	Status string
-	URL    string // a ready trail URL (rewind-on-dedup, else push)
+	Title   string
+	Loc     string // world + path, the mono secondary line
+	Status  string
+	Snippet string // the matching excerpt, on a section-text row
+	URL     string // a ready trail URL (rewind-on-dedup, else push)
 }
 
 type paletteVM struct {
 	Query   string
 	Rows    []paletteRow
 	Warning string
+	TextURL string // the section-text fragment to load under the rows, "" for none
 }
 
-// Palette renders the name-mode results fragment for the htmx active search. A
-// non-htmx request (no JS, or a direct hit) is redirected to /search: the
-// palette is a progressive enhancement, and /search is the durable, fully
-// server-rendered surface it degrades to.
+// Palette renders the name matches for the htmx active search. Without htmx
+// (no JS, or a direct hit) it redirects to /search, the durable surface.
 func (h *PaletteHandler) Palette(c *echo.Context) error {
 	if c.Request().Header.Get("HX-Request") != "true" {
 		target := "/search"
@@ -67,28 +84,77 @@ func (h *PaletteHandler) Palette(c *echo.Context) error {
 
 	t := currentTrail(c)
 	q := strings.TrimSpace(c.QueryParam("q"))
-
-	var rows []paletteRow
 	if q == "" {
-		rows = recentRows(t, h.terms) // "get back to where I was" is the common retrieval
-	} else {
-		world := c.QueryParam("world")
-		if world == "" {
-			world = paletteWorld(c, t, h.defaultWorld)
-		}
-		entries, err := h.index.NameIndex(c.Request().Context(), c.QueryParam("scope"), world)
-		var partial *domain.PartialLookupError
-		if err != nil && !errors.As(err, &partial) {
-			// Surface real failures (re-login, unreachable world) instead of
-			// rendering an outage as "no matches".
-			return presentError(c, err, world, "/palette")
-		}
-		rows = matchRows(t, q, entries)
-		if partial != nil {
-			return c.Render(http.StatusOK, "palette-results", paletteVM{Query: q, Rows: rows, Warning: partial.Error()})
-		}
+		// "Get back to where I was" is the common retrieval.
+		return c.Render(http.StatusOK, "palette-results", paletteVM{Rows: recentRows(t, h.terms)})
 	}
-	return c.Render(http.StatusOK, "palette-results", paletteVM{Query: q, Rows: rows})
+	world := h.searchWorld(c, t)
+	entries, err := h.index.NameIndexCached(c.Request().Context(), world)
+	partial, isPartial := errors.AsType[*domain.PartialLookupError](err)
+	if err != nil && !isPartial {
+		// Surface real failures (re-login, unreachable world) instead of
+		// rendering an outage as "no matches".
+		return h.fail(c, err, world, "/palette")
+	}
+	vm := paletteVM{Query: q, Rows: matchRows(t, q, entries)}
+	if isPartial {
+		vm.Warning = partial.Error()
+	}
+	if h.searchesText(q) {
+		params := url.Values{"q": {q}, "world": {world}}
+		if world == "" {
+			params = url.Values{"q": {q}, "scope": {scopeUniverse}}
+		}
+		vm.TextURL = "/palette/text?" + params.Encode()
+	}
+	return c.Render(http.StatusOK, "palette-results", vm)
+}
+
+// Text renders the section-text matches for q: the rows the name index
+// cannot give, loaded under it so a slow search never holds the names back.
+func (h *PaletteHandler) Text(c *echo.Context) error {
+	q := strings.TrimSpace(c.QueryParam("q"))
+	if !h.searchesText(q) || !wantsFragment(c.Request()) {
+		return c.NoContent(http.StatusNoContent)
+	}
+	t := currentTrail(c)
+	world := h.searchWorld(c, t)
+	result, err := h.text.Lookup(c.Request().Context(),
+		domain.CatalogQuery{World: world, Query: q, Match: domain.MatchBody, Limit: paletteTextRows})
+	if _, partial := errors.AsType[*domain.PartialLookupError](err); err != nil && !partial {
+		return h.fail(c, err, world, "/palette/text")
+	}
+	// A world without section search answers from the catalog: rows the
+	// name matches already show.
+	if !result.BodyMatched {
+		return c.NoContent(http.StatusNoContent)
+	}
+	return c.Render(http.StatusOK, "palette-text", paletteVM{Rows: textRows(t, result.Hits)})
+}
+
+// searchesText reports a query worth a section-text search, where there is one.
+func (h *PaletteHandler) searchesText(q string) bool {
+	return h.text != nil && utf8.RuneCountInString(q) >= paletteTextMin
+}
+
+// searchWorld is the world searched: "" for every world when the reader
+// asked for the universe, else the world the reader is in.
+func (h *PaletteHandler) searchWorld(c *echo.Context, t trail) string {
+	if c.QueryParam("scope") == scopeUniverse {
+		return ""
+	}
+	if world := c.QueryParam("world"); world != "" {
+		return world
+	}
+	return paletteWorld(c, t, h.defaultWorld)
+}
+
+// fail presents a read failure of world, or of the universe when world is "".
+func (h *PaletteHandler) fail(c *echo.Context, err error, world, path string) error {
+	if world == "" {
+		return presentRoomError(c, err, h.terms.UniverseLower())
+	}
+	return presentError(c, err, world, path)
 }
 
 // currentTrail parses the reader's current trail from the htmx HX-Current-URL
@@ -152,66 +218,48 @@ func worldFromURL(cur string) string {
 // the active pane skipped. Each row rewinds (focuses) its pane.
 func recentRows(t trail, terms Terms) []paletteRow {
 	var rows []paletteRow
-	for i := len(t.Panes) - 1; i >= 0; i-- {
+	for i, v := range slices.Backward(t.Panes) {
 		if i == t.Focus {
 			continue
 		}
-		title, loc := paneLabel(t.Panes[i], terms)
+		title, loc := paneLabel(v, terms)
 		rows = append(rows, paletteRow{Title: title, Loc: loc, URL: trailURL(trailFocused(t, i))})
 	}
 	return rows
 }
 
-// matchRows fuzzy-filters the catalog and builds a trail-extending link per hit.
-// A jump pushes onto the end of the trail (trailAfterClick rewinds instead if
-// the doc is already on it).
+// matchRows ranks the name index against q, a row per hit.
 func matchRows(t trail, q string, entries []domain.IndexEntry) []paletteRow {
-	idx := len(t.Panes) - 1 // -1 on an empty trail ⇒ a jump starts a fresh one
-	ql := strings.ToLower(q)
-	type hit struct {
-		e    domain.IndexEntry
-		rank int
-	}
-	var hits []hit
-	for _, e := range entries {
-		if r, ok := matchRank(ql, strings.ToLower(e.Title+" "+e.World+e.Path)); ok {
-			hits = append(hits, hit{e, r})
-		}
-	}
-	sort.SliceStable(hits, func(i, j int) bool { return hits[i].rank < hits[j].rank })
-	if len(hits) > paletteMaxRows {
-		hits = hits[:paletteMaxRows]
-	}
+	hits := domain.RankIndex(q, entries, paletteMaxRows)
 	rows := make([]paletteRow, 0, len(hits))
-	for _, h := range hits {
-		target := paneAddr{Kind: paneDoc, World: h.e.World, Value: h.e.Path}
-		rows = append(rows, paletteRow{
-			Title:  h.e.Title,
-			Loc:    h.e.World + h.e.Path,
-			Status: h.e.Status,
-			URL:    trailURL(trailAfterClick(t, idx, target)),
-		})
+	for _, e := range hits {
+		row := docRow(t, domain.Ref{World: e.World, Path: e.Path}, e.Title)
+		row.Status = e.Status
+		rows = append(rows, row)
 	}
 	return rows
 }
 
-// matchRank scores a match: a substring hit ranks by its position (earlier is
-// better); a looser subsequence hit ranks behind every substring hit. Not a
-// match ⇒ ok=false.
-func matchRank(q, hay string) (int, bool) {
-	if i := strings.Index(hay, q); i >= 0 {
-		return i, true
-	}
-	j := 0
-	for i := 0; i < len(hay) && j < len(q); i++ {
-		if hay[i] == q[j] {
-			j++
+// textRows builds a row per section-text hit, in the catalog's rank order,
+// linked to the section: a heading's id is its anchor.
+func textRows(t trail, hits []domain.CatalogHit) []paletteRow {
+	rows := make([]paletteRow, 0, len(hits))
+	for i := range hits {
+		hit := &hits[i]
+		row := docRow(t, hit.Ref, hit.Title)
+		row.Status, row.Snippet = hit.Status, hit.Snippet
+		if hit.Anchor != "" {
+			row.URL += "#" + hit.Anchor
 		}
+		rows = append(rows, row)
 	}
-	if j == len(q) {
-		return 1000, true
-	}
-	return 0, false
+	return rows
+}
+
+// docRow is a row jumping to a document: a push onto the end of the trail,
+// or a rewind when the document is already on it. An empty trail starts one.
+func docRow(t trail, doc domain.Ref, title string) paletteRow {
+	return paletteRow{Title: title, Loc: doc.World + doc.Path, URL: trailDocLink(doc, t, len(t.Panes)-1)}
 }
 
 // paneLabel gives a recent row its title + location from a pane address.

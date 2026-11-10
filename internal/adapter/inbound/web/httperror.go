@@ -21,8 +21,7 @@ func HTMLErrorHandler(c *echo.Context, err error) {
 	}
 	// Only an HTTPError's message is written for readers; other errors may
 	// carry internals.
-	var httpErr *echo.HTTPError
-	if errors.As(err, &httpErr) {
+	if httpErr, ok := errors.AsType[*echo.HTTPError](err); ok {
 		view.Detail = httpErr.Message
 	}
 	view.Title = http.StatusText(view.Status)

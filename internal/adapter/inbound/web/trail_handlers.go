@@ -239,9 +239,9 @@ func (h *ReadingHandler) Trail(c *echo.Context) error {
 				metaDoc, metaAddr, haveMetaDoc = doc, addr, true
 			}
 			vm.Panes[i] = h.paneView(ctx, &paneRequest{
-				paneSlot: paneSlot{trail: t, index: i, addr: addr, authed: authed},
-				doc:      doc,
-				overlay:  overlayNone,
+				trail: t, index: i, addr: addr, authed: authed,
+				doc:     doc,
+				overlay: overlayNone,
 			})
 		}
 	}
@@ -275,9 +275,9 @@ func (h *ReadingHandler) Trail(c *echo.Context) error {
 	// the original focus.
 	if t.Reader >= 0 && haveReaderDoc {
 		rp := h.paneView(ctx, &paneRequest{
-			paneSlot: paneSlot{trail: t, index: t.Reader, addr: readerAddr, authed: authed},
-			doc:      readerDoc,
-			overlay:  overlayReader,
+			trail: t, index: t.Reader, addr: readerAddr, authed: authed,
+			doc:     readerDoc,
+			overlay: overlayReader,
 		})
 		vm.Reader = &rp
 		vm.CloseURL = trailURL(t)
@@ -288,9 +288,9 @@ func (h *ReadingHandler) Trail(c *echo.Context) error {
 	// extra world read, no re-recorded edges.
 	if t.Meta >= 0 && haveMetaDoc {
 		mp := h.paneView(ctx, &paneRequest{
-			paneSlot: paneSlot{trail: t, index: t.Meta, addr: metaAddr, authed: authed},
-			doc:      metaDoc,
-			overlay:  overlayMeta,
+			trail: t, index: t.Meta, addr: metaAddr, authed: authed,
+			doc:     metaDoc,
+			overlay: overlayMeta,
 		})
 		if mp.HasMargin {
 			mp.MetaOpen = true // the fold arrives expanded — this overlay IS the ask

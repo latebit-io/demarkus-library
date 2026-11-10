@@ -1,9 +1,6 @@
-{{/* The command palette (ADR 0006 §3): an htmx active-search overlay, SSR-first
-     and degrading without JS (ADR 0003). The overlay is server-rendered markup
-     in every shell; typing fires hx-get /palette which swaps in the results
-     fragment below. The form's method=GET action=/search is the no-JS fallback —
-     submitting jumps to the full, server-rendered catalog page. The only JS is
-     the keyboard glue in islands.js (open/close + arrow selection). */}}
+{{/* The command palette (ADR 0006 §3): an htmx active search, server-rendered
+     and degrading to the /search form without JS (ADR 0003). Typing swaps in
+     the name matches; that fragment loads the section-text matches under it. */}}
 {{define "palette"}}
 <div id="palette" class="palette-backdrop" hidden>
   <div class="palette-panel" role="dialog" aria-modal="true" aria-label="Search documents">
@@ -11,8 +8,10 @@
       <input id="palette-input" class="palette-input" type="search" name="q"
              placeholder="Jump to a document…" autocomplete="off" autocapitalize="off"
              spellcheck="false" aria-label="Search documents"
-             hx-get="/palette" hx-trigger="focus, input changed delay:200ms"
+             hx-get="/palette" hx-trigger="focus, input changed delay:200ms, change from:#palette-scope"
+             hx-include="#palette-scope"
              hx-target="#palette-results" hx-swap="innerHTML">
+      <label class="palette-scope"><input id="palette-scope" type="checkbox" name="scope" value="universe"> all worlds</label>
     </form>
     <div id="palette-results" class="palette-results"></div>
     <div class="palette-hint">↑↓ move · ↵ open · esc close</div>
@@ -22,17 +21,34 @@
 
 {{define "palette-results"}}
 {{- if .Warning}}<div class="palette-empty">{{ .Warning }}</div>{{ end}}
+{{- if .Rows}}{{template "palette-rows" .Rows}}
+{{- else if not .Warning}}
+<div class="palette-empty">{{ if .Query }}No matches{{ if .TextURL }} by name{{ end }}.{{ else }}Nothing recent — type to search.{{ end }}</div>
+{{- end}}
+{{- /* The delay lets the next keystroke replace this before it asks. */ -}}
+{{- if .TextURL}}
+<div hx-get="{{ .TextURL }}" hx-trigger="load delay:300ms" hx-swap="outerHTML"></div>
+{{- end}}
+{{end}}
+
+{{/* Section-text matches: a row names the document and section and quotes
+     the matching line. Empty when there are none. */}}
+{{define "palette-text"}}
 {{- if .Rows}}
+<div class="palette-section">In the text</div>
+{{template "palette-rows" .Rows}}
+{{- end}}
+{{end}}
+
+{{define "palette-rows"}}
 <ul class="palette-list" role="listbox">
-  {{- range .Rows}}
-  <li class="palette-row" role="option"><a href="{{ .URL }}">
+  {{- range .}}
+  <li class="palette-row{{ if .Snippet }} palette-row-text{{ end }}" role="option"><a href="{{ .URL }}">
     <span class="palette-title">{{ .Title }}</span>
     <span class="palette-loc">{{ .Loc }}</span>
     {{- if .Status }} <span class="palette-badge">{{ .Status }}</span>{{ end }}
+    {{- if .Snippet }}<span class="palette-snippet">{{ .Snippet }}</span>{{ end }}
   </a></li>
   {{- end}}
 </ul>
-{{- else if not .Warning}}
-<div class="palette-empty">{{ if .Query }}No matches.{{ else }}Nothing recent — type to search.{{ end }}</div>
-{{- end}}
 {{end}}

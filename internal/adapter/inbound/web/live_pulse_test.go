@@ -12,8 +12,8 @@ import (
 var pulseAt = time.Date(2026, 10, 30, 12, 36, 0, 0, time.UTC)
 
 func pulseOf(op, world, path string, version int) domain.Pulse {
-	return domain.Pulse{At: pulseAt, Change: domain.Change{World: world, Path: path, Op: op, Version: version,
-		Agent: "claude-code", User: "ana@example.org"}}
+	return domain.Pulse{At: pulseAt, World: world, Path: path, Op: op, Version: version,
+		Agent: "claude-code", User: "ana@example.org"}
 }
 
 var floorTrail = trail{Panes: []paneAddr{{Kind: paneFloor}}, Reader: -1, Meta: -1}

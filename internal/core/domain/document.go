@@ -315,17 +315,16 @@ type Floor struct {
 	Edges  []Edge
 }
 
-// IndexEntry is one row of the command palette's name-mode index (ADR 0006 §3):
-// the minimum the server fuzzy-matches on title + path and renders into the
-// results fragment. World lets universe-scope results show where each doc lives;
-// Status badges the row. It carries no body — name-mode is a known-item
-// switcher, not full-text search. Current catalog results carry no body content.
+// IndexEntry is one row of the name index (ADR 0006 §3), in the catalog's
+// rank order: what RankIndex matches (title, tags, world and path) for a
+// known-item jump. Status badges the row.
 type IndexEntry struct {
 	Title  string
 	Path   string
 	World  string
 	Status string
-	Orphan bool // zero reference edges (ADR 0006 §0.2); the rich index tags it
+	Tags   []string // the catalog's declared tags, status axis included
+	Orphan bool     // zero reference edges (ADR 0006 §0.2); set for one world's index only
 }
 
 // Document is a rendered, display-ready document. HTML is already sanitized; the

@@ -51,7 +51,7 @@ func checkLogo(blob []byte, declared string) (string, error) {
 		}
 		return "image/svg+xml", nil
 	}
-	sniffed := strings.SplitN(http.DetectContentType(blob), ";", 2)[0]
+	sniffed, _, _ := strings.Cut(http.DetectContentType(blob), ";")
 	if declared == "" {
 		declared = sniffed
 	}
