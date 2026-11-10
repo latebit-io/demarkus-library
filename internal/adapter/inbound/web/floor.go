@@ -207,10 +207,9 @@ func floorPlace(byRank []*wmItem, cx, cy int) {
 // a dashed rim node, a branded world its logo, any other a brain region.
 func floorWorldNode(b *strings.Builder, fw *domain.FloorWorld, it *wmItem, draw floorDraw) {
 	href := trailURL(trailAfterClick(draw.trail, draw.idx, paneAddr{Kind: paneDoc, World: fw.World.Name, Value: "/"}))
-	logo := draw.logos[fw.World.Name]
-	cls, label := "floor-world", "floor-world-label"
+	label := "floor-world-label"
 	if fw.Portal {
-		cls, label = "floor-portal-node", "floor-doc-label"
+		label = "floor-doc-label"
 	}
 	fmt.Fprintf(b, `<a href="%s" data-node="%s" data-world="%s"`,
 		html.EscapeString(href), html.EscapeString(it.id), html.EscapeString(domain.WorldKey(fw.World.Name)))
@@ -218,23 +217,7 @@ func floorWorldNode(b *strings.Builder, fw *domain.FloorWorld, it *wmItem, draw 
 		b.WriteString(` class="gone"`)
 	}
 	b.WriteString(`>`)
-	if fw.Portal || logo != "" {
-		if logo != "" {
-			cls += " floor-world-logo"
-		}
-		fmt.Fprintf(b, `<circle class="%s soma" cx="%d" cy="%d" r="%d"/>`, cls, it.x, it.y, it.r)
-	}
-	switch {
-	case logo != "":
-		side := float64(it.r) * floorLogoSide
-		fmt.Fprintf(b, `<image class="floor-logo" href="%s" x="%.0f" y="%.0f" width="%.0f" height="%.0f" preserveAspectRatio="xMidYMid meet"/>`,
-			html.EscapeString(logo), float64(it.x)-side/2, float64(it.y)-side/2, side, side)
-	case !fw.Portal:
-		if it.hub {
-			cls += " soma-hub"
-		}
-		cortex(b, cortexSpec{x: it.x, y: it.y, r: it.r, seed: fw.World.Name, class: cls + " cortex soma"})
-	}
+	floorGlyph(b, fw, it, draw.logos[fw.World.Name])
 	fmt.Fprintf(b, `<text class="%s wm-below" x="%d" y="%d" text-anchor="middle">%s</text>`,
 		label, it.x, it.y+it.r, html.EscapeString(trimRunes(fw.World.Name, wmLabelTrim+6)))
 	title := fw.World.URL
@@ -245,6 +228,26 @@ func floorWorldNode(b *strings.Builder, fw *domain.FloorWorld, it *wmItem, draw 
 		title += fmt.Sprintf(" — %d documents", it.count)
 	}
 	fmt.Fprintf(b, `<title>%s</title></a>`, html.EscapeString(title))
+}
+
+// floorGlyph draws a world's shape: a portal's dashed rim, a branded world's
+// logo in a ring, any other world a brain lobe. Each carries soma.
+func floorGlyph(b *strings.Builder, fw *domain.FloorWorld, it *wmItem, logo string) {
+	switch {
+	case fw.Portal:
+		fmt.Fprintf(b, `<circle class="floor-portal-node soma" cx="%d" cy="%d" r="%d"/>`, it.x, it.y, it.r)
+	case logo != "":
+		side := float64(it.r) * floorLogoSide
+		fmt.Fprintf(b, `<circle class="floor-world floor-world-logo soma" cx="%d" cy="%d" r="%d"/>`, it.x, it.y, it.r)
+		fmt.Fprintf(b, `<image class="floor-logo" href="%s" x="%.0f" y="%.0f" width="%.0f" height="%.0f" preserveAspectRatio="xMidYMid meet"/>`,
+			html.EscapeString(logo), float64(it.x)-side/2, float64(it.y)-side/2, side, side)
+	default:
+		cls := "floor-world cortex soma"
+		if it.hub {
+			cls = "floor-world soma-hub cortex soma"
+		}
+		cortex(b, cortexSpec{x: it.x, y: it.y, r: it.r, seed: fw.World.Name, class: cls})
+	}
 }
 
 // floorViewToggle is the "view as map / worlds" switch (ADR 0006 §5): the

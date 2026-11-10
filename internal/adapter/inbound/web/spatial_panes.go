@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
@@ -21,19 +22,43 @@ type spatialPanes struct {
 	identity worldIdentity // whose logos the universe map draws
 }
 
+// The map's brand reads run side by side on a cold cache, under a budget of
+// their own: a world whose read is slow draws as a lobe, never a stalled map.
+const (
+	floorLogoFanout = 8
+	floorLogoBudget = 3 * time.Second
+)
+
 // floorDraw readies the universe map for the trail's pane i: each readable
 // world's logo, resolved once per render. A portal is an external host with
 // no branding to read, and an unreadable world draws dimmed, as itself.
 func (h spatialPanes) floorDraw(ctx context.Context, floor domain.Floor, t trail, i int) floorDraw {
 	draw := floorDraw{trail: t, idx: i, terms: h.terms, logos: map[string]string{}}
+	ctx, cancel := context.WithTimeout(ctx, floorLogoBudget)
+	defer cancel()
+	var (
+		mu    sync.Mutex
+		reads sync.WaitGroup
+	)
+	slots := make(chan struct{}, floorLogoFanout)
 	for _, fw := range floor.Worlds {
 		if fw.Portal || fw.Err {
 			continue
 		}
-		if logo := h.identity.own(ctx, fw.World.Name).LogoURL; logo != "" {
-			draw.logos[fw.World.Name] = logo
-		}
+		world := fw.World.Name
+		slots <- struct{}{}
+		reads.Go(func() {
+			defer func() { <-slots }()
+			// A timed-out read falls back to the world's cached brand and its
+			// manifest entry, inside own.
+			if logo := h.identity.own(ctx, world).LogoURL; logo != "" {
+				mu.Lock()
+				draw.logos[world] = logo
+				mu.Unlock()
+			}
+		})
 	}
+	reads.Wait()
 	return draw
 }
 
