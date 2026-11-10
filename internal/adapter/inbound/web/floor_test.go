@@ -3,13 +3,16 @@ package web
 import (
 	"net/http"
 	"reflect"
-	"regexp"
-	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
 )
+
+// floorTestDraw is a universe map on a bare floor trail, with no logos.
+func floorTestDraw() floorDraw {
+	return floorDraw{trail: trail{Panes: []paneAddr{{Kind: paneFloor}}, Focus: 0}, terms: DefaultTerms()}
+}
 
 func testFloor() domain.Floor {
 	return domain.Floor{Worlds: []domain.FloorWorld{
@@ -173,15 +176,14 @@ func TestFloorPaneRendersBrandedCards(t *testing.T) {
 
 func TestFloorSVGNodesAndLinks(t *testing.T) {
 	tr := trail{Panes: []paneAddr{{Kind: paneFloor}}, Focus: 0}
-	svg := string(floorSVG(testFloor(), tr, 0, DefaultTerms()))
+	svg := string(floorSVG(testFloor(), floorDraw{trail: tr, terms: DefaultTerms()}))
 
 	for _, want := range []string{
-		`class="floor-world soma"`,
+		`class="floor-world cortex soma"`, `class="sulci"`,
 		// World node click → the world's stacks (root listing → rich index).
 		`href="/t/u/~/team-a/d/"`, `data-node="w:team-a"`,
 		// Unreachable world renders dimmed, present.
-		`class="floor-world gone soma"`,
-		`old-world`,
+		`data-world="old-world" class="gone"><path class="floor-world cortex soma"`,
 		`worlds · 0 portals`,
 	} {
 		if !strings.Contains(svg, want) {
@@ -206,7 +208,7 @@ func TestFloorSVGEdgesAndPortals(t *testing.T) {
 			{From: domain.Ref{World: "world-a"}, To: domain.Ref{World: "wiki.example.org"}, Count: 1},
 		},
 	}
-	svg := string(floorSVG(floor, trail{Panes: []paneAddr{{Kind: paneFloor}}, Focus: 0}, 0, DefaultTerms()))
+	svg := string(floorSVG(floor, floorTestDraw()))
 
 	for _, want := range []string{
 		// World-level edges in the map's grammar: directed, hoverable, bundled by count.
@@ -228,8 +230,8 @@ func TestFloorSVGEdgesAndPortals(t *testing.T) {
 }
 
 // Worlds ring the hub world (the one linked to at least half the others) and
-// every world lands inside the viewBox.
-func TestFloorSVGRingsAroundHub(t *testing.T) {
+// every world lands inside the canvas.
+func TestFloorPlanRingsAroundHub(t *testing.T) {
 	var floor domain.Floor
 	for _, n := range []string{"hub", "a", "b", "c", "d"} {
 		floor.Worlds = append(floor.Worlds, domain.FloorWorld{World: domain.WorldInfo{Name: n}})
@@ -237,35 +239,47 @@ func TestFloorSVGRingsAroundHub(t *testing.T) {
 	for _, n := range []string{"a", "b", "c"} {
 		floor.Edges = append(floor.Edges, domain.Edge{From: domain.Ref{World: "hub"}, To: domain.Ref{World: n}, Count: 1})
 	}
-	svg := string(floorSVG(floor, trail{Panes: []paneAddr{{Kind: paneFloor}}, Focus: 0}, 0, DefaultTerms()))
-	vb := regexp.MustCompile(`viewBox="0 0 (\d+) (\d+)"`).FindStringSubmatch(svg)
-	if vb == nil {
-		t.Fatalf("no viewBox in svg: %.200s", svg)
-	}
-	w, _ := strconv.Atoi(vb[1])
-	h, _ := strconv.Atoi(vb[2])
-	at := func(id string) (x, y int) {
-		t.Helper()
-		i := strings.Index(svg, `data-node="`+id+`"`)
-		if i < 0 {
-			t.Fatalf("no node %q in svg", id)
-		}
-		m := regexp.MustCompile(`cx="(-?\d+)" cy="(-?\d+)"`).FindStringSubmatch(svg[i:])
-		if m == nil {
-			t.Fatalf("node %q has no cx/cy", id)
-		}
-		x, _ = strconv.Atoi(m[1])
-		y, _ = strconv.Atoi(m[2])
-		return x, y
-	}
-	hx, hy := at("w:hub")
-	if hx != w/2 || hy != wmTierTop+(h-wmTierTop-36)/2 {
-		t.Errorf("hub should hold the centre, got (%d,%d) in %dx%d", hx, hy, w, h)
+	plan := planFloor(floor)
+	w, h := plan.width, plan.height
+	hub := plan.byName["hub"]
+	if hub.x != w/2 || hub.y != wmTierTop+(h-wmTierTop-36)/2 {
+		t.Errorf("hub should hold the centre, got (%d,%d) in %dx%d", hub.x, hub.y, w, h)
 	}
 	for _, n := range []string{"a", "b", "c", "d"} {
-		x, y := at("w:" + n)
-		if x <= 0 || y <= 0 || x >= w || y >= h || (x == hx && y == hy) {
-			t.Errorf("world %s at (%d,%d) should sit on the ring inside %dx%d", n, x, y, w, h)
+		it := plan.byName[n]
+		if it.x <= 0 || it.y <= 0 || it.x >= w || it.y >= h || (it.x == hub.x && it.y == hub.y) {
+			t.Errorf("world %s at (%d,%d) should sit on the ring inside %dx%d", n, it.x, it.y, w, h)
+		}
+	}
+}
+
+// A world that declares a logo draws it inside its rim instead of a lobe;
+// portals and unreadable worlds draw as themselves, on the map and in the
+// overlay alike.
+func TestFloorMapDrawsBrandedLogos(t *testing.T) {
+	svc := inWorldSvc("# Logo\n\nThe mark.\n\n```svg\n<svg xmlns='http://www.w3.org/2000/svg'/>\n```\n")
+	svc.rawsWorld = "team-a"
+	svc.floor = atlasFloor()
+	app, _ := inWorldApp(t, svc)
+
+	for _, target := range []string{"/t/u?view=map", "/u?overlay=1"} {
+		rec := get(app, target)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: status = %d", target, rec.Code)
+		}
+		body := rec.Body.String()
+		for _, want := range []string{
+			`data-node="w:team-a" data-world="team-a"><circle class="floor-world floor-world-logo soma"`,
+			`<image class="floor-logo" href="/theme/worlds/team-a/logo"`,
+			`data-world="old-world" class="gone"><path class="floor-world cortex soma"`,
+			`class="floor-portal-node soma"`,
+		} {
+			if !strings.Contains(body, want) {
+				t.Errorf("%s: map missing %q", target, want)
+			}
+		}
+		if n := strings.Count(body, `class="floor-logo"`); n != 1 {
+			t.Errorf("%s: %d logos drawn, want 1 (team-a only)", target, n)
 		}
 	}
 }
@@ -274,7 +288,7 @@ func TestFloorSVGEscapesContent(t *testing.T) {
 	floor := domain.Floor{Worlds: []domain.FloorWorld{
 		{World: domain.WorldInfo{Name: `<script>"evil"</script>`, URL: "mark://x"}},
 	}}
-	svg := string(floorSVG(floor, trail{Panes: []paneAddr{{Kind: paneFloor}}, Focus: 0}, 0, DefaultTerms()))
+	svg := string(floorSVG(floor, floorTestDraw()))
 	if strings.Contains(svg, "<script>") {
 		t.Errorf("unescaped name in svg: %s", svg)
 	}

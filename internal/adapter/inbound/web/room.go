@@ -14,10 +14,11 @@ import (
 // Room carries what every surface family is built from.
 type Room struct {
 	reading      port.ReadingService
-	lib          port.Librarian   // nil = librarian not configured (feature-dark)
-	brands       *WorldBrands     // in-world branding resolver (ADR 0008); nil ⇒ manifest only
-	live         port.LiveService // change hints for the live streams; nil = off
-	asks         *pendingAsks     // POST /a/ask → SSE handoff tokens, shared by both librarian routes
+	lib          port.Librarian           // nil = librarian not configured (feature-dark)
+	brands       *WorldBrands             // in-world branding resolver (ADR 0008); nil ⇒ manifest only
+	manifest     map[string]WorldBranding // the branding file's per-world entries, under the in-world ones
+	live         port.LiveService         // change hints for the live streams; nil = off
+	asks         *pendingAsks             // POST /a/ask → SSE handoff tokens, shared by both librarian routes
 	defaultWorld string
 	defaultDoc   string
 	terms        Terms // display vocabulary (Branding.Terms); handler-built labels read it
@@ -36,10 +37,11 @@ func NewRoom(reading port.ReadingService, defaultWorld, defaultDoc string) Room 
 	}
 }
 
-// WithBranding adopts the operator's vocabulary for labels the handlers build
-// in Go (floor titles, dock anchor, palette rows); the templates read the same
-// Branding through the view.
+// WithBranding adopts the vocabulary for labels built in Go (floor titles,
+// dock anchor, palette rows) and the per-world entries the universe map draws
+// logos from; the templates read the same Branding through the view.
 func (r Room) WithBranding(b Branding) Room {
+	r.manifest = b.Worlds
 	if b.Terms.Universe != "" {
 		r.terms.Universe = b.Terms.Universe
 	}
@@ -90,7 +92,8 @@ func (r Room) chrome() chromeBuilder {
 // spatialPanes is the floor/map/graph pane builder the canvas and the spatial
 // permalinks share.
 func (r Room) spatialPanes() spatialPanes {
-	return spatialPanes{maps: r.reading, graph: r.reading, terms: r.terms, pulse: r.live}
+	return spatialPanes{maps: r.reading, graph: r.reading, terms: r.terms, pulse: r.live,
+		identity: worldIdentity{manifest: r.manifest, brands: r.brands}}
 }
 
 // librarianPanes is the pane builder the canvas and the librarian's own routes
