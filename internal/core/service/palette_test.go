@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
 )
@@ -95,15 +96,44 @@ func TestNameIndexCachedUniverse(t *testing.T) {
 		t.Errorf("after a write to any world the universe index should read live (lookups %d, err %v)", lookups, err)
 	}
 
-	gw.raw.Metadata = map[string]string{"status": "partial", "failed": "1", "worlds": "2"}
-	partialSvc := NewReadingService(gw, fakeRenderer{}, nil)
-	for i := range 2 {
-		lookups = 0
-		got, err := partialSvc.NameIndexCached(t.Context(), "")
-		var partial *domain.PartialLookupError
-		if !errors.As(err, &partial) || len(got) != 5 || lookups == 0 {
-			t.Errorf("partial read %d = %d entries, %v, lookups %d; want the entries, the error and a live read", i, len(got), err, lookups)
-		}
+}
+
+// A partial universe index stands for partialTTL, error included, so a world
+// that is down is not asked again on every keystroke; then it reads live.
+func TestNameIndexCachedKeepsAPartialUniverseBriefly(t *testing.T) {
+	var lookups int
+	gw := fakeGateway{limit: &lookups, raw: domain.RawDocument{
+		Body:     qualifyCatalog(worldMapCatalog, "world-a"),
+		Metadata: map[string]string{"status": "partial", "failed": "1", "worlds": "2"},
+	}}
+	svc := NewReadingService(gw, fakeRenderer{}, nil)
+	clock := time.Unix(1_000_000, 0)
+	svc.names.now = func() time.Time { return clock }
+	for _, tt := range []struct {
+		name    string
+		advance time.Duration
+		live    bool
+	}{
+		{"first read", 0, true},
+		{"repeat inside the window", partialTTL - time.Second, false},
+		{"after the window", 2 * time.Second, true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			clock = clock.Add(tt.advance)
+			lookups = 0
+			got, err := svc.NameIndexCached(t.Context(), "")
+			if _, partial := errors.AsType[*domain.PartialLookupError](err); !partial || len(got) != 5 {
+				t.Fatalf("read = %d entries, %v; want the 5 entries with the partial error", len(got), err)
+			}
+			if live := lookups != 0; live != tt.live {
+				t.Errorf("catalog lookup = %v, want %v", live, tt.live)
+			}
+		})
+	}
+	svc.invalidateTopology(domain.Change{World: "world-a", Path: "/x.md"})
+	lookups = 0
+	if _, err := svc.NameIndexCached(t.Context(), ""); err == nil || lookups == 0 {
+		t.Errorf("after a write the partial index should read live (lookups %d, err %v)", lookups, err)
 	}
 }
 

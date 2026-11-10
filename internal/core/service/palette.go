@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"errors"
+	"time"
 
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
 )
@@ -11,20 +13,34 @@ import (
 
 const nameIndexMax = 1000
 
+// partialTTL is how long a partial universe index stands: a world that is
+// down costs one fan-out per window, not one per keystroke.
+const partialTTL = 5 * time.Second
+
+// nameIndex is a cached name index. partial is the universe read's
+// PartialLookupError, kept so a repeat still says which worlds are missing.
+type nameIndex struct {
+	entries []domain.IndexEntry
+	partial error
+}
+
 // NameIndexCached serves a name index within the TTL, reading live on a miss
-// (ADR 0009, ADR 0005 decision 9). A partial universe index comes back with
-// its error and is not kept.
+// (ADR 0009, ADR 0005 decision 9). A partial universe index is kept for
+// partialTTL only and comes back with its error each time.
 func (s *ReadingService) NameIndexCached(ctx context.Context, world string) ([]domain.IndexEntry, error) {
-	if entries, ok := s.names.getFresh(ctx, world, floorTTL); ok {
-		return entries, nil
+	if index, ok := s.names.getFresh(ctx, world, partialTTL); ok {
+		return index.entries, index.partial
+	}
+	if index, ok := s.names.getFresh(ctx, world, floorTTL); ok && index.partial == nil {
+		return index.entries, nil
 	}
 	epoch := s.names.epoch(world)
 	entries, err := s.NameIndex(ctx, world)
-	if err != nil {
+	if _, partial := errors.AsType[*domain.PartialLookupError](err); err != nil && !partial {
 		return entries, err
 	}
-	s.names.put(ctx, world, epoch, entries)
-	return entries, nil
+	s.names.put(ctx, world, epoch, nameIndex{entries: entries, partial: err})
+	return entries, err
 }
 
 // NameIndex assembles the name index of world, or of every authorized world

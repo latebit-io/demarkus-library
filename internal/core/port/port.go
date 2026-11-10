@@ -52,7 +52,7 @@ type Reader interface {
 	NameIndex(ctx context.Context, world string) ([]domain.IndexEntry, error)
 	// NameIndexCached is NameIndex served within a TTL and dropped by a
 	// write: the palette's read on every keystroke, and the unfocused
-	// listing panes' (ADR 0009). A partial universe answer is never cached.
+	// listing panes' (ADR 0009). A partial universe answer stands briefly.
 	NameIndexCached(ctx context.Context, world string) ([]domain.IndexEntry, error)
 
 	// ReadCached, BrowseCached, OpenCached, and TagCached are the trail

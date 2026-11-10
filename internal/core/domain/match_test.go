@@ -56,8 +56,10 @@ func TestRankIndexTermsAndLimit(t *testing.T) {
 		{"a blank query matches nothing", "   ", 50, []string{}},
 		{"the limit keeps the best", "runbook", 1, []string{"Deploy runbook"}},
 	} {
-		if got := rankedTitles(tt.q, entries, tt.limit); !slices.Equal(got, tt.want) {
-			t.Errorf("%s: %q = %v, want %v", tt.name, tt.q, got, tt.want)
-		}
+		t.Run(tt.name, func(t *testing.T) {
+			if got := rankedTitles(tt.q, entries, tt.limit); !slices.Equal(got, tt.want) {
+				t.Errorf("%q = %v, want %v", tt.q, got, tt.want)
+			}
+		})
 	}
 }
