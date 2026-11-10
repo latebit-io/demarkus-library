@@ -3,7 +3,6 @@ package web
 import (
 	"context"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
@@ -29,37 +28,71 @@ const (
 	floorLogoBudget = 3 * time.Second
 )
 
+// worldLogo is one world's logo read: "" when it declares none.
+type worldLogo struct {
+	world, logo string
+}
+
 // floorDraw readies the universe map for the trail's pane i: each readable
 // world's logo, resolved once per render. A portal is an external host with
 // no branding to read, and an unreadable world draws dimmed, as itself.
 func (h spatialPanes) floorDraw(ctx context.Context, floor domain.Floor, t trail, i int) floorDraw {
 	draw := floorDraw{trail: t, idx: i, terms: h.terms, logos: map[string]string{}}
+	var worlds []string
+	for _, fw := range floor.Worlds {
+		if !fw.Portal && !fw.Err {
+			worlds = append(worlds, fw.World.Name)
+		}
+	}
 	ctx, cancel := context.WithTimeout(ctx, floorLogoBudget)
 	defer cancel()
-	var (
-		mu    sync.Mutex
-		reads sync.WaitGroup
-	)
-	slots := make(chan struct{}, floorLogoFanout)
-	for _, fw := range floor.Worlds {
-		if fw.Portal || fw.Err {
+	answers := h.readLogos(ctx, worlds)
+	answered := make(map[string]bool, len(worlds))
+collect:
+	for range worlds {
+		select {
+		case a := <-answers:
+			answered[a.world] = true
+			if a.logo != "" {
+				draw.logos[a.world] = a.logo
+			}
+		case <-ctx.Done():
+			break collect
+		}
+	}
+	// A read can outlive its context (a broker session lock does not watch
+	// it), so a world still reading at the deadline keeps what is held.
+	for _, world := range worlds {
+		if answered[world] {
 			continue
 		}
-		world := fw.World.Name
-		slots <- struct{}{}
-		reads.Go(func() {
-			defer func() { <-slots }()
-			// A timed-out read falls back to the world's cached brand and its
-			// manifest entry, inside own.
-			if logo := h.identity.own(ctx, world).LogoURL; logo != "" {
-				mu.Lock()
-				draw.logos[world] = logo
-				mu.Unlock()
-			}
-		})
+		if logo := h.identity.held(world).LogoURL; logo != "" {
+			draw.logos[world] = logo
+		}
 	}
-	reads.Wait()
 	return draw
+}
+
+// readLogos reads each world's logo, floorLogoFanout at a time, until ctx
+// ends. The channel holds every answer, so a read that finishes after its
+// caller stopped listening never blocks.
+func (h spatialPanes) readLogos(ctx context.Context, worlds []string) <-chan worldLogo {
+	answers := make(chan worldLogo, len(worlds))
+	slots := make(chan struct{}, floorLogoFanout)
+	go func() {
+		for _, world := range worlds {
+			select {
+			case slots <- struct{}{}:
+			case <-ctx.Done():
+				return
+			}
+			go func() {
+				defer func() { <-slots }()
+				answers <- worldLogo{world: world, logo: h.identity.own(ctx, world).LogoURL}
+			}()
+		}
+	}()
+	return answers
 }
 
 // worldMapPane builds the world-map pane on the trail canvas (focused-live

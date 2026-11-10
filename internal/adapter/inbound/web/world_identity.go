@@ -7,15 +7,24 @@ import "context"
 // not give each one the room's name.
 type worldIdentity struct {
 	manifest map[string]WorldBranding
-	brands   *WorldBrands // nil ⇒ manifest only
+	brands   *WorldBrands // nil ⇒ manifest only (its methods are nil-safe)
 }
 
 func (w worldIdentity) own(ctx context.Context, world string) WorldBranding {
-	own := w.manifest[world]
-	if w.brands != nil {
-		if iw, ok := w.brands.For(ctx, world); ok {
-			own = own.over(iw)
-		}
+	iw, ok := w.brands.For(ctx, world)
+	return w.layered(world, iw, ok)
+}
+
+// held is own without a read: the manifest under whatever brand is cached.
+func (w worldIdentity) held(world string) WorldBranding {
+	iw, ok := w.brands.Cached(world)
+	return w.layered(world, iw, ok)
+}
+
+// layered lays the world's documents, when it declares any, over its manifest entry.
+func (w worldIdentity) layered(world string, iw WorldBranding, declared bool) WorldBranding {
+	if !declared {
+		return w.manifest[world]
 	}
-	return own
+	return w.manifest[world].over(iw)
 }

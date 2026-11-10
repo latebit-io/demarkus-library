@@ -29,6 +29,11 @@ func (g *gatedRaws) Raw(ctx context.Context, _, path string) (domain.RawDocument
 	case <-ctx.Done():
 		return domain.RawDocument{}, ctx.Err()
 	}
+	return brandedDoc(path)
+}
+
+// brandedDoc is a world that names itself and carries a logo, and nothing else.
+func brandedDoc(path string) (domain.RawDocument, error) {
 	switch path {
 	case WorldBrandDoc:
 		return domain.RawDocument{Body: "# Branding\n\nIdentity.\n\n```yaml\nname: Room\n```\n"}, nil
@@ -64,5 +69,52 @@ func TestFloorDrawReadsBrandsConcurrently(t *testing.T) {
 		if _, ok := draw.logos[skipped]; ok {
 			t.Errorf("%s drew a logo; it must not be read", skipped)
 		}
+	}
+}
+
+// stuckRaws serves branding until stuck, then holds every read until freed
+// whatever its context says, as a broker session lock does.
+type stuckRaws struct {
+	stuck atomic.Bool
+	free  chan struct{}
+}
+
+func (s *stuckRaws) Raw(_ context.Context, _, path string) (domain.RawDocument, error) {
+	if s.stuck.Load() {
+		<-s.free
+	}
+	return brandedDoc(path)
+}
+
+// Reads stuck past the deadline do not hold up the map: a world keeps its
+// cached brand or its manifest logo, and one with neither draws as a lobe.
+func TestFloorDrawStopsAtDeadline(t *testing.T) {
+	t.Parallel()
+	raws := &stuckRaws{free: make(chan struct{})}
+	t.Cleanup(func() { close(raws.free) })
+	brands := NewWorldBrands(raws)
+	if _, ok := brands.For(t.Context(), "cached"); !ok {
+		t.Fatal("warming the cache found no brand")
+	}
+	brands.ttl = 0 // every brand stale, so each draw reads
+	raws.stuck.Store(true)
+	panes := spatialPanes{terms: DefaultTerms(), identity: worldIdentity{
+		manifest: map[string]WorldBranding{"filed": {LogoURL: "/theme/worlds/filed/logo"}},
+		brands:   brands,
+	}}
+	floor := domain.Floor{Worlds: []domain.FloorWorld{
+		{World: domain.WorldInfo{Name: "cached"}}, {World: domain.WorldInfo{Name: "filed"}}, {World: domain.WorldInfo{Name: "bare"}},
+	}}
+
+	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	draw := panes.floorDraw(ctx, floor, trail{Panes: []paneAddr{{Kind: paneFloor}}}, 0)
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("floorDraw waited %v on stuck reads", elapsed)
+	}
+	want := map[string]string{"cached": "/theme/worlds/cached/logo", "filed": "/theme/worlds/filed/logo"}
+	if fmt.Sprint(draw.logos) != fmt.Sprint(want) {
+		t.Errorf("logos = %v, want %v", draw.logos, want)
 	}
 }
