@@ -12,7 +12,7 @@ go vet ./...
 # Pin to the version CI runs (.github/workflows/ci.yml: golangci-lint-action
 # `version:`). Lint rules and output differ between releases, so a mismatched
 # local binary can pass this hook while CI fails — defeating the gate.
-GOLANGCI_LINT_VERSION="2.9.0"
+GOLANGCI_LINT_VERSION="2.15.0"
 
 if ! command -v golangci-lint &>/dev/null; then
   echo "Error: golangci-lint is not installed."

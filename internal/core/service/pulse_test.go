@@ -23,7 +23,7 @@ func pulsePaths(pulses []domain.Pulse) []string {
 func TestPulseLogKeepsEachDocumentOnce(t *testing.T) {
 	var l pulseLog
 	write := func(world, path, op string) {
-		l.record(domain.Pulse{Change: domain.Change{World: world, Path: path, Op: op}})
+		l.record(domain.Pulse{World: world, Path: path, Op: op})
 	}
 	write("h.example.org", "/a.md", "publish")
 	write("h.example.org", "/b.md", "publish")
@@ -96,7 +96,7 @@ func TestPulseSkipsDerivedWrites(t *testing.T) {
 func TestPulseFailsWithTheWorldList(t *testing.T) {
 	ctx := port.WithReader(t.Context(), "a")
 	svc := NewReadingService(fakeGateway{worldsErr: domain.ErrUnauthorized}, fakeRenderer{}, nil)
-	svc.pulse.record(domain.Pulse{Change: domain.Change{World: "team-a", Path: "/a.md"}})
+	svc.pulse.record(domain.Pulse{World: "team-a", Path: "/a.md"})
 	if got, err := svc.Pulse(ctx); !errors.Is(err, domain.ErrUnauthorized) || got != nil {
 		t.Errorf("Pulse = %v, %v; want nothing and unauthorized", got, err)
 	}

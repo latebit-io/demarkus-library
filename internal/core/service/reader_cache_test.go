@@ -31,9 +31,18 @@ func TestCachesNeverServeAnotherReader(t *testing.T) {
 			cached: func(svc *ReadingService, ctx context.Context) error { return errOf(svc.WorldMapCached(ctx, "team-a")) },
 		},
 		{
-			name:   "name index",
-			prime:  func(svc *ReadingService, ctx context.Context) error { return errOf(svc.NameIndexCached(ctx, "team-a")) },
-			cached: func(svc *ReadingService, ctx context.Context) error { return errOf(svc.NameIndexCached(ctx, "team-a")) },
+			name: "name index",
+			prime: func(svc *ReadingService, ctx context.Context) error {
+				return errOf(svc.NameIndexCached(ctx, "team-a"))
+			},
+			cached: func(svc *ReadingService, ctx context.Context) error {
+				return errOf(svc.NameIndexCached(ctx, "team-a"))
+			},
+		},
+		{
+			name:   "universe name index",
+			prime:  func(svc *ReadingService, ctx context.Context) error { return errOf(svc.NameIndexCached(ctx, "")) },
+			cached: func(svc *ReadingService, ctx context.Context) error { return errOf(svc.NameIndexCached(ctx, "")) },
 		},
 		{
 			name:  "document",

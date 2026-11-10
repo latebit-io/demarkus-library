@@ -186,9 +186,11 @@ func parseWorldsTable(text string) []domain.WorldInfo {
 // Lookup queries the catalog under req.Scope through mark_lookup. A non-empty
 // filter rides along as the tool's comma-separated key=value predicate.
 func (g *Gateway) Lookup(ctx context.Context, world string, q domain.LookupQuery) (domain.RawDocument, error) {
+	// verbose: the room matches and badges on tags, so it needs every one.
 	args := map[string]any{
-		"url":   markURL(world, q.Scope),
-		"query": q.Query,
+		"url":     markURL(world, q.Scope),
+		"query":   q.Query,
+		"verbose": true,
 	}
 	if q.Filter != "" {
 		args["filter"] = q.Filter
@@ -205,8 +207,9 @@ func (g *Gateway) Lookup(ctx context.Context, world string, q domain.LookupQuery
 // LookupAll queries the same scope across every world readable by the bearer.
 func (g *Gateway) LookupAll(ctx context.Context, q domain.LookupQuery) (domain.RawDocument, error) {
 	args := map[string]any{
-		"scope": q.Scope,
-		"query": q.Query,
+		"scope":   q.Scope,
+		"query":   q.Query,
+		"verbose": true,
 	}
 	if q.Filter != "" {
 		args["filter"] = q.Filter

@@ -167,7 +167,7 @@ func TestLookupTool_RendersHitsAndDisclosesFallback(t *testing.T) {
 
 	ports := newFakePorts()
 	ports.catalog = domain.CatalogResult{Hits: []domain.CatalogHit{{
-		Ref: domain.Ref{World: "soul", Path: "/debugging.md"}, Anchor: "poison-lock",
+		World: "soul", Path: "/debugging.md", Anchor: "poison-lock",
 		Title: "Debugging", Tags: []string{"ops"}, Status: "published", Snippet: "raise the sysctl first",
 	}}}
 	res := (&lookupTool{catalog: ports}).Execute(context.Background(), call("lookup", `{"query":"sysctl","tag":"#ops","full_text":true}`))
@@ -214,7 +214,7 @@ func TestRecentTool_WindowsTheCatalog(t *testing.T) {
 
 	ports := newFakePorts()
 	ports.catalog = domain.CatalogResult{Hits: []domain.CatalogHit{{
-		Ref: domain.Ref{World: "soul", Path: "/journal/2026-10-22.md"}, Title: "Journal", Status: "published",
+		World: "soul", Path: "/journal/2026-10-22.md", Title: "Journal", Status: "published",
 	}}}
 	now := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
 	tool := &recentTool{catalog: ports, now: func() time.Time { return now }}
@@ -296,7 +296,7 @@ func TestOpenTool_RecordsSourceForTheRun(t *testing.T) {
 	tool.Execute(ctx, call("open", `{"path":"/ops/deploy.md#steps"}`))
 
 	got := r.unsentSources()
-	want := []domain.LibrarianSource{{Ref: domain.Ref{World: "root", Path: "/ops/deploy.md"}, Title: "Deploy runbook", Version: "4"}}
+	want := []domain.LibrarianSource{{World: "root", Path: "/ops/deploy.md", Title: "Deploy runbook", Version: "4"}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("sources = %+v; want one entry however often opened: %+v", got, want)
 	}

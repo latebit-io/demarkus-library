@@ -25,14 +25,14 @@ type ReadingService struct {
 	cache     port.DocumentCache
 	floor     ttlCache[domain.Floor]
 	worldMaps ttlCache[domain.WorldMap]
-	names     ttlCache[[]domain.IndexEntry] // per-world name index, for unfocused listings
-	graph     observedLinks                 // render-time links, shared by every reader; reads take the reader's mask
-	hosts     ttlCache[hostIndex]           // the reader's world index: the graph mask and the hub's host join
-	hub       string                        // topology-source world (DEMARKUS_HUB); "" disables hub enrichment
-	hubs      ttlCache[hubGraph]            // one hub read per reader per hubTTL, shared by every consumer
-	watchers  documentWatchers              // live streams waiting on a document or the pulse (changes.go)
-	pulse     pulseLog                      // the floor's recent writes (pulse.go)
-	fence     docFence                      // keeps a hint's stale edition out of cache (changes.go)
+	names     ttlCache[nameIndex] // name index per world, and every world's under universe
+	graph     observedLinks       // render-time links, shared by every reader; reads take the reader's mask
+	hosts     ttlCache[hostIndex] // the reader's world index: the graph mask and the hub's host join
+	hub       string              // topology-source world (DEMARKUS_HUB); "" disables hub enrichment
+	hubs      ttlCache[hubGraph]  // one hub read per reader per hubTTL, shared by every consumer
+	watchers  documentWatchers    // live streams waiting on a document or the pulse (changes.go)
+	pulse     pulseLog            // the floor's recent writes (pulse.go)
+	fence     docFence            // keeps a hint's stale edition out of cache (changes.go)
 	// graphParser decodes the hub's published /graph.md; nil (like hub "")
 	// leaves the floor on its mark_worlds + observed-links baseline.
 	graphParser port.GraphExportParser
@@ -53,7 +53,7 @@ func NewReadingService(world port.WorldGateway, renderer port.Renderer, cache po
 		world: world, renderer: renderer, protocol: renderer, cache: cache,
 		floor:     ttlCache[domain.Floor]{retain: floorRetain},
 		worldMaps: ttlCache[domain.WorldMap]{retain: worldMapTTL},
-		names:     ttlCache[[]domain.IndexEntry]{retain: floorTTL},
+		names:     ttlCache[nameIndex]{retain: floorTTL},
 		hosts:     ttlCache[hostIndex]{retain: hubTTL},
 		hubs:      ttlCache[hubGraph]{retain: hubTTL},
 	}

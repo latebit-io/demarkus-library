@@ -673,9 +673,13 @@ body.edit-page { max-width: none; padding: 1.5rem 1.5rem 2rem; }
               border-radius: 4px; box-shadow: 4px 4px 0 var(--faint);
               overflow: hidden; display: flex; flex-direction: column;
               max-height: 70vh; }
-.palette-head { margin: 0; padding: .6rem .9rem; border-bottom: 1px solid var(--rule); }
-.palette-input { width: 100%; box-sizing: border-box; font: inherit; font-size: 1.15rem;
+.palette-head { margin: 0; padding: .6rem .9rem; border-bottom: 1px solid var(--rule);
+              display: flex; align-items: center; gap: .8rem; }
+.palette-input { flex: 1; min-width: 0; box-sizing: border-box; font: inherit; font-size: 1.15rem;
               border: 0; background: transparent; color: inherit; outline: none; padding: .35rem 0; }
+/* The scope box: this world by default, every world when checked. */
+.palette-scope { font-size: .78rem; color: var(--muted); white-space: nowrap;
+              display: flex; align-items: center; gap: .3rem; cursor: pointer; }
 .palette-results { overflow-y: auto; }
 .palette-list { list-style: none; margin: 0; padding: .3rem; }
 .palette-empty { padding: 1rem .8rem; color: var(--muted); font-size: .85rem; }
@@ -698,8 +702,16 @@ body.edit-page { max-width: none; padding: 1.5rem 1.5rem 2rem; }
 .palette-badge, .world-tag, .idx-orphan, .dock-world, .pulse-by {
               font-size: .78rem; color: var(--muted); border: 1px solid var(--faint);
               border-radius: 3px; padding: 0 .3rem .05rem; }
-.palette-badge, .world-tag, .idx-orphan, .dock-world {
+.palette-badge, .world-tag, .idx-orphan, .dock-world, .palette-section {
               font-variant-caps: all-small-caps; letter-spacing: .04em; }
+/* Section-text matches sit under the name matches: a label, then rows whose
+   quoted line wraps beneath the title. */
+.palette-section { padding: .5rem .9rem .1rem; font-size: .7rem; color: var(--muted);
+              border-top: 1px solid var(--faint); }
+.palette-row-text a { flex-wrap: wrap; }
+.palette-snippet { flex-basis: 100%; font-size: .78rem; color: var(--muted);
+              overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.palette-row a.sel .palette-snippet { color: inherit; opacity: .75; }
 .palette-hint { padding: .4rem .8rem; border-top: 1px solid var(--faint);
               font-size: .7rem; color: var(--muted); }
 @media (max-width: 640px) { .palette-loc { display: none; } }

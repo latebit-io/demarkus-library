@@ -201,15 +201,13 @@ func parseCatalogRows(body, fallbackWorld string, qualifiedOnly bool, limit int)
 		}
 		tags := splitTags(unescapeMD(strings.TrimSpace(cells[3])))
 		row := catalogRow{
-			FloorDoc: domain.FloorDoc{
-				Path:       path,
-				Title:      title,
-				Importance: importance,
-				Status:     resolveStatus(tags, nil),
-			},
-			World:  world,
-			Anchor: anchor,
-			Tags:   tags,
+			Path:       path,
+			Title:      title,
+			Importance: importance,
+			Status:     resolveStatus(tags, nil),
+			World:      world,
+			Anchor:     anchor,
+			Tags:       tags,
 		}
 		if len(cells) > 4 {
 			row.Snippet = unescapeMD(strings.TrimSpace(cells[4]))

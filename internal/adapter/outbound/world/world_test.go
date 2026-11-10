@@ -112,10 +112,10 @@ func TestLookupAllUsesHomeWorld(t *testing.T) {
 // TestLookupSendsMatch pins body match over QUIC: the mode reaches the
 // client and the server's match echo reaches the caller unchanged.
 func TestLookupSendsMatch(t *testing.T) {
-	rc := &recordingClient{fakeClient: fakeClient{res: fetch.Result{Response: protocol.Response{
+	rc := &recordingClient{res: fetch.Result{Response: protocol.Response{
 		Status:   protocol.StatusOK,
 		Metadata: map[string]string{"match": domain.MatchBody},
-	}}}}
+	}}}
 	g := NewGateway(rc, "soul.demarkus.io", "")
 	raw, err := g.Lookup(t.Context(), "soul.demarkus.io", domain.LookupQuery{Scope: "/", Query: "quic", Match: domain.MatchBody})
 	if err != nil {
@@ -166,7 +166,7 @@ func (r *recordingClient) Fetch(_ context.Context, req fetch.FetchRequest) (fetc
 // token goes to the home host and ONLY the home host — following a link to
 // another server must not leak it.
 func TestTokenScopedToHomeHost(t *testing.T) {
-	rc := &recordingClient{fakeClient: fakeClient{res: fetch.Result{Response: protocol.Response{Status: protocol.StatusOK}}}}
+	rc := &recordingClient{res: fetch.Result{Response: protocol.Response{Status: protocol.StatusOK}}}
 	g := NewGateway(rc, "soul.demarkus.io", "secret-token")
 
 	// Home world (bare host normalizes to host:port) carries the token.

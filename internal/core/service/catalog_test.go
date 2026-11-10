@@ -33,7 +33,7 @@ func TestLookupParsesHits(t *testing.T) {
 			},
 			wantBody: true,
 			wantHits: []domain.CatalogHit{{
-				Ref:    domain.Ref{World: "soul", Path: "/debugging.md"},
+				World: "soul", Path: "/debugging.md",
 				Anchor: "poison-lock", Title: "Debugging", Tags: []string{"ops", "status:published"},
 				Status: "published", Importance: 0.7, Snippet: "raise the sysctl first",
 			}},
@@ -49,7 +49,7 @@ func TestLookupParsesHits(t *testing.T) {
 			},
 			wantBody: true,
 			wantHits: []domain.CatalogHit{{
-				Ref:    domain.Ref{World: "root", Path: "/ops/deploy.md"},
+				World: "root", Path: "/ops/deploy.md",
 				Anchor: "rollback", Title: "Deploy", Tags: []string{"ops"},
 				Status: "draft", Importance: 0.5, Snippet: "roll back with helm",
 			}},
@@ -61,7 +61,7 @@ func TestLookupParsesHits(t *testing.T) {
 			raw: domain.RawDocument{Body: "| Path | Importance | Title | Tags |\n|---|---|---|---|\n" +
 				"| /ops/deploy.md | 0.50 | Deploy | ops |\n"},
 			wantHits: []domain.CatalogHit{{
-				Ref: domain.Ref{World: "soul", Path: "/ops/deploy.md"}, Title: "Deploy",
+				World: "soul", Path: "/ops/deploy.md", Title: "Deploy",
 				Tags: []string{"ops"}, Status: "draft", Importance: 0.5,
 			}},
 		},
@@ -75,7 +75,7 @@ func TestLookupParsesHits(t *testing.T) {
 					"| mark://root/ops/deploy.md | 0.50 | Deploy | ops |\n",
 			},
 			wantHits: []domain.CatalogHit{{
-				Ref: domain.Ref{World: "root", Path: "/ops/deploy.md"}, Title: "Deploy",
+				World: "root", Path: "/ops/deploy.md", Title: "Deploy",
 				Tags: []string{"ops"}, Status: "draft", Importance: 0.5,
 			}},
 			wantError: true,

@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -41,6 +42,7 @@ type fakeReading struct {
 	gotVersion   int
 	nameIndex    []domain.IndexEntry
 	nameIndexErr error
+	indexWorld   string // the last cached name index read's world, "" for every world
 
 	backlink map[string][]domain.Ref // keyed by path; the graph store's reverse edges
 	neighbor map[string]domain.Neighborhood
@@ -103,14 +105,15 @@ func (f *fakeReading) Raw(_ context.Context, world, path string) (domain.RawDocu
 	return f.raw, f.err
 }
 
-func (f *fakeReading) NameIndex(_ context.Context, _, _ string) ([]domain.IndexEntry, error) {
+func (f *fakeReading) NameIndex(_ context.Context, _ string) ([]domain.IndexEntry, error) {
 	f.called = "NameIndex"
 	f.calls = append(f.calls, "NameIndex")
 	return f.nameIndex, f.nameIndexErr
 }
 
-func (f *fakeReading) NameIndexCached(_ context.Context, _ string) ([]domain.IndexEntry, error) {
+func (f *fakeReading) NameIndexCached(_ context.Context, world string) ([]domain.IndexEntry, error) {
 	f.calls = append(f.calls, "NameIndexCached")
+	f.indexWorld = world
 	return f.nameIndex, f.nameIndexErr
 }
 
@@ -324,8 +327,10 @@ func TestPaletteHtmxRendersHTMLFragmentWithTrailLinks(t *testing.T) {
 	if !strings.Contains(body, `href="/t/world-a/d/nib/index.md/~/world-a/d/nib/mission.md"`) {
 		t.Errorf("fragment missing trail-extending link: %s", body)
 	}
-	if svc.called != "NameIndex" {
-		t.Errorf("called = %q, want NameIndex", svc.called)
+	// The cached index, scoped to the reader's world: a keystroke costs no
+	// catalog read.
+	if !slices.Contains(svc.calls, "NameIndexCached") || svc.indexWorld != "world-a" {
+		t.Errorf("calls = %v (%q), want the cached index of world-a", svc.calls, svc.indexWorld)
 	}
 }
 
@@ -373,8 +378,8 @@ func TestPaletteEmptyQueryShowsRecentTrail(t *testing.T) {
 	if !strings.Contains(body, `href="/t/world-a/d/nib/index.md/~/world-a/d/nib/mission.md?focus=0"`) {
 		t.Errorf("recent row should rewind via focus: %s", body)
 	}
-	if svc.called == "NameIndex" {
-		t.Errorf("empty query must not read the catalog")
+	if len(svc.calls) != 0 {
+		t.Errorf("empty query must not read the catalog: %v", svc.calls)
 	}
 }
 

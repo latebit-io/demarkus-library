@@ -86,7 +86,7 @@ func TestApplyChangeInvalidatesTopology(t *testing.T) {
 	svc.floor.put(ctx, universe, svc.floor.epoch(universe), domain.Floor{})
 	svc.worldMaps.put(ctx, "soul.demarkus.io", svc.worldMaps.epoch("soul.demarkus.io"), domain.WorldMap{})
 	svc.worldMaps.put(ctx, "root", svc.worldMaps.epoch("root"), domain.WorldMap{})
-	svc.names.put(ctx, "soul.demarkus.io", svc.names.epoch("soul.demarkus.io"), nil)
+	svc.names.put(ctx, "soul.demarkus.io", svc.names.epoch("soul.demarkus.io"), nameIndex{})
 	svc.hubs.put(ctx, universe, svc.hubs.epoch(universe), hubGraph{})
 
 	svc.applyChange(domain.Change{World: "soul.demarkus.io:6309", Path: "/x.md"})
@@ -170,7 +170,7 @@ func (g slowFetch) Fetch(ctx context.Context, world, path string) (domain.RawDoc
 func TestHintDuringAReadKeepsItsEditionUncached(t *testing.T) {
 	c := newFakeCache()
 	started := make(chan struct{})
-	g := slowFetch{fakeGateway: fakeGateway{raw: domain.RawDocument{Path: "/x.md"}},
+	g := slowFetch{raw: domain.RawDocument{Path: "/x.md"},
 		start: sync.OnceFunc(func() { close(started) }), release: make(chan struct{})}
 	svc := NewReadingService(g, fakeRenderer{}, c)
 	read := make(chan error)

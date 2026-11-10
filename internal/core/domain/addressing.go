@@ -96,7 +96,7 @@ func ResolveHref(href, world, basePath string) (LinkTarget, bool) {
 	} else if hadTrailingSlash {
 		worldPath += "/"
 	}
-	return LinkTarget{Ref: Ref{World: targetWorld, Path: worldPath}, Fragment: u.Fragment}, true
+	return LinkTarget{World: targetWorld, Path: worldPath, Fragment: u.Fragment}, true
 }
 
 // DefaultHostPort is the demarkus protocol's default QUIC port (protocol.DefaultPort).

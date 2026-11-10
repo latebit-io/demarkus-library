@@ -32,8 +32,8 @@ func edition(v string) readResult { return readResult{doc: domain.Document{Versi
 
 // The answer read the deploy runbook at edition 4 and the rollback at 2.
 var answeredFrom = []domain.LibrarianExchange{{Question: "how?", Answer: "So.", Sources: []domain.LibrarianSource{
-	{Ref: domain.Ref{World: "w.io", Path: "/deploy.md"}, Title: "Deploy runbook", Version: "4"},
-	{Ref: domain.Ref{World: "w.io", Path: "/rollback.md"}, Title: "Rollback", Version: "2"},
+	{World: "w.io", Path: "/deploy.md", Title: "Deploy runbook", Version: "4"},
+	{World: "w.io", Path: "/rollback.md", Title: "Rollback", Version: "2"},
 }}}
 
 func TestLiveSourcesStream(t *testing.T) {
@@ -97,7 +97,7 @@ func TestLiveSourcesStream(t *testing.T) {
 
 func TestLiveSourcesRefusals(t *testing.T) {
 	t.Parallel()
-	unknown := &fakeLibrarian{history: []domain.LibrarianExchange{{Sources: []domain.LibrarianSource{{Ref: domain.Ref{World: "w.io", Path: "/x.md"}, Title: "X"}}}}}
+	unknown := &fakeLibrarian{history: []domain.LibrarianExchange{{Sources: []domain.LibrarianSource{{World: "w.io", Path: "/x.md", Title: "X"}}}}}
 	tests := []struct {
 		name string
 		h    LiveHandler
@@ -134,7 +134,7 @@ func TestAnswerSourcesKeepTheNewest(t *testing.T) {
 	exchanges := make([]domain.LibrarianExchange, maxLiveSources+8)
 	for i := range exchanges {
 		path := "/doc-" + strconv.Itoa(i) + ".md"
-		exchanges[i].Sources = []domain.LibrarianSource{{Ref: domain.Ref{World: "w.io", Path: path}, Version: "1"}}
+		exchanges[i].Sources = []domain.LibrarianSource{{World: "w.io", Path: path, Version: "1"}}
 	}
 	got := answerSources(exchanges)
 	if len(got) != maxLiveSources {

@@ -61,7 +61,7 @@ func (s *ReadingService) Lookup(ctx context.Context, q domain.CatalogQuery) (dom
 	for i := range rows {
 		row := &rows[i]
 		result.Hits = append(result.Hits, domain.CatalogHit{
-			Ref:        domain.Ref{World: row.World, Path: row.Path},
+			World: row.World, Path: row.Path,
 			Anchor:     row.Anchor,
 			Title:      row.Title,
 			Tags:       row.Tags,

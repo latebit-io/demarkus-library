@@ -14,8 +14,8 @@ import (
 // adapter drives. The concrete *service.ReadingService satisfies all four; a
 // narrower consumer (a preview-only handler, the Phase 4 librarian needing only
 // reads) can depend on just the slice it uses rather than the whole 20-method
-// surface. Catalog, the librarian's unrendered catalog reads, sits outside the
-// composite: only the librarian needs it.
+// surface. Catalog, the unrendered catalog reads, sits outside the composite:
+// the librarian and the palette's text search take it on its own.
 //
 // Every context-taking method takes the request context (cancellation + the
 // logged-in reader's bearer in broker mode, Phase 1b/ADR 0004) and a world: the
@@ -46,14 +46,13 @@ type Reader interface {
 	// Raw returns the unrendered source of the document at (world, path) —
 	// the projection's escape to protocol (ADR 0005 decision 12).
 	Raw(ctx context.Context, world, path string) (domain.RawDocument, error)
-	// NameIndex returns the command palette's name-mode index (ADR 0006 §3): the
-	// catalog entries (title, path, world, status) the client fuzzy-matches. scope
-	// "universe" spans every authorized world; anything else is the single given
-	// world. Best-effort per world — an unreadable world is skipped, not fatal —
-	// so the palette degrades to the worlds it can see.
-	NameIndex(ctx context.Context, scope, world string) ([]domain.IndexEntry, error)
-	// NameIndexCached is NameIndex for one world, served within a TTL: the
-	// unfocused listing panes' read (ADR 0009).
+	// NameIndex returns the name index (ADR 0006 §3): the catalog entries of
+	// world, or of every authorized world when world is "", in the catalog's
+	// rank order. A partial universe answer comes with a PartialLookupError.
+	NameIndex(ctx context.Context, world string) ([]domain.IndexEntry, error)
+	// NameIndexCached is NameIndex served within a TTL and dropped by a
+	// write: the palette's read on every keystroke, and the unfocused
+	// listing panes' (ADR 0009). A partial universe answer stands briefly.
 	NameIndexCached(ctx context.Context, world string) ([]domain.IndexEntry, error)
 
 	// ReadCached, BrowseCached, OpenCached, and TagCached are the trail
