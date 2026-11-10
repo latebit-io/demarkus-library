@@ -19,12 +19,15 @@ type spatialPanes struct {
 	terms    Terms         // the universe's display name (floor title, spine, context labels)
 	pulse    port.Pulse    // recent activity for the floor and the activity pane; nil = no change feed
 	identity worldIdentity // whose logos the universe map draws
+	// logoReads are the room's brand-read slots, shared by every render; nil
+	// reads nothing, so the map draws only what is held.
+	logoReads chan struct{}
 }
 
 // The map's brand reads run side by side on a cold cache, under a budget of
 // their own: a world whose read is slow draws as a lobe, never a stalled map.
 const (
-	floorLogoFanout = 8
+	floorLogoReads  = 16 // brand reads in flight across the room, stuck ones included
 	floorLogoBudget = 3 * time.Second
 )
 
@@ -46,48 +49,58 @@ func (h spatialPanes) floorDraw(ctx context.Context, floor domain.Floor, t trail
 	}
 	ctx, cancel := context.WithTimeout(ctx, floorLogoBudget)
 	defer cancel()
-	answers := h.readLogos(ctx, worlds)
-	answered := make(map[string]bool, len(worlds))
-collect:
-	for range worlds {
-		select {
-		case a := <-answers:
-			answered[a.world] = true
-			if a.logo != "" {
-				draw.logos[a.world] = a.logo
-			}
-		case <-ctx.Done():
-			break collect
-		}
-	}
-	// A read can outlive its context (a broker session lock does not watch
-	// it), so a world still reading at the deadline keeps what is held.
+	answered := gatherLogos(ctx, h.readLogos(ctx, worlds), len(worlds))
 	for _, world := range worlds {
-		if answered[world] {
-			continue
+		logo, ok := answered[world]
+		// A read can outlive its context (a broker session lock does not watch
+		// it), so a world still reading at the deadline keeps what is held.
+		if !ok {
+			logo = h.identity.held(world).LogoURL
 		}
-		if logo := h.identity.held(world).LogoURL; logo != "" {
+		if logo != "" {
 			draw.logos[world] = logo
 		}
 	}
 	return draw
 }
 
-// readLogos reads each world's logo, floorLogoFanout at a time, until ctx
-// ends. The channel holds every answer, so a read that finishes after its
-// caller stopped listening never blocks.
+// gatherLogos collects up to want answers, by world, until ctx ends; an
+// answer already in at the deadline still counts.
+func gatherLogos(ctx context.Context, answers <-chan worldLogo, want int) map[string]string {
+	answered := make(map[string]string, want)
+	for range want {
+		select {
+		case a := <-answers:
+			answered[a.world] = a.logo
+		case <-ctx.Done():
+			for {
+				select {
+				case a := <-answers:
+					answered[a.world] = a.logo
+				default:
+					return answered
+				}
+			}
+		}
+	}
+	return answered
+}
+
+// readLogos reads each world's logo as the room's read slots free up, until
+// ctx ends. Slots outlive the render, so reads stuck past their context cap
+// the room, not each render. The channel holds every answer, so a read that
+// finishes after its caller stopped listening never blocks.
 func (h spatialPanes) readLogos(ctx context.Context, worlds []string) <-chan worldLogo {
 	answers := make(chan worldLogo, len(worlds))
-	slots := make(chan struct{}, floorLogoFanout)
 	go func() {
 		for _, world := range worlds {
 			select {
-			case slots <- struct{}{}:
+			case h.logoReads <- struct{}{}:
 			case <-ctx.Done():
 				return
 			}
 			go func() {
-				defer func() { <-slots }()
+				defer func() { <-h.logoReads }()
 				answers <- worldLogo{world: world, logo: h.identity.own(ctx, world).LogoURL}
 			}()
 		}
