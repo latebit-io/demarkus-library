@@ -21,7 +21,20 @@ import (
 // mark_lookup("*") — the projection adds layout, never information.
 const (
 	floorPortalR = 12 // portal node radius (an external host, no catalog)
+	// floorLogoSide is a logo's box as a share of its world's radius: just
+	// inside the inscribed square (√2), so a square logo clears the rim.
+	floorLogoSide = 1.34
 )
+
+// floorDraw is what the universe map needs beyond the floor itself: the trail
+// its links continue, the pane it sits in, the vocabulary, and the logo each
+// branded world declares (a world absent from logos draws as a brain region).
+type floorDraw struct {
+	trail trail
+	idx   int
+	terms Terms
+	logos map[string]string
+}
 
 // floorEmpty is the floor with nothing to show.
 func floorEmpty(terms Terms) template.HTML {
@@ -34,12 +47,40 @@ func floorEmpty(terms Terms) template.HTML {
 // node sized by its catalog sample, portals are small rim nodes, world-level
 // edges roll up with width by count, and the layout is the leaf-group rule
 // (a ring up to wmRingMax worlds around the hub world, a sunflower beyond).
-// t/idx make every node link trail-aware — a world opens its stacks, a
+// The trail makes every node link trail-aware — a world opens its stacks, a
 // portal that host's root — so walking the universe IS building a trail.
-func floorSVG(floor domain.Floor, t trail, idx int, terms Terms) template.HTML {
+func floorSVG(floor domain.Floor, draw floorDraw) template.HTML {
 	if len(floor.Worlds) == 0 {
-		return floorEmpty(terms)
+		return floorEmpty(draw.terms)
 	}
+	plan := planFloor(floor)
+	var b strings.Builder
+	fmt.Fprintf(&b, `<svg class="floor" viewBox="0 0 %d %d" width="%d" height="%d" role="img" aria-label="%s map">`,
+		plan.width, plan.height, plan.width, plan.height, template.HTMLEscapeString(draw.terms.UniverseLower()))
+	fmt.Fprintf(&b, `<text class="world-map-caption" x="%d" y="22" text-anchor="middle">%s · %s</text>`,
+		plan.width/2, plural(plan.systems, "world"), plural(plan.portals, "portal"))
+	wmDrawEdges(&b, plan.rolled, plan.vrank, plan.spine)
+	for i := range floor.Worlds {
+		fw := &floor.Worlds[i]
+		floorWorldNode(&b, fw, plan.byName[fw.World.Name], draw)
+	}
+	b.WriteString(`</svg>`)
+	return template.HTML(b.String()) //nolint:gosec // built here from escaped parts; node text/attrs all pass html.EscapeString
+}
+
+// floorPlan is the universe laid out: an item per world by name, the
+// world-level edges rolled up and ranked, the canvas, and the tallies.
+type floorPlan struct {
+	byName           map[string]*wmItem
+	rolled           []*wmRolled
+	vrank            map[*wmItem]int
+	spine            []bool
+	width, height    int
+	systems, portals int
+}
+
+// planFloor sizes and places every world per floorLayout.
+func planFloor(floor domain.Floor) floorPlan {
 	items := make([]*wmItem, 0, len(floor.Worlds))
 	byName := make(map[string]*wmItem, len(floor.Worlds))
 	systems, portals := 0, 0
@@ -89,20 +130,8 @@ func floorSVG(floor domain.Floor, t trail, idx int, terms Terms) template.HTML {
 	width := max(2*outerRx+2*wmSideMargin, wmMinWidth)
 	height := wmTierTop + 2*outerRy + 36
 	floorPlace(byRank, width/2, wmTierTop+outerRy)
-
-	var b strings.Builder
-	fmt.Fprintf(&b, `<svg class="floor" viewBox="0 0 %d %d" width="%d" height="%d" role="img" aria-label="%s map">`,
-		width, height, width, height, template.HTMLEscapeString(terms.UniverseLower()))
-	fmt.Fprintf(&b, `<text class="world-map-caption" x="%d" y="22" text-anchor="middle">%s · %s</text>`,
-		width/2, plural(systems, "world"), plural(portals, "portal"))
-	wmDrawEdges(&b, rolled, vrank, spine)
-	for i := range floor.Worlds {
-		fw := &floor.Worlds[i]
-		href := trailURL(trailAfterClick(t, idx, paneAddr{Kind: paneDoc, World: fw.World.Name, Value: "/"}))
-		floorWorldNode(&b, fw, byName[fw.World.Name], href)
-	}
-	b.WriteString(`</svg>`)
-	return template.HTML(b.String()) //nolint:gosec // built here from escaped parts; node text/attrs all pass html.EscapeString
+	return floorPlan{byName: byName, rolled: rolled, vrank: vrank, spine: spine,
+		width: width, height: height, systems: systems, portals: portals}
 }
 
 // plural formats a count with its noun.
@@ -173,20 +202,39 @@ func floorPlace(byRank []*wmItem, cx, cy int) {
 	}
 }
 
-// floorWorldNode draws one world at href: an aggregate circle (a dashed rim
-// node for a portal, dimmed when unreadable) that enters the world at its
-// stacks, its name, and its URL and sampled size in the tooltip.
-func floorWorldNode(b *strings.Builder, fw *domain.FloorWorld, it *wmItem, href string) {
+// floorWorldNode draws one world: its glyph, which enters the world at its
+// stacks, its name, and its URL and sampled size in the tooltip. A portal is
+// a dashed rim node, a branded world its logo, any other a brain region.
+func floorWorldNode(b *strings.Builder, fw *domain.FloorWorld, it *wmItem, draw floorDraw) {
+	href := trailURL(trailAfterClick(draw.trail, draw.idx, paneAddr{Kind: paneDoc, World: fw.World.Name, Value: "/"}))
+	logo := draw.logos[fw.World.Name]
 	cls, label := "floor-world", "floor-world-label"
 	if fw.Portal {
 		cls, label = "floor-portal-node", "floor-doc-label"
 	}
+	fmt.Fprintf(b, `<a href="%s" data-node="%s" data-world="%s"`,
+		html.EscapeString(href), html.EscapeString(it.id), html.EscapeString(domain.WorldKey(fw.World.Name)))
 	if fw.Err {
-		cls += " gone"
+		b.WriteString(` class="gone"`)
 	}
-	cls += " soma"
-	fmt.Fprintf(b, `<a href="%s" data-node="%s" data-world="%s"><circle class="%s" cx="%d" cy="%d" r="%d"/>`,
-		html.EscapeString(href), html.EscapeString(it.id), html.EscapeString(domain.WorldKey(fw.World.Name)), cls, it.x, it.y, it.r)
+	b.WriteString(`>`)
+	if fw.Portal || logo != "" {
+		if logo != "" {
+			cls += " floor-world-logo"
+		}
+		fmt.Fprintf(b, `<circle class="%s soma" cx="%d" cy="%d" r="%d"/>`, cls, it.x, it.y, it.r)
+	}
+	switch {
+	case logo != "":
+		side := float64(it.r) * floorLogoSide
+		fmt.Fprintf(b, `<image class="floor-logo" href="%s" x="%.0f" y="%.0f" width="%.0f" height="%.0f" preserveAspectRatio="xMidYMid meet"/>`,
+			html.EscapeString(logo), float64(it.x)-side/2, float64(it.y)-side/2, side, side)
+	case !fw.Portal:
+		if it.hub {
+			cls += " soma-hub"
+		}
+		cortex(b, cortexSpec{x: it.x, y: it.y, r: it.r, seed: fw.World.Name, class: cls + " cortex soma"})
+	}
 	fmt.Fprintf(b, `<text class="%s wm-below" x="%d" y="%d" text-anchor="middle">%s</text>`,
 		label, it.x, it.y+it.r, html.EscapeString(trimRunes(fw.World.Name, wmLabelTrim+6)))
 	title := fw.World.URL

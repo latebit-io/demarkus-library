@@ -1412,9 +1412,10 @@
   }
   var pendingReveal = ""; // a folded match to select once its map arrives
   function wmReveal(svg, path) {
-    var a = wmState(svg).nodes.get(path), c = a && a.querySelector("circle");
+    // The soma's box, not a circle's centre: a universe world is a lobe path.
+    var a = wmState(svg).nodes.get(path), c = a && a.querySelector(".soma");
     if (!c) return;
-    var x = +c.getAttribute("cx"), y = +c.getAttribute("cy"), b = curBox(svg);
+    var bb = c.getBBox(), x = bb.x + bb.width / 2, y = bb.y + bb.height / 2, b = curBox(svg);
     var mx = b[2] * 0.15, my = b[3] * 0.15;
     if (x > b[0] + mx && x < b[0] + b[2] - mx && y > b[1] + my && y < b[1] + b[3] - my) return;
     glideBox(svg, [x - b[2] / 2, y - b[3] / 2, b[2], b[3]]);

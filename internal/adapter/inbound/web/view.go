@@ -162,13 +162,14 @@ func (v *View) Render(c *echo.Context, w io.Writer, name string, data any) error
 	// stylesheet funcs all ask for the same world, and the in-world lookup
 	// is a (cached) read.
 	memo := map[string]WorldBranding{}
+	identity := worldIdentity{manifest: b.Worlds, brands: v.worlds}
 	resolve := func(world string) WorldBranding {
 		if r, ok := memo[world]; ok {
 			return r
 		}
 		r := b.For(world)
 		if world != "" && v.worlds != nil {
-			r = r.over(v.ownBranding(ctx, b, world))
+			r = r.over(identity.own(ctx, world))
 			// The hub's own sheet is already the room theme in the head; a
 			// second link in the body would only load it again. A manifest
 			// sheet for the hub world is not in the head, so it stays.
@@ -186,7 +187,7 @@ func (v *View) Render(c *echo.Context, w io.Writer, name string, data any) error
 			if world == "" {
 				return WorldBranding{}
 			}
-			return v.ownBranding(ctx, b, world)
+			return identity.own(ctx, world)
 		},
 		"logoURL":   func(world string) string { return resolve(world).LogoURL },
 		"worldCSS":  func(world string) string { return resolve(world).CSSURL },
@@ -225,19 +226,6 @@ func (v *View) roomBranding(ctx context.Context) Branding {
 		b.FaviconURL = hub.FaviconURL
 	}
 	return b
-}
-
-// ownBranding is what a world declares for itself, its documents over its
-// manifest entry, with no room fallback: a page listing several worlds must
-// not give each one the room's name.
-func (v *View) ownBranding(ctx context.Context, b Branding, world string) WorldBranding {
-	own := b.Worlds[world]
-	if v.worlds != nil {
-		if iw, ok := v.worlds.For(ctx, world); ok {
-			own = own.over(iw)
-		}
-	}
-	return own
 }
 
 // over lays a world's own declaration over the resolved branding: each set

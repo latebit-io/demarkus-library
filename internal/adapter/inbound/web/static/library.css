@@ -343,12 +343,21 @@ svg.floor text { fill: var(--muted); font-family: var(--font-ui); }
    overlay, the fit scale in a pane, so text holds its screen size. */
 .floor-world-label { font-size: calc(15px / var(--wm-k, 1)); font-weight: 600; }
 .floor-doc-label { font-size: calc(10.5px / var(--wm-k, 1)); }
-.floor-world { fill: url(#ganglion); stroke: var(--ink); stroke-width: 1.5; }
+.floor-world { stroke: var(--ink); stroke-width: 1.5; }
 .floor-doc { fill: var(--paper); stroke: var(--muted); stroke-width: 1.5; }
 .floor-doc.status-accepted { stroke: var(--ok); }
 .floor-doc.status-wip      { stroke: var(--warn); }
 .floor-doc.status-archived { stroke-dasharray: 3 2; opacity: .6; }
-.floor-world.gone, .floor-portal-node.gone, svg a.gone .soma, .soma.gone { stroke-dasharray: 4 3; opacity: .5; }
+svg a.gone .soma, .soma.gone { stroke-dasharray: 4 3; opacity: .5; }
+/* A world is a region of one brain (cortex.go): a lobe folded into gyri, its
+   sulci drawn in; a branded world shows its own logo instead. */
+.floor-world.cortex { fill: color-mix(in srgb, var(--ink) 10%, var(--paper)); stroke-linejoin: round; }
+.floor-world.soma-hub { stroke-width: 2.2; }
+.sulci { fill: none; stroke: var(--ink); stroke-opacity: .5; stroke-width: 1.3;
+         stroke-linecap: round; pointer-events: none; }
+svg a.gone .sulci { stroke-opacity: .25; }
+.floor-world.floor-world-logo { fill: var(--paper); stroke: var(--rule); }
+.floor-logo { pointer-events: none; }
 /* The dendritic arbor: fine processes off the rim, drawn under the soma.
    Paint-time alpha (stroke-opacity), not element opacity: hundreds of
    isolated groups is the repaint trap the hover scrim exists to avoid. */

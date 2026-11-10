@@ -37,7 +37,8 @@ func (h *SpatialHandler) FloorPage(c *echo.Context) error {
 		return presentRoomError(c, err, h.terms.UniverseLower())
 	}
 	t := currentTrail(c)
-	return c.HTML(http.StatusOK, string(drawnAt(floorSVG(floor, t, t.Focus, h.terms), read)))
+	draw := h.floorDraw(c.Request().Context(), floor, t, t.Focus)
+	return c.HTML(http.StatusOK, string(drawnAt(floorSVG(floor, draw), read)))
 }
 
 // GraphPage renders the graph neighborhood as a standalone permalink —

@@ -14,10 +14,27 @@ import (
 
 // spatialPanes builds the floor, world-map, graph and activity panes.
 type spatialPanes struct {
-	maps  port.MapService
-	graph port.GraphService
-	terms Terms      // the universe's display name (floor title, spine, context labels)
-	pulse port.Pulse // recent activity for the floor and the activity pane; nil = no change feed
+	maps     port.MapService
+	graph    port.GraphService
+	terms    Terms         // the universe's display name (floor title, spine, context labels)
+	pulse    port.Pulse    // recent activity for the floor and the activity pane; nil = no change feed
+	identity worldIdentity // whose logos the universe map draws
+}
+
+// floorDraw readies the universe map for the trail's pane i: each readable
+// world's logo, resolved once per render. A portal is an external host with
+// no branding to read, and an unreadable world draws dimmed, as itself.
+func (h spatialPanes) floorDraw(ctx context.Context, floor domain.Floor, t trail, i int) floorDraw {
+	draw := floorDraw{trail: t, idx: i, terms: h.terms, logos: map[string]string{}}
+	for _, fw := range floor.Worlds {
+		if fw.Portal || fw.Err {
+			continue
+		}
+		if logo := h.identity.own(ctx, fw.World.Name).LogoURL; logo != "" {
+			draw.logos[fw.World.Name] = logo
+		}
+	}
+	return draw
 }
 
 // worldMapPane builds the world-map pane on the trail canvas (focused-live
@@ -86,7 +103,7 @@ func (h spatialPanes) floorPane(ctx context.Context, t trail, i int, mapView boo
 		// deliberate "view as map" secondary view, and holds the empty state.
 		fv := &floorVM{Toggle: floorViewToggle(t, mapView)}
 		if mapView || len(floor.Worlds) == 0 {
-			fv.Map = floorSVG(floor, t, i, h.terms)
+			fv.Map = floorSVG(floor, h.floorDraw(ctx, floor, t, i))
 		} else {
 			fv.Summary, fv.Cards = floorSummary(floor), worldCards(floor, t, i)
 		}
