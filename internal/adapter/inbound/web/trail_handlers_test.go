@@ -42,11 +42,10 @@ func TestTrailRendersModesAndFocusedLive(t *testing.T) {
 			t.Errorf("canvas missing %q", wantFrag)
 		}
 	}
-	// Spine demotion (ADR 0006 §2): a collapsed pane is a title-only re-expand
-	// rail — no status badge. Pane A is accepted and collapsed, so its badge is
-	// gone; the focused pane (C, wip) still shows its margin badge.
-	if strings.Contains(body, `class="status status-accepted"`) {
-		t.Errorf("spine must not carry a status badge (ADR 0006 §2)")
+	// A collapsed pane keeps its trust signal (ADR 0006 §2, amended): pane A is
+	// accepted, so its spine carries the status dot.
+	if !strings.Contains(body, `class="spine-status status-accepted"`) {
+		t.Errorf("spine lost its status dot (ADR 0006 §2, amended)")
 	}
 	// Only the focused pane renders the margin.
 	if got := strings.Count(body, `class="doc-meta"`); got != 1 {

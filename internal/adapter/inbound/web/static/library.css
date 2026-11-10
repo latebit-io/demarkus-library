@@ -265,20 +265,73 @@ main.canvas { display: flex; align-items: flex-start; gap: 1.25rem;
 .pane-head a { color: inherit; text-decoration: none; }
 /* The head's status chip (ADR 0007): the marginless room's at-rest trust
    signal — smaller than the margin badge, same color register. */
-.pane-head .status { font-size: .68rem; padding: .02rem .35rem .08rem;
-             margin-left: .3rem; vertical-align: middle; }
-.pane.spine { display: flex; flex-direction: column; align-items: center;
-              gap: .7rem; width: 2.4rem; min-height: 22rem;
-              padding: .8rem .3rem; border: 1px solid var(--faint);
-              border-radius: 3px; text-decoration: none; color: var(--muted);
+.pane-head .status, .peek-meta .status { font-size: .68rem; padding: .02rem .35rem .08rem; }
+.pane-head .status { margin-left: .3rem; vertical-align: middle; }
+/* ── Spines (ADR 0006 §2, amended): a collapsed pane is a book on a shelf.
+      Neighbors touch, the title runs the height, and a document carries a
+      thumb index down its edge and a peek card on hover or focus. ──── */
+.pane.spine { position: relative; display: flex; flex-direction: column; align-items: center;
+              gap: .55rem; width: 3rem; min-height: 22rem;
+              padding: .6rem 0 .7rem; border: 1px solid var(--faint);
+              border-radius: 2px; text-decoration: none; color: var(--muted);
               background: var(--wash); }
-.pane.spine:hover { border-color: var(--ink); color: var(--ink); }
-.pane.spine .spine-title { writing-mode: vertical-rl; font-family: var(--font-ui);
-              font-size: .8rem; max-height: 15rem; overflow: hidden;
-              text-overflow: ellipsis; white-space: nowrap; }
-.pane.spine .status { writing-mode: vertical-rl; font-size: .7rem;
+/* Shelved: one shared hairline between neighbors, not two boxes and a gap. */
+.pane.spine + .pane.spine { margin-left: calc(-1.25rem - 1px); }
+/* Raised over the neighbor's border and the next pane's sticky head. */
+.pane.spine:is(:hover, :focus-visible) { z-index: 3; border-color: var(--ink); color: var(--ink); }
+.pane.spine .spine-title { writing-mode: vertical-rl; flex: 1 1 auto; min-height: 0;
+              font-family: var(--font-prose); font-size: .9rem; max-height: 15rem;
+              color: color-mix(in srgb, var(--ink) 82%, transparent);
+              overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pane.spine:is(:hover, :focus-visible) .spine-title { color: var(--ink); }
+.spine-ord { font-family: var(--font-ui); font-size: .68rem; line-height: 1;
+              font-variant-numeric: tabular-nums; }
+.spine-kind, .spine-foot, .spine-left { writing-mode: vertical-rl; flex: 0 0 auto;
+              font-family: var(--font-ui); font-size: .66rem; white-space: nowrap; }
+.spine-kind, .spine-foot { font-variant-caps: all-small-caps; letter-spacing: .07em; }
+.spine-foot { max-height: 9rem; overflow: hidden; text-overflow: ellipsis; }
+.spine-left { font-variant-numeric: tabular-nums; }
+.spine-left:empty, .spine-progress:empty { display: none; }
+/* The status dot: the chip's color register at spine width. Filled once a
+   status has a color; a draft stays a hollow ring. */
+.spine-status { flex: 0 0 auto; width: .5rem; height: .5rem; box-sizing: border-box;
+              border: 1px solid currentColor; border-radius: 50%; }
+.spine-status.status-accepted, .spine-status.status-wip { background: currentColor; }
+/* Thumb index: a tick per section at its depth in the text; islands.js sets
+   --read from the reader's saved position and marks the ticks behind it. */
+.spine-track { position: absolute; left: 4px; top: .6rem; bottom: .7rem; width: 2px;
+              background: var(--faint); }
+.spine-track::before { content: ""; position: absolute; inset: 0 0 auto; height: var(--read, 0%);
+              background: var(--muted); }
+.spine-tick { position: absolute; left: -3px; width: 8px; height: 1px; background: var(--muted); }
+.spine-tick.read { background: var(--ink); }
+.pane.spine > .status { writing-mode: vertical-rl; font-size: .7rem;
               padding: .3rem .1rem; }
 .pane.spine.gone { opacity: .55; border-style: dashed; }
+/* The peek: the preview card's surface (shared rule), flush against its spine so the
+   pointer never crosses a gap. It waits a beat, so sweeping the shelf on the
+   way elsewhere opens nothing. */
+.spine-peek { position: absolute; top: 2rem; left: 100%; z-index: 30;
+              display: flex; flex-direction: column; gap: .5rem;
+              width: 19rem; max-height: calc(100% - 3rem); box-sizing: border-box; overflow: hidden;
+              padding: .8rem .95rem .9rem; font-size: .78rem;
+              visibility: hidden; opacity: 0; transition: opacity .12s, visibility 0s .12s; }
+.pane.spine:is(:hover, :focus-visible) .spine-peek {
+              visibility: visible; opacity: 1; transition-delay: .3s; }
+/* Right of the focus the room's edge is near: the card opens leftward. */
+.pane.focused ~ .pane.spine .spine-peek { left: auto; right: 100%; }
+.peek-where { font-size: .68rem; font-variant-caps: all-small-caps; letter-spacing: .07em;
+              color: var(--muted); overflow-wrap: anywhere; }
+.peek-title { font-family: var(--font-prose); font-size: 1rem; line-height: 1.3; }
+.peek-meta { display: flex; flex-wrap: wrap; align-items: center; gap: .15rem .5rem;
+              font-size: .72rem; color: var(--muted); }
+.peek-lede { color: color-mix(in srgb, var(--ink) 85%, transparent); }
+/* The outline: read sections in ink, the rest muted, the reader's place marked. */
+.peek-sections { display: flex; flex-direction: column; flex: 0 1 auto; min-height: 0; overflow: hidden;
+              padding-left: .7rem; border-left: 2px solid var(--faint); color: var(--muted); }
+.peek-sections .read { color: var(--ink); }
+.peek-sections .here { font-weight: 600; }
+.peek-sections .here::before { content: "▸"; position: absolute; margin-left: -.75rem; }
 /* Active-link highlight: the open links ARE the breadcrumb. */
 a.active-link { background: var(--wash); border-radius: 2px;
                 box-shadow: 0 0 0 .2rem var(--wash);
@@ -317,7 +370,8 @@ body.pane-scroll .pane-head + .pane-cols { margin-top: .8rem; }
    edge, not a floating chip. (The librarian transcript keeps its own
    bounded scroller: that is what pins the view to the newest exchange
    while tokens stream and keeps the ask form in reach.) */
-body.pane-scroll .pane.spine { min-height: 0; }
+body.pane-scroll .pane.spine { min-height: 0; overflow: visible; }
+body.pane-scroll .pane.spine .spine-title { max-height: none; }
 /* Marginless, wider panes: in this room the catalog record is summoned
    (the head's "meta" affordance → the ?meta= overlay), so the reading
    column takes the freed width. Panes grow to share the viewport;
@@ -463,13 +517,14 @@ svg.floor .wm-above { transform: translateY(calc(-5px / var(--wm-k, 1))); }
       hover. Upward/startward overflow is clipped instead of grown: worst
       case a card near a pane top is cut, never a layout shift. ──── */
 .preview-host { position: relative; }
+/* One card surface for the hover preview and the spine's peek. */
+.preview-card, .spine-peek { background: var(--paper); color: var(--ink);
+                border: 1px solid var(--ink); border-radius: 3px;
+                box-shadow: 3px 3px 0 var(--faint);
+                font-family: var(--font-ui); line-height: 1.45; }
 .preview-card { display: none; position: absolute; bottom: calc(100% + .3em);
                 left: 0; z-index: 10; width: max-content; max-width: 22rem;
-                background: var(--paper); color: var(--ink);
-                border: 1px solid var(--ink); border-radius: 3px;
-                padding: .65rem .8rem; box-shadow: 3px 3px 0 var(--faint);
-                font-family: var(--font-ui); font-size: .8rem;
-                line-height: 1.45; white-space: normal; }
+                padding: .65rem .8rem; font-size: .8rem; white-space: normal; }
 .preview-host:hover .preview-card:not(:empty),
 .preview-host:focus-within .preview-card:not(:empty) { display: block; }
 /* Margin cards (backlinks) open leftward: the margin is the pane's right
@@ -934,9 +989,10 @@ body.canvas-page { padding-bottom: 4.5rem; }
 .dock-chips { display: flex; align-items: center; gap: .4rem;
         margin-left: auto; white-space: nowrap; }
 .dock-from { color: var(--muted); font-size: .78rem; font-style: italic; }
-.dock-chip { color: var(--muted); text-decoration: none; font-size: .78rem;
+/* The chip: a dock neighbor, and a source under a librarian answer. */
+.dock-chip, .ask-source { color: var(--muted); text-decoration: none; font-size: .78rem;
         border: 1px solid var(--faint); border-radius: 3px; padding: .05rem .5rem; }
-.dock-chip:hover { color: var(--ink); border-color: var(--ink); }
+.dock-chip:hover, .ask-source:hover { color: var(--ink); border-color: var(--ink); }
 
 /* The librarian pane (Phase 4): transcript exchanges + the ask form.
    Questions read as marginalia headers; the steps keep the dock's muted
@@ -947,21 +1003,54 @@ body.canvas-page { padding-bottom: 4.5rem; }
    long conversation from stretching the whole canvas. */
 #librarian-transcript { display: flex; flex-direction: column-reverse;
         overflow-y: auto; max-height: 62vh; overflow-anchor: none; }
-.exchange { margin: 1.2rem 0; }
-/* The reader's question, set off as a highlighted card: a wash of ink and
-   a left rule, like a pulled quote. Line breaks from the ask box survive. */
-.ask-q { margin: 0 0 .5rem; padding: .45rem .8rem; font-weight: 600;
-        background: var(--wash); border-left: 2px solid var(--ink);
-        border-radius: 0 3px 3px 0; white-space: pre-wrap; }
-.ask-steps { margin: .2rem 0 .5rem; color: var(--muted); font-size: .78rem; }
-.ask-steps summary { cursor: pointer; font-family: var(--font-ui);
-        font-variant-caps: all-small-caps; letter-spacing: .02em; }
-.ask-trace { margin: .3rem 0 0; padding-left: 2.6em; font-family: var(--font-mono); }
-.ask-trace li { margin: .1rem 0; overflow-wrap: anywhere; }
-.ask-sources { margin: .6rem 0 0; font-family: var(--font-ui); font-size: .8rem;
-        color: var(--muted); font-variant-caps: all-small-caps; }
-.ask-sources a { font-variant-caps: normal; }
-.ask-open { white-space: nowrap; }
+/* In the pane-scroll room the librarian (pane kind `a`) fills its pane
+   instead: the transcript takes the height and scrolls, the ask box stays
+   at the foot. */
+body.pane-scroll .pane[data-kind="a"] { display: flex; flex-direction: column; overflow: hidden; }
+body.pane-scroll .pane[data-kind="a"] > .pane-cols,
+body.pane-scroll .pane[data-kind="a"] .doc-body,
+body.pane-scroll .librarian { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
+body.pane-scroll #librarian-transcript { flex: 1 1 auto; min-height: 0; max-height: none;
+        scrollbar-width: thin; scrollbar-color: transparent transparent; }
+body.pane-scroll #librarian-transcript:hover { scrollbar-color: var(--rule) transparent; }
+/* Before the first question the pane is a title page: the invitation and the
+   ask box sit together, a little above the middle. */
+body.pane-scroll .librarian:not(:has(.exchange)) { justify-content: center; padding-bottom: 14vh; }
+.librarian:not(:has(.exchange)) #librarian-transcript { display: none; }
+.ask-intro { margin: 0 0 1rem; }
+.ask-intro p { margin: 0; color: var(--muted); font-size: .9rem; }
+.ask-intro .ask-intro-title { margin-bottom: .2rem; color: var(--ink);
+        font-family: var(--font-prose); font-size: 1.5rem; font-weight: 600; line-height: 1.2; }
+/* Exchanges read as entries in a ledger: a hairline between, no boxes. */
+.exchange { padding: 1.3rem 0; }
+.exchange + .exchange { border-top: 1px solid var(--faint); }
+/* The reader's question: a pulled quote on an ink rule. Line breaks from the
+   ask box survive. */
+.ask-q { margin: 0 0 .7rem; padding: .05rem 0 .05rem .8rem; border-left: 2px solid var(--ink);
+        font-size: 1rem; font-weight: 600; line-height: 1.4; white-space: pre-wrap; }
+/* The answer is set a size under the documents it cites: a note about the
+   reading, not the reading. */
+.ask-answer { font-size: .94rem; line-height: 1.6; }
+.ask-answer > :first-child { margin-top: 0; }
+.ask-answer > :last-child { margin-bottom: 0; }
+.ask-steps { margin: 0 0 .7rem; color: var(--muted); font-size: .76rem; }
+.ask-steps summary { display: inline-block; cursor: pointer; font-family: var(--font-ui);
+        font-variant-caps: all-small-caps; letter-spacing: .05em; list-style: none; }
+.ask-steps summary::-webkit-details-marker { display: none; }
+.ask-steps summary::after { content: " +"; }
+.ask-steps[open] summary::after { content: " \2212"; }
+.ask-steps summary:hover { color: var(--ink); }
+.ask-trace { margin: .4rem 0 0; padding: 0 0 0 .8rem; list-style: none;
+        border-left: 1px solid var(--faint); font-family: var(--font-mono); font-size: .72rem; }
+.ask-trace li { margin: .15rem 0; overflow-wrap: anywhere; }
+/* Sources close an answer like a colophon: a label, a chip per document
+   (the dock's chip rule), and the open-all action set apart at the line's end. */
+.ask-sources { display: flex; flex-wrap: wrap; align-items: baseline; gap: .35rem .4rem;
+        margin: .9rem 0 0; font-family: var(--font-ui); font-size: .78rem; color: var(--muted); }
+.ask-sources[hidden] { display: none; }
+.ask-sources-label { font-variant-caps: all-small-caps; letter-spacing: .05em; margin-right: .15rem; }
+.ask-open { margin-left: auto; color: var(--ink); white-space: nowrap; }
+.ask-open::after { content: " →"; }
 .ask-notice { color: var(--muted); font-style: italic; }
 /* While an answer streams: a ticker beside a stop button. The dots step
    rather than fade, so an e-paper panel repaints a few times a second, not
@@ -987,29 +1076,35 @@ body.canvas-page { padding-bottom: 4.5rem; }
    in the head's own ink; the negative margin keeps the icon from growing
    the head. */
 .ask-reset { float: right; margin: -.3rem 0 -.3rem .5rem; line-height: 0; }
-.ask-starters button {
-        font: inherit; font-family: var(--font-ui); font-size: .78rem; color: var(--muted);
-        background: transparent; border: 1px solid var(--rule); border-radius: 3px;
-        padding: .15rem .6rem; cursor: pointer; }
-.ask-starters button:hover {
-        color: var(--ink); border-color: var(--ink); }
-.ask-form { display: flex; flex-direction: column; gap: .5rem; margin-top: 1.2rem; }
-.ask-starters { display: flex; flex-wrap: wrap; gap: .4rem; }
-.ask-starters button { text-align: left; }
+.ask-form { display: flex; flex-direction: column; gap: .7rem; margin: .8rem 0 .2rem; }
 /* Starters step aside once a conversation begins (a live exchange counts);
    starting over appears only then. */
-.librarian:has(.exchange) .ask-starters,
+.librarian:has(.exchange) .ask-starters, .librarian:has(.exchange) .ask-intro,
 .pane:not(:has(.exchange)) .ask-reset { display: none; }
-.ask-row { display: flex; gap: .5rem; align-items: flex-end; }
-/* The box grows with the question where the browser can (field-sizing),
-   and can be dragged taller where it cannot. */
-.ask-input { flex: 1; font: inherit; color: inherit; background: transparent;
-        border: 1px solid var(--rule); border-radius: 3px; padding: .35rem .6rem;
-        line-height: 1.4; resize: vertical; field-sizing: content; max-height: 12rem; }
+/* Suggested first questions: a short list under the box, one to a line. */
+.ask-starters { display: flex; flex-direction: column; }
+.ask-starters button { display: flex; justify-content: space-between; gap: 1rem;
+        font: inherit; font-family: var(--font-ui); font-size: .84rem; text-align: left;
+        color: var(--muted); background: transparent; border: 0;
+        border-top: 1px solid var(--faint); padding: .45rem .1rem; cursor: pointer; }
+.ask-starters button::after { content: "→"; }
+.ask-starters button:hover, .ask-starters button:focus-visible { color: var(--ink); }
+/* The ask box and its button are one field: the row carries the border and
+   the focus, the textarea inside is bare. The box grows with the question
+   where the browser can (field-sizing), and can be dragged taller elsewhere. */
+.ask-row { display: flex; gap: .4rem; align-items: flex-end; padding: .3rem;
+        border: 1px solid var(--rule); border-radius: 4px; }
+/* Inset, so the pane's clip never shaves the ring. */
+.ask-row:focus-within { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); }
+.ask-input { flex: 1; font: inherit; font-size: .94rem; color: inherit; background: transparent;
+        border: 0; outline: 0; padding: .3rem .45rem; line-height: 1.4;
+        resize: vertical; field-sizing: content; max-height: 12rem; }
+@supports (field-sizing: content) { .ask-input { resize: none; } }
 /* One border-box floor, so a one-line box and its button stand the same height. */
-.ask-input, .ask-send { box-sizing: border-box; min-height: 2.65rem; }
-.ask-send { font: inherit; color: var(--paper); background: var(--ink);
-        border: 1px solid var(--ink); border-radius: 3px; padding: .35rem .9rem;
+.ask-input, .ask-send { box-sizing: border-box; min-height: 2.1rem; }
+.ask-send { font: inherit; font-family: var(--font-ui); font-size: .84rem;
+        color: var(--paper); background: var(--ink);
+        border: 1px solid var(--ink); border-radius: 3px; padding: .2rem .8rem;
         cursor: pointer; }
 /* One answer at a time: the send button rests while one streams. */
 .librarian:has(.ask-live) .ask-send { opacity: .45; pointer-events: none; }

@@ -171,7 +171,7 @@ func TestLibrarianStream_LibrarianPathMapsEvents(t *testing.T) {
 		// Settling: steps collapse, sources appear (escaped), the live
 		// controls go, done closes the stream.
 		`data: <hx-partial hx-target="find .ask-steps" hx-swap="outerHTML"><details class="ask-steps"><summary>1 step</summary>`,
-		`data: <hx-partial hx-target="find .ask-sources" hx-swap="outerHTML"><p class="ask-sources">sources: <a href="/t/a/~/w.io/d/ops/deploy.md" title="w.io/ops/deploy.md">Deploy &lt;runbook&gt;</a></p></hx-partial>`,
+		`data: <hx-partial hx-target="find .ask-sources" hx-swap="outerHTML"><p class="ask-sources"><span class="ask-sources-label">sources</span> <a class="ask-source" href="/t/a/~/w.io/d/ops/deploy.md" title="w.io/ops/deploy.md">Deploy &lt;runbook&gt;</a></p></hx-partial>`,
 		`data: <hx-partial hx-target="find .ask-live" hx-swap="outerHTML"></hx-partial>` + "\n\n",
 		"event: done",
 	} {

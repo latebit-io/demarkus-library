@@ -407,7 +407,7 @@ func TestLibrarianPane_ExchangeShowsWorkAndSources(t *testing.T) {
 		`<details class="ask-steps"><summary>2 steps</summary>`,
 		`<li>surveyed the worlds</li>`,
 		`<li>opened <a href="/t/w.io/d/x.md/~/a/~/w.io/d/ops/deploy.md">w.io/ops/deploy.md</a></li>`,
-		`sources: <a href="/t/w.io/d/x.md/~/a/~/w.io/d/ops/deploy.md" title="w.io/ops/deploy.md">Deploy runbook</a>`,
+		`<span class="ask-sources-label">sources</span> <a class="ask-source" href="/t/w.io/d/x.md/~/a/~/w.io/d/ops/deploy.md" title="w.io/ops/deploy.md">Deploy runbook</a>`,
 		`stopped before an answer`,
 		`<form class="ask-reset" method="post" action="/a/new">`, // start over, in the pane head
 	} {
@@ -435,7 +435,7 @@ func TestLibrarianPane_CitationsOfferOpenAll(t *testing.T) {
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/t/w.io/d/x.md/~/a", http.NoBody))
 	body := rec.Body.String()
-	want := `Deploy runbook</a> — <a class="ask-open" href="/t/w.io/d/x.md/~/a/~/w.io/d/ops/deploy.md/~/w.io/d/ops/rollback.md?focus=2">open the 2 cited documents as panes</a></p>`
+	want := `Deploy runbook</a> <a class="ask-open" href="/t/w.io/d/x.md/~/a/~/w.io/d/ops/deploy.md/~/w.io/d/ops/rollback.md?focus=2">open the 2 cited documents as panes</a></p>`
 	if !strings.Contains(body, want) {
 		t.Errorf("sources line missing %q\nbody:\n%.4000s", want, body)
 	}

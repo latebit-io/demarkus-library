@@ -28,8 +28,7 @@ type SpatialHandler struct {
 // walk and the navigation dismisses the overlay.
 func (h *SpatialHandler) FloorPage(c *echo.Context) error {
 	if c.QueryParam("overlay") != "1" {
-		home := trail{Panes: []paneAddr{{Kind: paneFloor}}, Focus: 0}
-		return c.Redirect(http.StatusSeeOther, trailURL(home))
+		return c.Redirect(http.StatusSeeOther, "/") // Root owns where the room opens
 	}
 	read := time.Now()
 	floor, err := h.maps.Floor(c.Request().Context())

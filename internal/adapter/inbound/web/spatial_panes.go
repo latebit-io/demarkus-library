@@ -169,7 +169,9 @@ func (h spatialPanes) floorPane(ctx context.Context, t trail, i int, mapView boo
 		Title:    h.terms.Universe,
 		Label:    h.terms.UniverseLower(),
 	}
-	if mode != "spine" {
+	if mode == "spine" {
+		vm.Spine = &spineVM{Foot: floorSummary(floor)}
+	} else {
 		// World door cards by default (ADR 0006 §5); the SVG topology is the
 		// deliberate "view as map" secondary view, and holds the empty state.
 		fv := &floorVM{Toggle: floorViewToggle(t, mapView)}

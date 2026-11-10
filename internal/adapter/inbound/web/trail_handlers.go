@@ -67,8 +67,10 @@ type graphOverlayVM struct {
 type paneVM struct {
 	Mode     string // "spine" | "body" (full, body-only) | "focused"
 	Kind     string
-	FocusURL string // spine/header click: same path, focus moves here
-	Gone     bool   // unfocused pane whose document no longer reads
+	FocusURL string   // spine/header click: same path, focus moves here
+	Gone     bool     // unfocused pane whose document no longer reads
+	Ordinal  int      // 1-based place on the trail, which a spine prints
+	Spine    *spineVM // a collapsed pane's furniture (spine.go); nil when the title says it all
 
 	Title       string
 	TitleAnchor string // the lifted H1's anchor: the pane's <h1> is the #fragment target
@@ -245,6 +247,8 @@ func (h *ReadingHandler) Trail(c *echo.Context) error {
 			})
 		}
 	}
+
+	numberPanes(vm.Panes)
 
 	focusedPane := vm.Panes[t.Focus]
 	vm.Title = focusedPane.Title
@@ -436,7 +440,9 @@ func (h *ReadingHandler) paneView(ctx context.Context, req *paneRequest) paneVM 
 		h.headAffordances(&vm, req)
 	}
 	if mode == "spine" {
-		return vm // spines carry title + status only; no body is rendered
+		// No body is rendered: a spine carries its outline, not its content.
+		vm.Spine = docSpine(addr, doc)
+		return vm
 	}
 
 	content, edges := rewriteLinks(doc.HTML, addr.World, doc.Path)

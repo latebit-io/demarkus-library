@@ -127,11 +127,10 @@ type viewOpts struct {
 }
 
 // Root sends the reader to the floor: the universe view as pane zero
-// (ADR 0005 decision 4). Reading starts at the map; the first click into a
-// world begins the trail.
+// (ADR 0005 decision 4), the librarian beside it. Reading starts at the map;
+// the first click into a world begins the trail.
 func (h *ReadingHandler) Root(c *echo.Context) error {
-	home := trail{Panes: []paneAddr{{Kind: paneFloor}}, Focus: 0}
-	return c.Redirect(http.StatusFound, trailURL(home))
+	return c.Redirect(http.StatusFound, trailURL(homeTrail(h.librarian.enabled())))
 }
 
 // canvasTrailURL returns the canonical /t/ trail URL for a single pane, or ""
