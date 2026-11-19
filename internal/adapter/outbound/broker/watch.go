@@ -88,13 +88,14 @@ func (g *Gateway) ReaderWorlds(ctx context.Context) ([]string, error) {
 }
 
 // noteWorlds records which worlds the bearer's list showed, after a list, so
-// WorldSource lends it only for those. A refused list forgets them.
+// WorldSource lends it only for those. A refused list forgets them. The
+// record is never nil: nil is a bearer no list has covered.
 func (g *Gateway) noteWorlds(token string, worlds []domain.WorldInfo, err error) {
 	m, ok := g.caller.(*mcpCaller)
 	if !ok || (err != nil && !errors.Is(err, domain.ErrUnauthorized)) {
 		return
 	}
-	var names []string
+	names := make([]string, 0, len(worlds))
 	for _, world := range worlds {
 		names = append(names, world.Name)
 	}

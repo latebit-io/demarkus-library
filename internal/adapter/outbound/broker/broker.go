@@ -580,6 +580,12 @@ func (m *mcpCaller) entryFor(token string, expires time.Time, reader string) *po
 
 	m.mu.Lock()
 	now := m.now()
+	entry, ok := m.pool[token]
+	var worlds []string
+	if !ok {
+		// Before the sweep, which may evict the reader's only other entry.
+		worlds = m.worldsOfLocked(reader)
+	}
 	for key, e := range m.pool {
 		if key != token && now.Sub(e.lastUsed) >= idleTTL {
 			if e.conn != nil {
@@ -591,9 +597,8 @@ func (m *mcpCaller) entryFor(token string, expires time.Time, reader string) *po
 	if len(m.pool) >= maxPool {
 		toClose = append(toClose, m.evictOldestLocked(token)...)
 	}
-	entry, ok := m.pool[token]
 	if !ok {
-		entry = &pooledEntry{worlds: m.worldsOfLocked(reader)}
+		entry = &pooledEntry{worlds: worlds}
 		m.pool[token] = entry
 	}
 	entry.lastUsed = now
@@ -612,9 +617,9 @@ func (m *mcpCaller) entryFor(token string, expires time.Time, reader string) *po
 	return entry
 }
 
-// worldsOfLocked is the world list of reader's latest-lapsing entry, nil
-// without one. A token refresh keys a new entry; unlisted, the watches could
-// not renew on it before the old bearer lapses. Caller holds m.mu.
+// worldsOfLocked is the world list of reader's latest-lapsing listed entry,
+// empty when that list showed none, nil without one. A token refresh keys a
+// new entry, which unlisted no watch could renew on. Caller holds m.mu.
 func (m *mcpCaller) worldsOfLocked(reader string) []string {
 	if reader == "" {
 		return nil
@@ -655,9 +660,22 @@ func (m *mcpCaller) evictOldestLocked(current string) []*mcpclient.Client {
 	return nil
 }
 
-// connOf returns the entry's live MCP session, building and initializing
-// one under the entry lock when absent.
+// connOf returns the entry's live MCP session, building one when absent. A
+// bearer the broker refuses loses its world list, which a refreshed entry
+// holds unproven, so no watch borrows it.
 func (m *mcpCaller) connOf(ctx context.Context, entry *pooledEntry, token string) (*mcpConn, error) {
+	conn, err := m.buildConn(ctx, entry, token)
+	if isUnauthorized(err) {
+		m.mu.Lock()
+		entry.worlds = []string{}
+		m.mu.Unlock()
+	}
+	return conn, err
+}
+
+// buildConn builds and initializes the entry's session under the entry lock,
+// so concurrent reads pay one initialize.
+func (m *mcpCaller) buildConn(ctx context.Context, entry *pooledEntry, token string) (*mcpConn, error) {
 	entry.mu.Lock()
 	defer entry.mu.Unlock()
 	if entry.conn != nil {

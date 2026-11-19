@@ -2,6 +2,7 @@ package broker
 
 import (
 	"errors"
+	"fmt"
 	"slices"
 	"testing"
 	"time"
@@ -144,6 +145,67 @@ func TestARefreshedBearerStartsWithItsReadersWorlds(t *testing.T) {
 	}
 }
 
+// A list that showed no worlds is the reader's latest word: the next bearer
+// starts with none, not with an older entry's worlds.
+func TestAnEmptyWorldListIsInheritedOverAnOlderOne(t *testing.T) {
+	now := time.Date(2026, 11, 19, 12, 0, 0, 0, time.UTC)
+	caller := testCaller(now, map[string]poolEntry{
+		"older": {now.Add(time.Minute), []string{"team-a"}},
+		"newer": {now.Add(10 * time.Minute), []string{}},
+	})
+	caller.pool["older"].reader, caller.pool["newer"].reader = "reader-1", "reader-1"
+
+	fresh := caller.entryFor("fresh", now.Add(25*time.Minute), "reader-1")
+	if fresh.worlds == nil || len(fresh.worlds) != 0 {
+		t.Errorf("worlds = %v, want listed and empty", fresh.worlds)
+	}
+}
+
+// The pool's cap may evict the reader's only other entry as the new one
+// arrives; its world list is read first.
+func TestInheritanceSurvivesEvictingTheDonor(t *testing.T) {
+	now := time.Date(2026, 11, 19, 12, 0, 0, 0, time.UTC)
+	caller := testCaller(now, map[string]poolEntry{"donor": {now.Add(time.Minute), []string{"team-a"}}})
+	caller.pool["donor"].reader = "reader-1"
+	caller.pool["donor"].lastUsed = now.Add(-time.Minute)
+	for i := range maxPool - 1 {
+		caller.pool[fmt.Sprintf("bearer-%d", i)] = &pooledEntry{lastUsed: now}
+	}
+
+	fresh := caller.entryFor("fresh", now.Add(15*time.Minute), "reader-1")
+	if _, kept := caller.pool["donor"]; kept {
+		t.Fatal("the donor was not evicted, so nothing is shown")
+	}
+	if !slices.Equal(fresh.worlds, []string{"team-a"}) {
+		t.Errorf("worlds = %v, want the evicted donor's [team-a]", fresh.worlds)
+	}
+}
+
+// A refreshed bearer the broker refuses loses the list it inherited, so the
+// watches keep to a bearer that works.
+func TestARefusedRefreshedBearerIsNotLent(t *testing.T) {
+	srv := newMCPTestServer(t)
+	g := srv.gateway()
+	defer g.Close()
+	expires := time.Now().Add(time.Minute)
+	reader := port.WithReader(bearer.WithExpiry(bearer.WithToken(t.Context(), "good-token"), expires), "reader-1")
+	if _, err := g.Fetch(reader, "soul", "/index.md"); err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if _, err := g.ReaderWorlds(t.Context()); err != nil {
+		t.Fatalf("ReaderWorlds: %v", err)
+	}
+
+	refused := port.WithReader(bearer.WithExpiry(bearer.WithToken(t.Context(), "bad-token"), expires.Add(15*time.Minute)), "reader-1")
+	if _, err := g.Fetch(refused, "soul", "/index.md"); err == nil {
+		t.Fatal("Fetch on a refused bearer succeeded")
+	}
+	got, ok := lenderFor(g.caller.(*mcpCaller).lenders(), "soul")
+	if !ok || got.token != "good-token" {
+		t.Errorf("lent %q (ok %v), want the bearer the broker accepts", got.token, ok)
+	}
+}
+
 // A refused world list forgets what the bearer saw, so a revoked reader stops
 // being lent at the next list.
 func TestRefusedWorldListForgetsTheLender(t *testing.T) {
@@ -159,5 +221,9 @@ func TestRefusedWorldListForgetsTheLender(t *testing.T) {
 	}
 	if _, err := g.WorldSource("soul")(t.Context()); !errors.Is(err, bearer.ErrNoReader) {
 		t.Errorf("revoked reader still lent: err = %v", err)
+	}
+	// Listed and empty, not unlisted: the reader's next bearer inherits this.
+	if worlds := g.caller.(*mcpCaller).pool["revoked-token"].worlds; worlds == nil || len(worlds) != 0 {
+		t.Errorf("worlds = %v, want listed and empty", worlds)
 	}
 }
