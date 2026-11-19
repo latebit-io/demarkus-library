@@ -507,6 +507,7 @@ type pooledEntry struct {
 	lastUsed time.Time // guarded by mcpCaller.mu
 	expires  time.Time // the bearer's expiry, zero when unknown; guarded by mcpCaller.mu
 	worlds   []string  // the reader's last world list, nil before one; guarded by mcpCaller.mu
+	reader   string    // the reader's port key, "" when unknown; guarded by mcpCaller.mu
 }
 
 // mcpConn is one initialized client and the listener that routes its watch
@@ -530,7 +531,7 @@ const (
 // the session on first use and rebuilding it once if the call fails (broker
 // restart invalidates server-side session ids; the retry is transparent).
 func (m *mcpCaller) callTool(ctx context.Context, token, tool string, args map[string]any) (text string, isToolError bool, err error) {
-	entry := m.entryFor(token, bearer.ExpiryFromContext(ctx))
+	entry := m.entryFor(token, bearer.ExpiryFromContext(ctx), port.ReaderKey(ctx))
 	ctx, cancel := context.WithTimeout(ctx, DefaultTimeout)
 	defer cancel()
 
@@ -572,8 +573,9 @@ func (m *mcpCaller) callTool(ctx context.Context, token, tool string, args map[s
 // only touches entries idle past idleTTL, so an in-flight call (which just
 // stamped its entry) can never have its client closed underneath it by the
 // sweep — only invalidate does that, on the failing client alone. expires
-// stamps the bearer's expiry when the caller knows it.
-func (m *mcpCaller) entryFor(token string, expires time.Time) *pooledEntry {
+// and reader stamp the bearer's expiry and its reader's key when the caller
+// knows them; a new entry starts with that reader's world list.
+func (m *mcpCaller) entryFor(token string, expires time.Time, reader string) *pooledEntry {
 	var toClose []*mcpclient.Client
 
 	m.mu.Lock()
@@ -591,12 +593,15 @@ func (m *mcpCaller) entryFor(token string, expires time.Time) *pooledEntry {
 	}
 	entry, ok := m.pool[token]
 	if !ok {
-		entry = &pooledEntry{}
+		entry = &pooledEntry{worlds: m.worldsOfLocked(reader)}
 		m.pool[token] = entry
 	}
 	entry.lastUsed = now
 	if !expires.IsZero() {
 		entry.expires = expires
+	}
+	if reader != "" {
+		entry.reader = reader
 	}
 	m.mu.Unlock()
 
@@ -605,6 +610,25 @@ func (m *mcpCaller) entryFor(token string, expires time.Time) *pooledEntry {
 		_ = c.Close()
 	}
 	return entry
+}
+
+// worldsOfLocked is the world list of reader's latest-lapsing entry, nil
+// without one. A token refresh keys a new entry; unlisted, the watches could
+// not renew on it before the old bearer lapses. Caller holds m.mu.
+func (m *mcpCaller) worldsOfLocked(reader string) []string {
+	if reader == "" {
+		return nil
+	}
+	var latest *pooledEntry
+	for _, e := range m.pool {
+		if e.reader == reader && e.worlds != nil && (latest == nil || e.expires.After(latest.expires)) {
+			latest = e
+		}
+	}
+	if latest == nil {
+		return nil
+	}
+	return latest.worlds
 }
 
 // evictOldestLocked drops the longest-idle entry (never the current key) to

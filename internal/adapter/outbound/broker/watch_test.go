@@ -8,6 +8,7 @@ import (
 
 	"github.com/latebit-io/demarkus-library/internal/adapter/bearer"
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
+	"github.com/latebit-io/demarkus-library/internal/core/port"
 )
 
 // poolEntry is one test pool slot: the bearer's expiry and what its reader sees.
@@ -112,6 +113,34 @@ func TestWorldSourceLendsAReaderWhoSeesTheWorld(t *testing.T) {
 	}
 	if n := srv.handshakeCount(); n != 1 {
 		t.Errorf("handshake count = %d, want 1 (the reader's session reused)", n)
+	}
+}
+
+// A token refresh keys a new pool entry. It starts with the world list of the
+// reader whose key rode in on the earlier read, so the watches can renew on it
+// before any list runs as it. No other reader's list is taken.
+func TestARefreshedBearerStartsWithItsReadersWorlds(t *testing.T) {
+	srv := newMCPTestServer(t)
+	g := srv.gateway()
+	defer g.Close()
+	expires := time.Now().Add(time.Minute)
+	reader := port.WithReader(bearer.WithExpiry(bearer.WithToken(t.Context(), "good-token"), expires), "reader-1")
+	if _, err := g.Fetch(reader, "soul", "/index.md"); err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if _, err := g.ReaderWorlds(t.Context()); err != nil {
+		t.Fatalf("ReaderWorlds: %v", err)
+	}
+
+	// The test broker knows one bearer, so entryFor stands in for the reads
+	// that bring the next ones. A wrongly taken list would win on expiry.
+	pool := g.caller.(*mcpCaller)
+	pool.entryFor("fresh-token", expires.Add(15*time.Minute), "reader-1")
+	pool.entryFor("other-token", expires.Add(20*time.Minute), "reader-2")
+	pool.entryFor("keyless-token", expires.Add(25*time.Minute), "")
+	got, ok := lenderFor(pool.lenders(), "soul")
+	if !ok || got.token != "fresh-token" {
+		t.Errorf("lent %q (ok %v), want the reader's refreshed bearer", got.token, ok)
 	}
 }
 
