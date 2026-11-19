@@ -6,8 +6,8 @@ require (
 	github.com/alecthomas/chroma/v2 v2.14.0
 	github.com/gohugoio/hugo-goldmark-extensions/passthrough v0.5.0
 	github.com/labstack/echo/v5 v5.1.1
-	github.com/latebit-io/demarkus/client v0.75.1
-	github.com/latebit-io/demarkus/protocol v0.35.1
+	github.com/latebit-io/demarkus/client v0.81.2
+	github.com/latebit-io/demarkus/protocol v0.38.0
 	github.com/latebit-io/nib/agent v0.1.0
 	github.com/latebit-io/nib/ai v0.1.0
 	github.com/mark3labs/mcp-go v1.5.0
