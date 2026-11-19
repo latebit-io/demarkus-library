@@ -2,12 +2,14 @@ package broker
 
 import (
 	"errors"
+	"fmt"
 	"slices"
 	"testing"
 	"time"
 
 	"github.com/latebit-io/demarkus-library/internal/adapter/bearer"
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
+	"github.com/latebit-io/demarkus-library/internal/core/port"
 )
 
 // poolEntry is one test pool slot: the bearer's expiry and what its reader sees.
@@ -112,6 +114,110 @@ func TestWorldSourceLendsAReaderWhoSeesTheWorld(t *testing.T) {
 	}
 	if n := srv.handshakeCount(); n != 1 {
 		t.Errorf("handshake count = %d, want 1 (the reader's session reused)", n)
+	}
+}
+
+// A token refresh keys a new pool entry. It starts with the world list of the
+// reader whose key rode in on the earlier read, so the watches can renew on it
+// before any list runs as it. No other reader's list is taken.
+func TestARefreshedBearerStartsWithItsReadersWorlds(t *testing.T) {
+	srv := newMCPTestServer(t)
+	g := srv.gateway()
+	defer g.Close()
+	expires := time.Now().Add(time.Minute)
+	reader := port.WithReader(bearer.WithExpiry(bearer.WithToken(t.Context(), "good-token"), expires), "reader-1")
+	if _, err := g.Fetch(reader, "soul", "/index.md"); err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if _, err := g.ReaderWorlds(t.Context()); err != nil {
+		t.Fatalf("ReaderWorlds: %v", err)
+	}
+
+	// The test broker knows one bearer, so entryFor stands in for the reads
+	// that bring the next ones. A wrongly taken list would win on expiry.
+	pool := g.caller.(*mcpCaller)
+	pool.entryFor("fresh-token", expires.Add(15*time.Minute), "reader-1")
+	pool.entryFor("other-token", expires.Add(20*time.Minute), "reader-2")
+	pool.entryFor("keyless-token", expires.Add(25*time.Minute), "")
+	got, ok := lenderFor(pool.lenders(), "soul")
+	if !ok || got.token != "fresh-token" {
+		t.Errorf("lent %q (ok %v), want the reader's refreshed bearer", got.token, ok)
+	}
+}
+
+// A world list is the reader's, so the latest one reaches every bearer of
+// that reader and the next one starts from it, however old the list a
+// bearer began with. Another reader keeps its own.
+func TestAWorldListReachesEveryBearerOfItsReader(t *testing.T) {
+	now := time.Date(2026, 11, 19, 12, 0, 0, 0, time.UTC)
+	caller := testCaller(now, map[string]poolEntry{
+		"first": {now.Add(time.Minute), []string{"team-a"}},
+		"other": {now.Add(5 * time.Minute), []string{"team-a"}},
+	})
+	caller.pool["first"].reader, caller.pool["other"].reader = "reader-1", "reader-2"
+	g := &Gateway{caller: caller}
+	caller.entryFor("second", now.Add(15*time.Minute), "reader-1")
+
+	g.noteWorlds("first", nil, nil) // a list as the first bearer now shows none
+	third := caller.entryFor("third", now.Add(30*time.Minute), "reader-1")
+	if third.worlds == nil || len(third.worlds) != 0 {
+		t.Errorf("third bearer's worlds = %v, want listed and empty", third.worlds)
+	}
+	if got, ok := lenderFor(caller.lenders(), "team-a"); !ok || got.token != "other" {
+		t.Errorf("lent %q (ok %v), want only the other reader's bearer", got.token, ok)
+	}
+}
+
+// The pool's cap may evict the reader's only other entry as the new one
+// arrives; its world list is read first.
+func TestInheritanceSurvivesEvictingTheDonor(t *testing.T) {
+	now := time.Date(2026, 11, 19, 12, 0, 0, 0, time.UTC)
+	caller := testCaller(now, map[string]poolEntry{"donor": {now.Add(time.Minute), []string{"team-a"}}})
+	caller.pool["donor"].reader = "reader-1"
+	caller.pool["donor"].lastUsed = now.Add(-time.Minute)
+	for i := range maxPool - 1 {
+		caller.pool[fmt.Sprintf("bearer-%d", i)] = &pooledEntry{lastUsed: now}
+	}
+
+	fresh := caller.entryFor("fresh", now.Add(15*time.Minute), "reader-1")
+	if _, kept := caller.pool["donor"]; kept {
+		t.Fatal("the donor was not evicted, so nothing is shown")
+	}
+	if !slices.Equal(fresh.worlds, []string{"team-a"}) {
+		t.Errorf("worlds = %v, want the evicted donor's [team-a]", fresh.worlds)
+	}
+}
+
+// A refreshed bearer the broker refuses is not lent on the list it started
+// with, so the watches keep to a bearer that works.
+func TestARefusedRefreshedBearerIsNotLent(t *testing.T) {
+	srv := newMCPTestServer(t)
+	g := srv.gateway()
+	defer g.Close()
+	expires := time.Now().Add(time.Minute)
+	reader := port.WithReader(bearer.WithExpiry(bearer.WithToken(t.Context(), "good-token"), expires), "reader-1")
+	if _, err := g.Fetch(reader, "soul", "/index.md"); err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+	if _, err := g.ReaderWorlds(t.Context()); err != nil {
+		t.Fatalf("ReaderWorlds: %v", err)
+	}
+
+	refused := port.WithReader(bearer.WithExpiry(bearer.WithToken(t.Context(), "bad-token"), expires.Add(15*time.Minute)), "reader-1")
+	if _, err := g.Fetch(refused, "soul", "/index.md"); err == nil {
+		t.Fatal("Fetch on a refused bearer succeeded")
+	}
+	pool := g.caller.(*mcpCaller)
+	got, ok := lenderFor(pool.lenders(), "soul")
+	if !ok || got.token != "good-token" {
+		t.Errorf("lent %q (ok %v), want the bearer the broker accepts", got.token, ok)
+	}
+
+	// The refusal was that bearer's: the reader's next one still starts with
+	// the reader's list.
+	pool.entryFor("next-token", expires.Add(30*time.Minute), "reader-1")
+	if got, ok := lenderFor(pool.lenders(), "soul"); !ok || got.token != "next-token" {
+		t.Errorf("lent %q (ok %v), want the reader's next bearer", got.token, ok)
 	}
 }
 

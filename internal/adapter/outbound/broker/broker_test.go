@@ -462,9 +462,9 @@ func TestPoolEviction(t *testing.T) {
 	clock := time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC)
 	caller := &mcpCaller{mcpURL: "http://unused.invalid", now: func() time.Time { return clock }, pool: make(map[string]*pooledEntry)}
 
-	caller.entryFor("bearer-a", time.Time{})
+	caller.entryFor("bearer-a", time.Time{}, "")
 	clock = clock.Add(idleTTL + time.Minute)
-	caller.entryFor("bearer-b", time.Time{}) // sweep runs here
+	caller.entryFor("bearer-b", time.Time{}, "") // sweep runs here
 
 	caller.mu.Lock()
 	_, aLives := caller.pool["bearer-a"]
@@ -476,9 +476,9 @@ func TestPoolEviction(t *testing.T) {
 
 	// Cap: maxPool fresh bearers, then one more — size must not exceed maxPool.
 	for i := range maxPool {
-		caller.entryFor(fmt.Sprintf("bearer-%d", i), time.Time{})
+		caller.entryFor(fmt.Sprintf("bearer-%d", i), time.Time{}, "")
 	}
-	caller.entryFor("bearer-overflow", time.Time{})
+	caller.entryFor("bearer-overflow", time.Time{}, "")
 	caller.mu.Lock()
 	size = len(caller.pool)
 	caller.mu.Unlock()
