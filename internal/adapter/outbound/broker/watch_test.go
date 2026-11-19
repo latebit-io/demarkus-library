@@ -145,19 +145,26 @@ func TestARefreshedBearerStartsWithItsReadersWorlds(t *testing.T) {
 	}
 }
 
-// A list that showed no worlds is the reader's latest word: the next bearer
-// starts with none, not with an older entry's worlds.
-func TestAnEmptyWorldListIsInheritedOverAnOlderOne(t *testing.T) {
+// A world list is the reader's, so the latest one reaches every bearer of
+// that reader and the next one starts from it, however old the list a
+// bearer began with. Another reader keeps its own.
+func TestAWorldListReachesEveryBearerOfItsReader(t *testing.T) {
 	now := time.Date(2026, 11, 19, 12, 0, 0, 0, time.UTC)
 	caller := testCaller(now, map[string]poolEntry{
-		"older": {now.Add(time.Minute), []string{"team-a"}},
-		"newer": {now.Add(10 * time.Minute), []string{}},
+		"first": {now.Add(time.Minute), []string{"team-a"}},
+		"other": {now.Add(5 * time.Minute), []string{"team-a"}},
 	})
-	caller.pool["older"].reader, caller.pool["newer"].reader = "reader-1", "reader-1"
+	caller.pool["first"].reader, caller.pool["other"].reader = "reader-1", "reader-2"
+	g := &Gateway{caller: caller}
+	caller.entryFor("second", now.Add(15*time.Minute), "reader-1")
 
-	fresh := caller.entryFor("fresh", now.Add(25*time.Minute), "reader-1")
-	if fresh.worlds == nil || len(fresh.worlds) != 0 {
-		t.Errorf("worlds = %v, want listed and empty", fresh.worlds)
+	g.noteWorlds("first", nil, nil) // a list as the first bearer now shows none
+	third := caller.entryFor("third", now.Add(30*time.Minute), "reader-1")
+	if third.worlds == nil || len(third.worlds) != 0 {
+		t.Errorf("third bearer's worlds = %v, want listed and empty", third.worlds)
+	}
+	if got, ok := lenderFor(caller.lenders(), "team-a"); !ok || got.token != "other" {
+		t.Errorf("lent %q (ok %v), want only the other reader's bearer", got.token, ok)
 	}
 }
 
@@ -181,8 +188,8 @@ func TestInheritanceSurvivesEvictingTheDonor(t *testing.T) {
 	}
 }
 
-// A refreshed bearer the broker refuses loses the list it inherited, so the
-// watches keep to a bearer that works.
+// A refreshed bearer the broker refuses is not lent on the list it started
+// with, so the watches keep to a bearer that works.
 func TestARefusedRefreshedBearerIsNotLent(t *testing.T) {
 	srv := newMCPTestServer(t)
 	g := srv.gateway()
@@ -200,9 +207,17 @@ func TestARefusedRefreshedBearerIsNotLent(t *testing.T) {
 	if _, err := g.Fetch(refused, "soul", "/index.md"); err == nil {
 		t.Fatal("Fetch on a refused bearer succeeded")
 	}
-	got, ok := lenderFor(g.caller.(*mcpCaller).lenders(), "soul")
+	pool := g.caller.(*mcpCaller)
+	got, ok := lenderFor(pool.lenders(), "soul")
 	if !ok || got.token != "good-token" {
 		t.Errorf("lent %q (ok %v), want the bearer the broker accepts", got.token, ok)
+	}
+
+	// The refusal was that bearer's: the reader's next one still starts with
+	// the reader's list.
+	pool.entryFor("next-token", expires.Add(30*time.Minute), "reader-1")
+	if got, ok := lenderFor(pool.lenders(), "soul"); !ok || got.token != "next-token" {
+		t.Errorf("lent %q (ok %v), want the reader's next bearer", got.token, ok)
 	}
 }
 
@@ -221,9 +236,5 @@ func TestRefusedWorldListForgetsTheLender(t *testing.T) {
 	}
 	if _, err := g.WorldSource("soul")(t.Context()); !errors.Is(err, bearer.ErrNoReader) {
 		t.Errorf("revoked reader still lent: err = %v", err)
-	}
-	// Listed and empty, not unlisted: the reader's next bearer inherits this.
-	if worlds := g.caller.(*mcpCaller).pool["revoked-token"].worlds; worlds == nil || len(worlds) != 0 {
-		t.Errorf("worlds = %v, want listed and empty", worlds)
 	}
 }

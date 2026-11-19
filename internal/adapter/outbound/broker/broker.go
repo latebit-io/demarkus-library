@@ -508,6 +508,7 @@ type pooledEntry struct {
 	expires  time.Time // the bearer's expiry, zero when unknown; guarded by mcpCaller.mu
 	worlds   []string  // the reader's last world list, nil before one; guarded by mcpCaller.mu
 	reader   string    // the reader's port key, "" when unknown; guarded by mcpCaller.mu
+	refused  bool      // the broker refused this bearer, so it is not lent; guarded by mcpCaller.mu
 }
 
 // mcpConn is one initialized client and the listener that routes its watch
@@ -568,13 +569,9 @@ func (m *mcpCaller) callTool(ctx context.Context, token, tool string, args map[s
 	return "", false, lastErr
 }
 
-// entryFor returns the pool slot for a bearer, creating it on first use,
-// stamping activity, and lazily evicting idle/overflow entries. Eviction
-// only touches entries idle past idleTTL, so an in-flight call (which just
-// stamped its entry) can never have its client closed underneath it by the
-// sweep — only invalidate does that, on the failing client alone. expires
-// and reader stamp the bearer's expiry and its reader's key when the caller
-// knows them; a new entry starts with that reader's world list.
+// entryFor returns the bearer's pool slot, stamped with what the caller
+// knows, and sweeps idle and overflow entries. The sweep spares the stamped
+// entry, so no in-flight call loses its client; only invalidate closes one.
 func (m *mcpCaller) entryFor(token string, expires time.Time, reader string) *pooledEntry {
 	var toClose []*mcpclient.Client
 
@@ -617,23 +614,19 @@ func (m *mcpCaller) entryFor(token string, expires time.Time, reader string) *po
 	return entry
 }
 
-// worldsOfLocked is the world list of reader's latest-lapsing listed entry,
-// empty when that list showed none, nil without one. A token refresh keys a
-// new entry, which unlisted no watch could renew on. Caller holds m.mu.
+// worldsOfLocked is reader's world list, the same on all its entries, nil
+// when no bearer the broker accepts holds one. A refreshed bearer starts from
+// it, or no watch could renew on it before its own list. Caller holds m.mu.
 func (m *mcpCaller) worldsOfLocked(reader string) []string {
 	if reader == "" {
 		return nil
 	}
-	var latest *pooledEntry
 	for _, e := range m.pool {
-		if e.reader == reader && e.worlds != nil && (latest == nil || e.expires.After(latest.expires)) {
-			latest = e
+		if e.reader == reader && !e.refused && e.worlds != nil {
+			return e.worlds
 		}
 	}
-	if latest == nil {
-		return nil
-	}
-	return latest.worlds
+	return nil
 }
 
 // evictOldestLocked drops the longest-idle entry (never the current key) to
@@ -661,13 +654,13 @@ func (m *mcpCaller) evictOldestLocked(current string) []*mcpclient.Client {
 }
 
 // connOf returns the entry's live MCP session, building one when absent. A
-// bearer the broker refuses loses its world list, which a refreshed entry
-// holds unproven, so no watch borrows it.
+// bearer the broker refuses is marked, so no watch borrows it on the world
+// list a refreshed entry holds unproven.
 func (m *mcpCaller) connOf(ctx context.Context, entry *pooledEntry, token string) (*mcpConn, error) {
 	conn, err := m.buildConn(ctx, entry, token)
 	if isUnauthorized(err) {
 		m.mu.Lock()
-		entry.worlds = []string{}
+		entry.refused = true
 		m.mu.Unlock()
 	}
 	return conn, err

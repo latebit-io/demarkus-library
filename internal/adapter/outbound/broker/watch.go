@@ -87,9 +87,9 @@ func (g *Gateway) ReaderWorlds(ctx context.Context) ([]string, error) {
 	return seenWorlds(m.lenders()), nil
 }
 
-// noteWorlds records which worlds the bearer's list showed, after a list, so
-// WorldSource lends it only for those. A refused list forgets them. The
-// record is never nil: nil is a bearer no list has covered.
+// noteWorlds records a list's outcome so WorldSource lends accordingly. What
+// it showed is the reader's, so every entry of that reader takes it, never
+// nil. A refusal is the bearer's alone and leaves the reader's list be.
 func (g *Gateway) noteWorlds(token string, worlds []domain.WorldInfo, err error) {
 	m, ok := g.caller.(*mcpCaller)
 	if !ok || (err != nil && !errors.Is(err, domain.ErrUnauthorized)) {
@@ -101,22 +101,38 @@ func (g *Gateway) noteWorlds(token string, worlds []domain.WorldInfo, err error)
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if entry, ok := m.pool[token]; ok {
-		entry.worlds = names
+	listed, ok := m.pool[token]
+	if !ok {
+		return
+	}
+	listed.refused = err != nil
+	if listed.refused {
+		return
+	}
+	for _, entry := range m.pool {
+		if entry == listed || (listed.reader != "" && entry.reader == listed.reader) {
+			entry.worlds = names
+		}
 	}
 }
 
 // lenders lists the entries a watch may borrow: an entry of unknown expiry is
 // never lent, since nothing says it will outlive the watch's first renewal.
+// A refused bearer is listed with no worlds, so the relist still tries it.
 func (m *mcpCaller) lenders() []lender {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	now := m.now()
 	var out []lender
 	for token, entry := range m.pool {
-		if entry.expires.Sub(now) >= lendMinLife {
-			out = append(out, lender{token: token, entry: entry, expires: entry.expires, worlds: entry.worlds})
+		if entry.expires.Sub(now) < lendMinLife {
+			continue
 		}
+		l := lender{token: token, entry: entry, expires: entry.expires}
+		if !entry.refused {
+			l.worlds = entry.worlds
+		}
+		out = append(out, l)
 	}
 	return out
 }
