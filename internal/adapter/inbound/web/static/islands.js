@@ -237,6 +237,17 @@
     if (t === document.body) ctx.transition = true;
   });
 
+  // A hidden tab asks no one who is here, as it holds no stream: an unattended
+  // fetch would keep a forgotten tab's session alive. It asks again on return.
+  document.addEventListener("htmx:config:request", function (e) {
+    var from = e.detail && e.detail.ctx && e.detail.ctx.sourceElement;
+    if (document.hidden && from instanceof Element && from.matches(".presence")) e.preventDefault();
+  });
+  document.addEventListener("visibilitychange", function () {
+    if (document.hidden) return;
+    document.querySelectorAll(".presence").forEach(function (el) { el.dispatchEvent(new Event("refresh")); });
+  });
+
   // A failed page navigation would leave the old page standing (hx-status
   // swap:none, page.html): load it in full so the server's error page shows.
   // Redirects (HX-Redirect) and non-GET submits are htmx's to handle.

@@ -18,6 +18,7 @@ type spatialPanes struct {
 	graph    port.GraphService
 	terms    Terms         // the universe's display name (floor title, spine, context labels)
 	pulse    port.Pulse    // recent activity for the floor and the activity pane; nil = no change feed
+	presence port.Presence // who is here, for the focused floor or activity pane; nil = no list
 	identity worldIdentity // whose logos the universe map draws
 	// logoReads are the room's brand-read slots, shared by every render; nil
 	// reads nothing, so the map draws only what is held.

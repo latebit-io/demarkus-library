@@ -24,11 +24,12 @@ const (
 // floorVM is the universe pane's body: a summary, the worlds/map switch, and
 // either the world cards or the map (or the empty state).
 type floorVM struct {
-	Summary string // "3 worlds · 412 docs · 1 portal"; "" beside the map
-	Toggle  template.HTML
-	Cards   []worldCardVM
-	Map     template.HTML
-	Pulse   *pulseVM // the focused floor's recent activity; nil = none
+	Summary  string // "3 worlds · 412 docs · 1 portal"; "" beside the map
+	Toggle   template.HTML
+	Cards    []worldCardVM
+	Map      template.HTML
+	Pulse    *pulseVM    // the focused floor's recent activity; nil = none
+	Presence *presenceVM // who is here, on the focused floor; nil = no list
 }
 
 // worldCardVM is one world's door. The template lays the world's own

@@ -29,7 +29,7 @@ func TestFloorListsThePulse(t *testing.T) {
 	for _, want := range []string{
 		`<section class="pulse" aria-label="Recent activity" hx-sse:connect=`,
 		`<h2 class="pulse-head">Recent activity</h2>`,
-		`<time datetime="2026-10-30T12:36:00Z">12:36 UTC</time>`,
+		`<time datetime="2026-10-30T12:36:00Z">Oct 30 12:36 UTC</time>`,
 		`<a href="/t/u/~/team-a/d/plans/q4.md">/plans/q4.md</a>`,
 		`<span class="pulse-what">published · edition 3</span>`,
 		`<span class="pulse-by person" title="written by">ana@example.org</span>`,
