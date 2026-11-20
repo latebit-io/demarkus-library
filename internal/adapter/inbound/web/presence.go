@@ -10,8 +10,8 @@ import (
 	"github.com/latebit-io/demarkus-library/internal/core/port"
 )
 
-// PresencePath is the fragment listing who used the knowledge system lately,
-// fetched by the focused floor or activity pane (templates/floor.html).
+// PresencePath is the fragment that refreshes the list of who used the
+// knowledge system lately, on the focused floor or activity pane.
 const PresencePath = "/presence"
 
 // presenceClock has no day: the broker lists a person for minutes, not days.
@@ -20,6 +20,34 @@ const presenceClock = "15:04 UTC"
 // PresenceHandler serves the presence fragment.
 type PresenceHandler struct {
 	presence port.Presence // nil = no broker to ask
+}
+
+// whoIsHere lists who is here, for a page or the fragment; nil for a room or
+// a knowledge system with no list. A failed list is a note, a refused bearer
+// included: a refusal of this one tool must not send the reader to sign in.
+func whoIsHere(c *echo.Context, presence port.Presence) *presenceVM {
+	if presence == nil {
+		return nil
+	}
+	people, err := presence.Present(c.Request().Context())
+	if errors.Is(err, domain.ErrPresenceUnsupported) {
+		return nil
+	}
+	if err != nil {
+		c.Logger().Warn("presence list failed", "err", err)
+	}
+	return &presenceVM{Items: presenceItems(people), Unavailable: err != nil}
+}
+
+// showPresence puts who is here on the focused pane when it is the floor or
+// the activity pane: the page carries the list, so it reads without JS.
+func showPresence(c *echo.Context, presence port.Presence, pane *paneVM) {
+	switch {
+	case pane.Floor != nil:
+		pane.Floor.Presence = whoIsHere(c, presence)
+	case pane.Activity != nil:
+		pane.Presence = whoIsHere(c, presence)
+	}
 }
 
 // presenceVM is the people to list, or the note that stands in for them.
@@ -40,26 +68,18 @@ func presenceRoutes(e *echo.Echo, handler PresenceHandler, mw ...echo.Middleware
 	e.GET(PresencePath, handler.Present, mw...)
 }
 
-// Present renders who is here. The fetch is unattended, so a failed list is a
-// note with a 200, a refused bearer included: only the turnstile sends a
-// reader to sign in, and a refusal of this one tool must not loop them there.
+// Present renders the list again for the section's refresh. No list answers
+// 404, which is not swapped (page.html hx-status).
 func (h PresenceHandler) Present(c *echo.Context) error {
 	// A fragment is no page: a reader landing here, as after signing in, goes home.
 	if c.Request().Header.Get("HX-Request") != "true" {
 		return c.Redirect(http.StatusSeeOther, "/")
 	}
-	if h.presence == nil {
-		return echo.NewHTTPError(http.StatusNotFound, "presence is off")
+	who := whoIsHere(c, h.presence)
+	if who == nil {
+		return echo.NewHTTPError(http.StatusNotFound, "no presence list")
 	}
-	people, err := h.presence.Present(c.Request().Context())
-	if errors.Is(err, domain.ErrPresenceUnsupported) {
-		// Not swapped (page.html hx-status), so the section stays empty.
-		return echo.NewHTTPError(http.StatusNotFound, "the knowledge system keeps no presence list")
-	}
-	if err != nil {
-		c.Logger().Warn("presence list failed", "err", err)
-	}
-	return c.Render(http.StatusOK, "presence-list", presenceVM{Items: presenceItems(people), Unavailable: err != nil})
+	return c.Render(http.StatusOK, "presence-list", who)
 }
 
 func presenceItems(people []domain.Presence) []presenceItemVM {

@@ -110,7 +110,7 @@ func (r Room) chrome() chromeBuilder {
 // spatialPanes is the floor/map/graph pane builder the canvas and the spatial
 // permalinks share.
 func (r Room) spatialPanes() spatialPanes {
-	return spatialPanes{maps: r.reading, graph: r.reading, terms: r.terms, pulse: r.live, presence: r.presence != nil,
+	return spatialPanes{maps: r.reading, graph: r.reading, terms: r.terms, pulse: r.live, presence: r.presence,
 		identity: worldIdentity{manifest: r.manifest, brands: r.brands}, logoReads: r.logoReads}
 }
 

@@ -28,8 +28,8 @@ type floorVM struct {
 	Toggle   template.HTML
 	Cards    []worldCardVM
 	Map      template.HTML
-	Pulse    *pulseVM // the focused floor's recent activity; nil = none
-	Presence bool     // the focused floor fetches who is here
+	Pulse    *pulseVM    // the focused floor's recent activity; nil = none
+	Presence *presenceVM // who is here, on the focused floor; nil = no list
 }
 
 // worldCardVM is one world's door. The template lays the world's own

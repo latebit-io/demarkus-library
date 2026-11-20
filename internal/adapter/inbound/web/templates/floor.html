@@ -12,7 +12,7 @@
 {{ .Map }}
 {{- end }}
 {{- with .Pulse }}{{template "pulse" .}}{{ end }}
-{{- if .Presence }}{{template "presence"}}{{ end }}
+{{- with .Presence }}{{template "presence" .}}{{ end }}
 {{- with version }}
 <footer class="colophon">demarkus-library {{ . }}</footer>
 {{- end }}
@@ -45,10 +45,9 @@
   {{- end }}
 </ol>{{end}}
 
-{{/* Who used the knowledge system lately (presence.go): fetched after the
-     page, so it never waits on the broker, and again as the list ages or the
-     tab returns (islands.js). Without JS the section stays empty. */}}
-{{define "presence"}}<section class="pulse presence" aria-label="Here lately" hx-get="/presence" hx-trigger="load, every 2m, refresh" hx-swap="innerHTML"></section>{{end}}
+{{/* Who used the knowledge system lately (presence.go): listed with the
+     page, then fetched again as the list ages or the tab returns (islands.js). */}}
+{{define "presence"}}<section class="pulse presence" aria-label="Here lately" hx-get="/presence" hx-trigger="every 2m, refresh" hx-swap="innerHTML">{{template "presence-list" .}}</section>{{end}}
 
 {{/* The people, each with the clients seen for them: an agent, or this room. */}}
 {{define "presence-list"}}<h2 class="pulse-head">Here lately</h2>

@@ -11,28 +11,37 @@ import (
 )
 
 func TestPresentParsesThePeople(t *testing.T) {
-	fc := &fakeCaller{text: "status: ok\nwindow: 20m\ncount: 2\n\n| user | clients | seen |\n|------|---------|------|\n" +
-		"| ana@example.org | claude-code, demarkus-library | 2026-11-19T12:36:00Z |\n" +
-		"| a\\|b@example.org | unknown | 2026-11-19T12:30:00Z |\n" +
-		"| late@example.org | claude-code | soon |\n"}
-	people, err := (&Gateway{caller: fc}).Present(authedCtx(t))
-	if err != nil {
-		t.Fatalf("Present: %v", err)
+	const head = "status: ok\nwindow: 20m\n"
+	tests := []struct {
+		name string
+		text string
+		want []domain.Presence
+	}{
+		{"people", head + "count: 2\n\n| user | clients | seen |\n|------|---------|------|\n" +
+			"| ana@example.org | claude-code, demarkus-library | 2026-11-19T12:36:00Z |\n" +
+			"| a\\|b@example.org | unknown | 2026-11-19T12:30:00Z |\n" +
+			"| late@example.org | claude-code | soon |\n",
+			[]domain.Presence{
+				{User: "ana@example.org", Clients: []string{"claude-code", "demarkus-library"}, Seen: time.Date(2026, 11, 19, 12, 36, 0, 0, time.UTC)},
+				{User: "a|b@example.org", Clients: []string{"unknown"}, Seen: time.Date(2026, 11, 19, 12, 30, 0, 0, time.UTC)},
+			}},
+		// No one listed: the broker sends no table.
+		{"no one", head + "count: 0\n", nil},
 	}
-	if fc.gotTool != "mark_presence" || fc.gotToken != "tok-123" {
-		t.Errorf("called %q with token %q", fc.gotTool, fc.gotToken)
-	}
-	want := []domain.Presence{
-		{User: "ana@example.org", Clients: []string{"claude-code", "demarkus-library"}, Seen: time.Date(2026, 11, 19, 12, 36, 0, 0, time.UTC)},
-		{User: "a|b@example.org", Clients: []string{"unknown"}, Seen: time.Date(2026, 11, 19, 12, 30, 0, 0, time.UTC)},
-	}
-	if !reflect.DeepEqual(people, want) {
-		t.Errorf("people = %+v\nwant     %+v", people, want)
-	}
-	// No one listed: the broker sends no table.
-	empty := &Gateway{caller: &fakeCaller{text: "status: ok\nwindow: 20m\ncount: 0\n"}}
-	if people, err := empty.Present(authedCtx(t)); err != nil || len(people) != 0 {
-		t.Errorf("empty list: people = %+v, err = %v", people, err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fc := &fakeCaller{text: tt.text}
+			people, err := (&Gateway{caller: fc}).Present(authedCtx(t))
+			if err != nil {
+				t.Fatalf("Present: %v", err)
+			}
+			if fc.gotTool != "mark_presence" || fc.gotToken != "tok-123" {
+				t.Errorf("called %q with token %q", fc.gotTool, fc.gotToken)
+			}
+			if len(people) != len(tt.want) || (len(people) > 0 && !reflect.DeepEqual(people, tt.want)) {
+				t.Errorf("people = %+v\nwant     %+v", people, tt.want)
+			}
+		})
 	}
 }
 

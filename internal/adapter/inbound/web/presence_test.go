@@ -38,15 +38,10 @@ func getPresence(app *echo.Echo) *httptest.ResponseRecorder {
 	return rec
 }
 
-// Only the focused floor or activity pane fetches who is here, so one canvas
-// makes one fetch; a room with no broker to ask shows no section.
-func TestPresenceSectionIsFetchedByTheFocusedPane(t *testing.T) {
-	const fetch = `hx-get="/presence"`
-	with := roomApp(t, presenceRoom(&fakePresence{}))
-	if body := get(with, "/t/u").Body.String(); !strings.Contains(body,
-		`<section class="pulse presence" aria-label="Here lately" hx-get="/presence" hx-trigger="load, every 2m, refresh" hx-swap="innerHTML"></section>`) {
-		t.Error("the focused floor lacks the presence section")
-	}
+// The page itself lists who is here, so it reads without JS, and only on the
+// focused floor or activity pane: one canvas asks the broker once.
+func TestPresenceIsListedOnTheFocusedPane(t *testing.T) {
+	const section = `<section class="pulse presence" aria-label="Here lately" hx-get="/presence" hx-trigger="every 2m, refresh" hx-swap="innerHTML">`
 	for path, want := range map[string]int{
 		"/t/u":                1,
 		"/t/v":                1,
@@ -58,13 +53,40 @@ func TestPresenceSectionIsFetchedByTheFocusedPane(t *testing.T) {
 		"/t/w.io/d/x.md/~/u":  1,
 		"/t/w.io/d/x.md?x=no": 0,
 	} {
-		if got := strings.Count(get(with, path).Body.String(), fetch); got != want {
-			t.Errorf("%s: %d presence sections, want %d", path, got, want)
-		}
+		t.Run(path, func(t *testing.T) {
+			here := &fakePresence{people: []domain.Presence{{User: "ana@example.org", Clients: []string{"claude-code"}}}}
+			body := get(roomApp(t, presenceRoom(here)), path).Body.String()
+			listed := strings.Count(body, section+`<h2 class="pulse-head">Here lately</h2>`)
+			people := strings.Count(body, `<span class="pulse-by person">ana@example.org</span>`)
+			if listed != want || people != want || int(here.calls.Load()) != want {
+				t.Errorf("%d sections listing %d people after %d calls, want %d of each", listed, people, here.calls.Load(), want)
+			}
+		})
 	}
-	without := readingApp(t, &fakeReading{floor: testFloor()})
-	if body := get(without, "/t/u").Body.String(); strings.Contains(body, fetch) {
-		t.Error("a room without presence shows the section")
+}
+
+// A room with no list shows no section, so nothing polls for one; a list
+// that failed shows its note on the page.
+func TestPresenceSectionWithoutAList(t *testing.T) {
+	const section = `class="pulse presence"`
+	tests := []struct {
+		name string
+		app  *echo.Echo
+		want string // "" for no section
+	}{
+		{"no broker to ask", readingApp(t, &fakeReading{floor: testFloor()}), ""},
+		{"older broker", roomApp(t, presenceRoom(&fakePresence{err: domain.ErrPresenceUnsupported})), ""},
+		{"failed", roomApp(t, presenceRoom(&fakePresence{err: errors.New("broker down")})), "The list is unavailable right now"},
+		{"refused", roomApp(t, presenceRoom(&fakePresence{err: domain.ErrUnauthorized})), "The list is unavailable right now"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := get(tt.app, "/t/u")
+			body := rec.Body.String()
+			if rec.Code != http.StatusOK || strings.Contains(body, section) != (tt.want != "") || !strings.Contains(body, tt.want) {
+				t.Errorf("status = %d, section shown = %v, want 200 and %q", rec.Code, strings.Contains(body, section), tt.want)
+			}
+		})
 	}
 }
 
