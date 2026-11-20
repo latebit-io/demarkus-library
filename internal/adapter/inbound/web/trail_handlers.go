@@ -95,6 +95,7 @@ type paneVM struct {
 	Librarian   *librarianPaneVM // the librarian pane's transcript + ask form (kind "a" only)
 	Floor       *floorVM         // the universe pane's cards or map (the floor only)
 	Activity    *pulseVM         // the activity pane's list (kind "v" only)
+	Presence    bool             // the focused activity pane fetches who is here
 	ReaderURL   string           // header/margin affordance: open this pane in the reader overlay (R4)
 	GraphURL    string           // margin affordance: open this doc's graph overlay (empty ⇒ no references)
 	GraphDegree int              // reference edges the graph affordance advertises

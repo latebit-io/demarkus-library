@@ -18,6 +18,7 @@ type spatialPanes struct {
 	graph    port.GraphService
 	terms    Terms         // the universe's display name (floor title, spine, context labels)
 	pulse    port.Pulse    // recent activity for the floor and the activity pane; nil = no change feed
+	presence bool          // the focused floor or activity pane lists who is here
 	identity worldIdentity // whose logos the universe map draws
 	// logoReads are the room's brand-read slots, shared by every render; nil
 	// reads nothing, so the map draws only what is held.
@@ -185,6 +186,7 @@ func (h spatialPanes) floorPane(ctx context.Context, t trail, i int, mapView boo
 				return paneVM{}, err
 			}
 		}
+		fv.Presence = h.presence && focused
 		vm.Floor = fv
 	}
 	return vm, nil

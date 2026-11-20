@@ -19,7 +19,7 @@
       {{- else if or .Floor .Activity }}
       {{/* The pane head already names the pane; the heading stays for screen readers. */}}
       <h1 class="sr-only">{{ .Title }}</h1>
-      {{ with .Floor }}{{template "floor-body" .}}{{ else }}{{template "pulse" .Activity}}{{ end }}
+      {{ with .Floor }}{{template "floor-body" .}}{{ else }}{{template "pulse" .Activity}}{{ if .Presence }}{{template "presence"}}{{ end }}{{ end }}
       {{- else }}
       <h1{{if .TitleAnchor}} id="{{ .TitleAnchor }}"{{end}}>{{ .Title }}</h1>
       {{ .Content }}

@@ -161,6 +161,13 @@ type Pulse interface {
 	WatchPulse(ctx context.Context) <-chan struct{}
 }
 
+// Presence lists who used the knowledge system lately, the reader included:
+// best effort, in a stable order. domain.ErrPresenceUnsupported means the
+// system keeps no such list.
+type Presence interface {
+	Present(ctx context.Context) ([]domain.Presence, error)
+}
+
 // LiveService is everything the room's live streams read from the change feed.
 type LiveService interface {
 	DocumentWatcher

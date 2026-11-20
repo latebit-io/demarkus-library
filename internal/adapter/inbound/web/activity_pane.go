@@ -29,6 +29,8 @@ func (h spatialPanes) activityPane(ctx context.Context, t trail, i int) (paneVM,
 	if vm.Mode == "spine" {
 		return vm, nil
 	}
+	// Focused only, as the pulse streams: one canvas makes one fetch.
+	vm.Presence = h.presence && i == t.Focus
 	if h.pulse == nil {
 		vm.Activity = &pulseVM{Unavailable: true}
 		return vm, nil

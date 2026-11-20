@@ -139,6 +139,7 @@ func main() {
 	// knowledge-system names go through the broker).
 	renderer := markdown.NewRenderer()
 	var gateway port.WorldGateway
+	var presence port.Presence // broker mode only: who used the knowledge system lately
 	var defaultWorld string
 	var turnstile []echo.MiddlewareFunc
 	// Theme assets stay public for the sign-in page, but a signed-in reader's
@@ -196,6 +197,7 @@ func main() {
 		// No client timeout on the gateway: its sessions also carry watch
 		// streams, and each call is bounded on its context instead.
 		bg := broker.NewGateway(config.BrokerURL, routedClient(route, 0))
+		presence = bg
 		hubBranding = broker.NewPublicReader(config.BrokerURL, routedClient(route, broker.DefaultTimeout))
 		if config.Watch {
 			// One MCP subscription per knowledge world, on a signed-in
@@ -249,7 +251,7 @@ func main() {
 		go reading.FollowChanges(followCtx, changes, brands.ApplyChange)
 	}
 	web.WorldThemeRoutes(app, branding, brands, themeBearer...)
-	room := web.NewRoom(reading, defaultWorld, config.DefaultDoc).WithBranding(branding).WithWorldBrands(brands).WithTextSearch(reading)
+	room := web.NewRoom(reading, defaultWorld, config.DefaultDoc).WithBranding(branding).WithWorldBrands(brands).WithTextSearch(reading).WithPresence(presence)
 	if changes != nil {
 		room = room.WithLiveEditions(reading)
 	}

@@ -12,6 +12,7 @@
 {{ .Map }}
 {{- end }}
 {{- with .Pulse }}{{template "pulse" .}}{{ end }}
+{{- if .Presence }}{{template "presence"}}{{ end }}
 {{- with version }}
 <footer class="colophon">demarkus-library {{ . }}</footer>
 {{- end }}
@@ -43,6 +44,23 @@
   <li class="pulse-quiet">Nothing written since the room started listening</li>
   {{- end }}
 </ol>{{end}}
+
+{{/* Who used the knowledge system lately (presence.go): fetched after the
+     page, so it never waits on the broker, and again as the list ages or the
+     tab returns (islands.js). Without JS the section stays empty. */}}
+{{define "presence"}}<section class="pulse presence" aria-label="Here lately" hx-get="/presence" hx-trigger="load, every 2m, refresh" hx-swap="innerHTML"></section>{{end}}
+
+{{/* The people, each with the clients seen for them: an agent, or this room. */}}
+{{define "presence-list"}}<h2 class="pulse-head">Here lately</h2>
+<ul class="pulse-list">
+  {{- range .Items }}
+  <li><time datetime="{{ .Stamp }}">{{ .At }}</time>
+    <span class="pulse-by person">{{ .Person }}</span>
+    {{- range .Clients }} <span class="pulse-by agent" title="connected with">{{ . }}</span>{{ end }}</li>
+  {{- else }}
+  <li class="pulse-quiet">{{ if $.Unavailable }}The list is unavailable right now{{ else }}No one seen lately{{ end }}</li>
+  {{- end }}
+</ul>{{end}}
 
 {{/* One world's door. The whole card enters the world's stacks (the door's
      stretched link); sections and featured documents are links of their own

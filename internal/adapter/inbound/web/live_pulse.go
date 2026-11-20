@@ -23,6 +23,10 @@ const LivePulsePath = "/live/pulse"
 // writes costs a swap a second, not one per write.
 const pulseSettle = time.Second
 
+// pulseClock carries the day: the list outlives midnight, and a time alone
+// would not say which day it was.
+const pulseClock = "Jan 2 15:04 UTC"
+
 var pulseRegions = sseRegions{"pulse": {"find .pulse-list", "outerHTML"}}
 
 // pulseVM is a pane's recent activity and the stream, if any, that keeps it current.
@@ -40,7 +44,7 @@ type pulseItemVM struct {
 	World  string
 	Person string // the person badge: the verified user, when stamped
 	Agent  string // the agent badge: the writing software
-	At     string // the clock time the room heard of it, UTC
+	At     string // the day and clock time the room heard of it, UTC
 	Stamp  string // the same instant for <time datetime>
 }
 
@@ -57,7 +61,7 @@ func pulseItems(pulses []domain.Pulse, t trail, idx int) []pulseItemVM {
 	for _, p := range pulses {
 		at := p.At.UTC()
 		item := pulseItemVM{What: pulseWhat(p.Change), Path: p.Path, World: p.World, Person: p.User, Agent: p.Agent,
-			At: at.Format("15:04 UTC"), Stamp: at.Format(time.RFC3339)}
+			At: at.Format(pulseClock), Stamp: at.Format(time.RFC3339)}
 		if p.Op != domain.OpArchive {
 			item.Href = trailDocLink(domain.Ref{World: p.World, Path: p.Path}, t, idx)
 		}

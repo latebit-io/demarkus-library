@@ -18,6 +18,7 @@ type Room struct {
 	brands       *WorldBrands             // in-world branding resolver (ADR 0008); nil ⇒ manifest only
 	manifest     map[string]WorldBranding // the branding file's per-world entries, under the in-world ones
 	live         port.LiveService         // change hints for the live streams; nil = off
+	presence     port.Presence            // who used the knowledge system lately; nil = no list
 	text         textSearcher             // section-text search under the palette; nil = names only
 	asks         *pendingAsks             // POST /a/ask → SSE handoff tokens, shared by both librarian routes
 	defaultWorld string
@@ -77,6 +78,13 @@ func (r Room) WithLiveEditions(w port.LiveService) Room {
 	return r
 }
 
+// WithPresence gives the floor and the activity pane the list of who used the
+// knowledge system lately; nil, as outside broker mode, leaves them without.
+func (r Room) WithPresence(p port.Presence) Room {
+	r.presence = p
+	return r
+}
+
 // WithWorldBrands gives the branding desk the resolver to read current
 // branding from and to invalidate after a save.
 func (r Room) WithWorldBrands(w *WorldBrands) Room {
@@ -102,7 +110,7 @@ func (r Room) chrome() chromeBuilder {
 // spatialPanes is the floor/map/graph pane builder the canvas and the spatial
 // permalinks share.
 func (r Room) spatialPanes() spatialPanes {
-	return spatialPanes{maps: r.reading, graph: r.reading, terms: r.terms, pulse: r.live,
+	return spatialPanes{maps: r.reading, graph: r.reading, terms: r.terms, pulse: r.live, presence: r.presence != nil,
 		identity: worldIdentity{manifest: r.manifest, brands: r.brands}, logoReads: r.logoReads}
 }
 
@@ -157,6 +165,11 @@ func (r Room) librarianHandler() LibrarianHandler {
 	return LibrarianHandler{librarianPanes: r.librarianPanes(), asks: r.asks}
 }
 
+// presenceHandler builds the presence fragment over its one-method port.
+func (r Room) presenceHandler() PresenceHandler {
+	return PresenceHandler{presence: r.presence}
+}
+
 // brandingHandler builds the branding desk over its two-method write port.
 func (r Room) brandingHandler() BrandingHandler {
 	return BrandingHandler{writer: r.reading, brands: r.brands, chrome: r.chrome()}
@@ -167,6 +180,7 @@ func (r Room) brandingHandler() BrandingHandler {
 //
 //   - /                          the default trail (default world's default doc)
 //   - /palette                   command palette results fragment, htmx (ADR 0006 §3)
+//   - /presence                  who used the knowledge system lately, fragment (presence.go)
 //   - /t/<trail>                 the trail canvas (ADR 0005; format in trail.go)
 //   - /u                         the universe map fragment for the floor overlay (ADR 0006 §6)
 //   - /w/:world/d/<path>         a document, or the stacks when path ends in /
@@ -200,6 +214,7 @@ func RoomRoutes(e *echo.Echo, room Room, middleware ...echo.MiddlewareFunc) {
 	paletteRoutes(e, room.paletteHandler(), mw...)
 	librarianRoutes(e, room.librarianHandler(), mw...)
 	liveRoutes(e, room.liveHandler(), mw...)
+	presenceRoutes(e, room.presenceHandler(), mw...)
 	brandingRoutes(e, room.brandingHandler(), mw...)
 }
 

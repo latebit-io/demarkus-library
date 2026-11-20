@@ -558,6 +558,10 @@ func (m *mcpCaller) callTool(ctx context.Context, token, tool string, args map[s
 			}
 			return sb.String(), res.IsError, nil
 		}
+		if errors.Is(err, mcp.ErrInvalidParams) || errors.Is(err, mcp.ErrMethodNotFound) {
+			// The broker answered on a live session: a rebuild would hear the same.
+			return "", false, fmt.Errorf("call %s: %w", tool, err)
+		}
 		m.invalidate(entry, c)
 		lastErr = fmt.Errorf("call %s: %w", tool, err)
 		if ctx.Err() != nil || isUnauthorized(err) {
