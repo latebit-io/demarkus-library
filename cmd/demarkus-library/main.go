@@ -49,7 +49,6 @@ import (
 	"github.com/latebit-io/demarkus-library/internal/core/service"
 	"github.com/latebit-io/demarkus/client/fetch"
 	"github.com/latebit-io/nib/ai/llmconfig"
-	niboauth "github.com/latebit-io/nib/ai/oauth"
 )
 
 const (
@@ -371,22 +370,13 @@ func buildLibrarian(logger *slog.Logger, reading *service.ReadingService, settin
 		return nil
 	}
 	if !resolved.HasProvider() && settings.keyStore {
-		// The key may live in nib's keystore (`nib` TUI-entered keys in
-		// <UserConfigDir>/nib/keys.json) rather than the environment — the
-		// same fallback nib's own binaries use. Env keys keep priority;
-		// AppConfig (DEMARKUS_LLM_KEYSTORE=false) pins env-only. Failures
-		// are logged, not swallowed: a corrupt store file should be seen.
-		switch path, err := niboauth.DefaultKeyStorePath(); {
-		case err != nil:
+		// The key may live in nib's key store (<UserConfigDir>/nib/keys.json)
+		// instead of the environment. DEMARKUS_LLM_KEYSTORE=false pins
+		// env-only. A store that cannot be opened is logged, not swallowed.
+		if _, err := llmconfig.WireDefaultKeyStore(resolved); err != nil {
 			logger.Warn("librarian: nib key store unavailable", "err", err)
-		default:
-			ks, err := niboauth.NewKeyStore(path)
-			switch {
-			case err != nil:
-				logger.Warn("librarian: nib key store unreadable", "path", path, "err", err)
-			case llmconfig.WireStoredKey(resolved, ks):
-				logger.Info("librarian: API key loaded from nib key store", "profile", resolved.Profile)
-			}
+		} else if resolved.HasProvider() {
+			logger.Info("librarian: API key loaded from nib key store", "profile", resolved.Profile)
 		}
 	}
 	if !resolved.HasProvider() {

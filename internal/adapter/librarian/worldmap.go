@@ -41,7 +41,7 @@ func (t *mapTool) Definition() llm.ToolDef {
 		Description: "Map a world: its directory clusters with their leading documents, and the links among the mapped documents. Use it to see how a world hangs together; worlds lists the worlds to map, links traces one document's neighbors.",
 		Parameters: llm.FunctionParams{Type: "object", Properties: map[string]llm.FunctionParam{
 			"world": {Type: "string", Description: "world to map (default: the reading room's default world)"},
-		}, Required: []string{}},
+		}},
 	}}
 }
 

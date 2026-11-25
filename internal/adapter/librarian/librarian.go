@@ -29,7 +29,8 @@ import (
 
 const (
 	// defaultMaxTurns caps LLM turns per ask (plan D7) via nib's
-	// Options.MaxTurns — the guard against tool-call ping-pong.
+	// Options.MaxTurns — the guard against tool-call ping-pong. The cap's
+	// closing answer (capAnswer) is one turn more.
 	defaultMaxTurns = 15
 	// defaultMaxConversations LRU-bounds the per-process conversation store;
 	// across replicas, Ingress affinity keeps a reader on one pod.
@@ -135,7 +136,7 @@ func New(cfg Config) (*Librarian, error) {
 	if cfg.Logger == nil {
 		cfg.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
-	cfg.Provider = newRetryingProvider(cfg.Provider, defaultRateLimitRetries, cfg.Logger)
+	cfg.Provider = withNarratedRetry(cfg.Provider, cfg.Logger)
 
 	tools := []toolWithStep{
 		&worldsTool{maps: cfg.Map},
@@ -190,7 +191,7 @@ func (l *Librarian) Ask(ctx context.Context, ask domain.LibrarianAsk) (<-chan do
 		}
 		return nil, fmt.Errorf("librarian: prompt: %w", err)
 	}
-	go l.translate(runCtx, conv, current)
+	go l.translate(conv, current)
 	return current.subscribe(ctx), nil
 }
 
@@ -250,6 +251,13 @@ func (l *Librarian) acquire(ask domain.LibrarianAsk, cancel context.CancelFunc) 
 			Events:   events,
 			Tools:    l.tools,
 			MaxTurns: l.cfg.MaxTurns,
+			// An ask is one question and one answer: the run ends on the
+			// answer instead of parking for a reply.
+			OneShot: true,
+			// Every tool is a read that keeps no state of its own, so the
+			// calls of one turn may run together.
+			ParallelTools: func(string) bool { return true },
+			Hooks:         nibagent.Hooks{OnMaxTurns: capAnswer},
 		})
 		if err != nil {
 			return nil, fmt.Errorf("librarian: new agent: %w", err)
@@ -307,19 +315,16 @@ func (l *Librarian) History(conversation string) []domain.LibrarianExchange {
 	return slices.Clone(conv.exchanges)
 }
 
-// Stop implements port.Librarian: abort the run in flight. The translator
-// sees the run unwind and records the stopped exchange.
+// Stop implements port.Librarian: abort the run in flight, a no-op when
+// idle. The translator reads the abort off the run's end and records the
+// stopped exchange.
 func (l *Librarian) Stop(conversation string) {
 	l.mu.Lock()
 	conv, ok := l.convs[conversation]
-	if !ok || conv.run == nil {
-		l.mu.Unlock()
-		return
-	}
-	conv.run.markStopped()
-	agent := conv.agent
 	l.mu.Unlock()
-	agent.Abort()
+	if ok {
+		conv.agent.Abort()
+	}
 }
 
 // Reset implements port.Librarian: clear the transcript, keep the budget.

@@ -44,7 +44,7 @@ func (t *recentTool) Definition() llm.ToolDef {
 			"world": {Type: "string", Description: "restrict to one world (default: all worlds)"},
 			"tag":   {Type: "string", Description: "only documents carrying this tag"},
 			"query": {Type: "string", Description: "subject to rank by, matched against tags and titles"},
-		}, Required: []string{}},
+		}},
 	}}
 }
 
