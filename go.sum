@@ -40,10 +40,10 @@ github.com/latebit-io/demarkus/client v0.81.2 h1:tUfFh5Fvlv+F4y9j7JW2QOg47tq2dm7
 github.com/latebit-io/demarkus/client v0.81.2/go.mod h1:yDODL38ksSRpTz3XaUYrNOWtYsvolwfqlwhQcEW+3dk=
 github.com/latebit-io/demarkus/protocol v0.38.0 h1:XduP8Rpxb5kSHsl+7qDRi5M0QixRY4fczhpU1qVKJXw=
 github.com/latebit-io/demarkus/protocol v0.38.0/go.mod h1:yJ1Y5kcYXd13myqzwFa7a8AtPbqzTbkbDOlpZT/aO7w=
-github.com/latebit-io/nib/agent v0.1.0 h1:Up8GiWwUnUTsc4evrOkItlvkFUaxrH9mzqJMqNR/w74=
-github.com/latebit-io/nib/agent v0.1.0/go.mod h1:fJ8UKThGBnlcNgs8xyUWbwkq6zMrGIUz5jSdfrM6SUs=
-github.com/latebit-io/nib/ai v0.1.0 h1:u3Oop1GzSw2DlOJSerb36AkkA1JLAuoT4hYdHd+4M7I=
-github.com/latebit-io/nib/ai v0.1.0/go.mod h1:2mdO4AZBdzxW33MLWn+B+x5IMvRdUnN9xO4ltsNAi5k=
+github.com/latebit-io/nib/agent v0.10.0 h1:+ScKYzzxF84OLtte3W+btv/HZNu6UlzWgL9tAA9LgHw=
+github.com/latebit-io/nib/agent v0.10.0/go.mod h1:F6KLHvMNO2fNprBQ+s65SRoHK34t78PukFrgqV6Q+KQ=
+github.com/latebit-io/nib/ai v0.10.0 h1:kps9FiGBn9Dc3hVZtwbTpRM+vlJWboolyWXqE8O6cBI=
+github.com/latebit-io/nib/ai v0.10.0/go.mod h1:qolENhMGtfxScR4DGz1fUcVIVVjiGXoTbNtlR5SH9Ws=
 github.com/mark3labs/mcp-go v1.5.0 h1:XMfliGOAan2zHQJHVQb9Y6KZDr/73nLfsxlsByTwHjk=
 github.com/mark3labs/mcp-go v1.5.0/go.mod h1:6L8eBboqlAMnYrvl8rpbUeV2qE/SJh52aVGrXIomVb0=
 github.com/microcosm-cc/bluemonday v1.0.27 h1:MpEUotklkwCSLeH+Qdx1VJgNqLlpY2KXwXFM08ygZfk=

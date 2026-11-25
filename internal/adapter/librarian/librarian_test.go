@@ -12,59 +12,13 @@ import (
 
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
 	"github.com/latebit-io/nib/ai/llm"
+	"github.com/latebit-io/nib/ai/llmtest"
 )
 
-// scriptedProvider serves pre-built streams, one per Stream call, and
-// records the messages of every call so tests can assert transcript
-// continuity. An exhausted queue keeps serving plain-text turns so a
-// misbehaving loop terminates instead of wedging the test.
-type scriptedProvider struct {
-	mu    sync.Mutex
-	turns [][]llm.StreamEvent
-	calls [][]llm.Message
-}
-
-func (p *scriptedProvider) Stream(_ context.Context, msgs []llm.Message, _ []llm.ToolDef) (<-chan llm.StreamEvent, error) {
-	p.mu.Lock()
-	snapshot := make([]llm.Message, len(msgs))
-	copy(snapshot, msgs)
-	p.calls = append(p.calls, snapshot)
-	var events []llm.StreamEvent
-	if len(p.turns) > 0 {
-		events = p.turns[0]
-		p.turns = p.turns[1:]
-	} else {
-		events = []llm.StreamEvent{{Token: "fallback"}, {Done: true}}
-	}
-	p.mu.Unlock()
-
-	ch := make(chan llm.StreamEvent, len(events))
-	for _, ev := range events {
-		ch <- ev
-	}
-	close(ch)
-	return ch, nil
-}
-
-func (p *scriptedProvider) callCount() int {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return len(p.calls)
-}
-
-func textTurn(tokens ...string) []llm.StreamEvent {
-	out := make([]llm.StreamEvent, 0, len(tokens)+1)
-	for _, tok := range tokens {
-		out = append(out, llm.StreamEvent{Token: tok})
-	}
-	return append(out, llm.StreamEvent{Done: true})
-}
-
-func toolTurn(id, name, args string) []llm.StreamEvent {
-	return []llm.StreamEvent{{Done: true, ToolCalls: []llm.ToolCall{{
-		ID: id, Type: "function",
-		Function: llm.FunctionCall{Name: name, Arguments: args},
-	}}}}
+// answers scripts n plain answers, for tests whose runs only need to end
+// answered: past its script a Scripted hangs up, which ends a run in error.
+func answers(n int) *llmtest.Scripted {
+	return llmtest.NewScripted(slices.Repeat([][]llm.StreamEvent{llmtest.Text("ok")}, n)...)
 }
 
 // collect drains an Ask stream to completion with a deadline.
@@ -112,10 +66,10 @@ func newTestLibrarian(t *testing.T, p llm.Provider, ports *fakePorts) *Librarian
 func TestAsk_StreamsTraceAnswerDone(t *testing.T) {
 	t.Parallel()
 
-	provider := &scriptedProvider{turns: [][]llm.StreamEvent{
-		toolTurn("c1", "open", `{"path":"/ops/deploy.md"}`),
-		textTurn("The runbook ", "is at hand."),
-	}}
+	provider := llmtest.NewScripted(
+		llmtest.ToolCalls(llmtest.Call("c1", "open", `{"path":"/ops/deploy.md"}`)),
+		llmtest.Text("The runbook ", "is at hand."),
+	)
 	ports := newFakePorts()
 	l := newTestLibrarian(t, provider, ports)
 
@@ -160,21 +114,19 @@ func TestAsk_StreamsTraceAnswerDone(t *testing.T) {
 func TestAsk_SecondAskCarriesHistory(t *testing.T) {
 	t.Parallel()
 
-	provider := &scriptedProvider{turns: [][]llm.StreamEvent{
-		textTurn("First answer."),
-		textTurn("Second answer."),
-	}}
+	provider := llmtest.NewScripted(
+		llmtest.Text("First answer."),
+		llmtest.Text("Second answer."),
+	)
 	l := newTestLibrarian(t, provider, newFakePorts())
 
 	collect(t, mustAsk(t, l, "conv-1", "first question"))
 	collect(t, mustAsk(t, l, "conv-1", "second question"))
 
-	provider.mu.Lock()
-	defer provider.mu.Unlock()
-	if len(provider.calls) != 2 {
-		t.Fatalf("provider calls = %d; want 2", len(provider.calls))
+	if provider.Calls() != 2 {
+		t.Fatalf("provider calls = %d; want 2", provider.Calls())
 	}
-	second := provider.calls[1]
+	second := provider.Requests()[1].Messages
 	// system + user1 + assistant1 + user2
 	if len(second) != 4 {
 		t.Fatalf("second transcript length = %d; want 4: %+v", len(second), second)
@@ -216,11 +168,11 @@ func TestAsk_BusyWhileRunInFlight(t *testing.T) {
 func TestAsk_TurnCapTracedAndDone(t *testing.T) {
 	t.Parallel()
 
-	provider := &scriptedProvider{turns: [][]llm.StreamEvent{
-		toolTurn("c1", "worlds", "{}"),
-		toolTurn("c2", "worlds", "{}"),
-		textTurn("From what I found: ", "the floor."),
-	}}
+	provider := llmtest.NewScripted(
+		llmtest.ToolCalls(llmtest.Call("c1", "worlds", "{}")),
+		llmtest.ToolCalls(llmtest.Call("c2", "worlds", "{}")),
+		llmtest.Text("From what I found: ", "the floor."),
+	)
 	ports := newFakePorts()
 	l, err := New(Config{
 		Provider: provider, Reader: ports, Catalog: ports, Graph: ports, Map: ports,
@@ -247,24 +199,62 @@ func TestAsk_TurnCapTracedAndDone(t *testing.T) {
 		t.Errorf("capTrace=%v done=%v; want both (events: %+v)", capTrace, done, evs)
 	}
 	// Two capped turns, then one tool-less turn for the answer the cap promised.
-	if provider.callCount() != 3 {
-		t.Errorf("provider calls = %d; want 3 (cap enforced, then the final word)", provider.callCount())
+	if provider.Calls() != 3 {
+		t.Fatalf("provider calls = %d; want 3 (cap enforced, then the closing answer)", provider.Calls())
 	}
-	provider.mu.Lock()
-	final := provider.calls[2]
-	provider.mu.Unlock()
-	if last := final[len(final)-1]; last.Role != "user" || last.Content != capNudge {
-		t.Errorf("final turn ends with %+v; want the cap nudge", last)
+	closing := provider.Requests()[2]
+	if len(closing.Tools) != 0 {
+		t.Errorf("closing turn offered %d tools; want none", len(closing.Tools))
+	}
+	if last := closing.Messages[len(closing.Messages)-1]; last.Role != "user" || last.Content != capNudge {
+		t.Errorf("closing turn ends with %+v; want the cap nudge", last)
 	}
 	if hist := l.History("conv-1"); len(hist) != 1 || hist[0].Answer != "From what I found: the floor." {
 		t.Errorf("History = %+v; want the capped run's final answer kept", hist)
 	}
 }
 
+func TestAsk_BrokenClosingTurnReconcilesItsText(t *testing.T) {
+	t.Parallel()
+
+	// The cap's closing turn streams text and then fails: nib sends no
+	// MessageEnd for it, so the run's end must settle the text.
+	provider := llmtest.NewScripted(
+		llmtest.ToolCalls(llmtest.Call("c1", "worlds", "{}")),
+		[]llm.StreamEvent{{Token: "From what I found: "}, {Done: true, Err: errors.New("connection reset")}},
+	)
+	ports := newFakePorts()
+	l, err := New(Config{
+		Provider: provider, Reader: ports, Catalog: ports, Graph: ports, Map: ports,
+		DefaultWorld: "root", MaxTurns: 1,
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	evs := collect(t, mustAsk(t, l, "conv-1", "loop forever"))
+
+	var answers []string
+	for _, ev := range evs {
+		if ev.Kind == domain.LibrarianAnswer {
+			answers = append(answers, ev.Text)
+		}
+	}
+	if !slices.Equal(answers, []string{"From what I found: "}) {
+		t.Errorf("answers = %q; want the broken turn's text settled once (events: %+v)", answers, evs)
+	}
+	if !slices.Contains(kinds(evs), domain.LibrarianError) || evs[len(evs)-1].Kind != domain.LibrarianDone {
+		t.Errorf("events = %+v; want the failure surfaced, then done", evs)
+	}
+	if hist := l.History("conv-1"); len(hist) != 1 || hist[0].Answer != "From what I found: " {
+		t.Errorf("History = %+v; want the same text kept", hist)
+	}
+}
+
 func TestAsk_EmptyQuestionRejected(t *testing.T) {
 	t.Parallel()
 
-	l := newTestLibrarian(t, &scriptedProvider{}, newFakePorts())
+	l := newTestLibrarian(t, llmtest.NewScripted(), newFakePorts())
 	if _, err := l.Ask(context.Background(), domain.LibrarianAsk{Conversation: "conv-1", Question: "   "}); err == nil {
 		t.Error("Ask with blank question succeeded; want error")
 	}
@@ -273,10 +263,7 @@ func TestAsk_EmptyQuestionRejected(t *testing.T) {
 func TestAsk_ClientCancelEndsStream(t *testing.T) {
 	t.Parallel()
 
-	release := make(chan struct{})
-	defer close(release)
-	provider := &blockingProvider{release: release}
-	l := newTestLibrarian(t, provider, newFakePorts())
+	l := newTestLibrarian(t, llmtest.Blocking(), newFakePorts())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	ch, err := l.Ask(ctx, domain.LibrarianAsk{Conversation: "conv-1", Question: "question the reader abandons"})
@@ -285,17 +272,7 @@ func TestAsk_ClientCancelEndsStream(t *testing.T) {
 	}
 	cancel()
 
-	deadline := time.After(5 * time.Second)
-	for {
-		select {
-		case _, ok := <-ch:
-			if !ok {
-				return // stream closed promptly after cancel — pass
-			}
-		case <-deadline:
-			t.Fatal("stream did not close after ctx cancel")
-		}
-	}
+	collect(t, ch) // fails unless the stream closes after the cancel
 }
 
 func mustAsk(t *testing.T, l *Librarian, conv, q string) <-chan domain.LibrarianEvent {
@@ -334,10 +311,10 @@ func (p *blockingProvider) Stream(ctx context.Context, _ []llm.Message, _ []llm.
 func TestHistory_ReturnsCompletedExchanges(t *testing.T) {
 	t.Parallel()
 
-	provider := &scriptedProvider{turns: [][]llm.StreamEvent{
-		toolTurn("c1", "worlds", "{}"),
-		textTurn("The floor is the universe view."),
-	}}
+	provider := llmtest.NewScripted(
+		llmtest.ToolCalls(llmtest.Call("c1", "worlds", "{}")),
+		llmtest.Text("The floor is the universe view."),
+	)
 	l := newTestLibrarian(t, provider, newFakePorts())
 
 	if got := l.History("conv-1"); len(got) != 0 {
@@ -357,10 +334,10 @@ func TestHistory_ReturnsCompletedExchanges(t *testing.T) {
 func TestAsk_TrailContextReachesModelNotHistory(t *testing.T) {
 	t.Parallel()
 
-	provider := &scriptedProvider{turns: [][]llm.StreamEvent{
-		textTurn("Answer one."),
-		textTurn("Answer two."),
-	}}
+	provider := llmtest.NewScripted(
+		llmtest.Text("Answer one."),
+		llmtest.Text("Answer two."),
+	)
 	l := newTestLibrarian(t, provider, newFakePorts())
 
 	ch, err := l.Ask(context.Background(), domain.LibrarianAsk{Conversation: "conv-1", Question: "what is this?", Context: "<reader-context>focused: /x.md</reader-context>"})
@@ -369,9 +346,7 @@ func TestAsk_TrailContextReachesModelNotHistory(t *testing.T) {
 	}
 	collect(t, ch)
 
-	provider.mu.Lock()
-	first := provider.calls[0]
-	provider.mu.Unlock()
+	first := provider.Requests()[0].Messages
 	last := first[len(first)-1]
 	if last.Role != "user" || !strings.HasPrefix(last.Content, "<reader-context>") ||
 		!strings.Contains(last.Content, "what is this?") {
@@ -386,9 +361,7 @@ func TestAsk_TrailContextReachesModelNotHistory(t *testing.T) {
 
 	// A follow-up WITHOUT context must not inherit the stale injection.
 	collect(t, mustAsk(t, l, "conv-1", "and now?"))
-	provider.mu.Lock()
-	second := provider.calls[1]
-	provider.mu.Unlock()
+	second := provider.Requests()[1].Messages
 	for _, m := range second {
 		// The system prompt legitimately names the tag; only user turns
 		// would carry a stale injection.
@@ -401,18 +374,16 @@ func TestAsk_TrailContextReachesModelNotHistory(t *testing.T) {
 func TestAsk_HistoryReplaysAnswersNotToolWork(t *testing.T) {
 	t.Parallel()
 
-	provider := &scriptedProvider{turns: [][]llm.StreamEvent{
-		toolTurn("c1", "open", `{"path":"/ops/deploy.md"}`),
-		textTurn("It is in ops."),
-		textTurn("Second answer."),
-	}}
+	provider := llmtest.NewScripted(
+		llmtest.ToolCalls(llmtest.Call("c1", "open", `{"path":"/ops/deploy.md"}`)),
+		llmtest.Text("It is in ops."),
+		llmtest.Text("Second answer."),
+	)
 	l := newTestLibrarian(t, provider, newFakePorts())
 	collect(t, mustAsk(t, l, "conv-1", "where is the runbook?"))
 	collect(t, mustAsk(t, l, "conv-1", "and rollback?"))
 
-	provider.mu.Lock()
-	second := provider.calls[len(provider.calls)-1]
-	provider.mu.Unlock()
+	second := provider.Requests()[2].Messages
 	if len(second) != 4 {
 		t.Fatalf("second transcript = %d messages; want system + Q/A + question: %+v", len(second), second)
 	}
@@ -430,9 +401,9 @@ func TestAsk_HistoryReplaysAnswersNotToolWork(t *testing.T) {
 func TestAsk_HistoryWindowIsBounded(t *testing.T) {
 	t.Parallel()
 
-	provider := &scriptedProvider{turns: [][]llm.StreamEvent{
-		textTurn("One."), textTurn("Two."), textTurn("Three."),
-	}}
+	provider := llmtest.NewScripted(
+		llmtest.Text("One."), llmtest.Text("Two."), llmtest.Text("Three."),
+	)
 	ports := newFakePorts()
 	l, err := New(Config{Provider: provider, Reader: ports, Catalog: ports, Graph: ports, Map: ports, HistoryExchanges: 1})
 	if err != nil {
@@ -441,9 +412,7 @@ func TestAsk_HistoryWindowIsBounded(t *testing.T) {
 	for _, q := range []string{"q1", "q2", "q3"} {
 		collect(t, mustAsk(t, l, "conv-1", q))
 	}
-	provider.mu.Lock()
-	third := provider.calls[2]
-	provider.mu.Unlock()
+	third := provider.Requests()[2].Messages
 	if len(third) != 4 || third[1].Content != "q2" || third[3].Content != "q3" {
 		t.Errorf("third transcript = %+v; want system, q2, Two., q3", third)
 	}
@@ -455,11 +424,12 @@ func TestAsk_HistoryWindowIsBounded(t *testing.T) {
 func TestStop_EndsRunAndKeepsStoppedExchange(t *testing.T) {
 	t.Parallel()
 
-	release := make(chan struct{})
-	defer close(release)
-	l := newTestLibrarian(t, &blockingProvider{release: release}, newFakePorts())
+	l := newTestLibrarian(t, llmtest.Blocking("half "), newFakePorts())
 
 	ch := mustAsk(t, l, "conv-1", "a long question")
+	if ev := <-ch; ev.Kind != domain.LibrarianToken {
+		t.Fatalf("first event = %+v; want the streamed token", ev)
+	}
 	l.Stop("conv-1")
 	evs := collect(t, ch)
 
@@ -471,11 +441,41 @@ func TestStop_EndsRunAndKeepsStoppedExchange(t *testing.T) {
 		t.Errorf("events = %+v; want the stop narrated, then done", evs)
 	}
 	hist := l.History("conv-1")
-	if len(hist) != 1 || !hist[0].Stopped || hist[0].Question != "a long question" {
-		t.Errorf("History = %+v; want one stopped exchange", hist)
+	if len(hist) != 1 || !hist[0].Stopped || hist[0].Question != "a long question" || hist[0].Answer != "half " {
+		t.Errorf("History = %+v; want one stopped exchange keeping what had streamed", hist)
 	}
 	l.Stop("conv-1") // idle: a no-op, not a panic
 	l.Stop("nobody")
+}
+
+func TestAsk_ToolCallsOfOneTurnRunTogether(t *testing.T) {
+	t.Parallel()
+
+	provider := llmtest.NewScripted(
+		llmtest.ToolCalls(
+			llmtest.Call("c1", "open", `{"path":"/ops/deploy.md"}`),
+			llmtest.Call("c2", "open", `{"path":"/ops/rollback.md"}`),
+			llmtest.Call("c3", "worlds", "{}"),
+		),
+		llmtest.Text("Both read."),
+	)
+	ports := newFakePorts()
+	l := newTestLibrarian(t, provider, ports)
+
+	collect(t, mustAsk(t, l, "conv-1", "compare the two"))
+
+	hist := l.History("conv-1")
+	if len(hist) != 1 || len(hist[0].Steps) != 3 || hist[0].Answer != "Both read." {
+		t.Fatalf("History = %+v; want three traced calls and the answer", hist)
+	}
+	// Sources land in the order the reads finish, so compare as a set.
+	opened := map[string]bool{}
+	for _, src := range hist[0].Sources {
+		opened[src.Path] = true
+	}
+	if len(opened) != 2 || !opened["/ops/deploy.md"] || !opened["/ops/rollback.md"] {
+		t.Errorf("sources = %+v; want both opened documents", hist[0].Sources)
+	}
 }
 
 func TestReset_ClearsTranscriptNotWhileRunning(t *testing.T) {
@@ -504,9 +504,8 @@ func TestReset_ClearsTranscriptNotWhileRunning(t *testing.T) {
 func TestAsk_HourlyBudget(t *testing.T) {
 	t.Parallel()
 
-	provider := &scriptedProvider{}
 	ports := newFakePorts()
-	l, err := New(Config{Provider: provider, Reader: ports, Catalog: ports, Graph: ports, Map: ports, AsksPerHour: 2})
+	l, err := New(Config{Provider: answers(4), Reader: ports, Catalog: ports, Graph: ports, Map: ports, AsksPerHour: 2})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -534,7 +533,7 @@ func TestAsk_HourlyBudget(t *testing.T) {
 func TestAsk_PersonaShapesSystemPrompt(t *testing.T) {
 	t.Parallel()
 
-	provider := &scriptedProvider{}
+	provider := answers(2)
 	l := newTestLibrarian(t, provider, newFakePorts())
 	ch, err := l.Ask(context.Background(), domain.LibrarianAsk{
 		Conversation: "conv-1", Question: "hello",
@@ -546,9 +545,8 @@ func TestAsk_PersonaShapesSystemPrompt(t *testing.T) {
 	collect(t, ch)
 	collect(t, mustAsk(t, l, "conv-2", "stock"))
 
-	provider.mu.Lock()
-	branded, stock := provider.calls[0][0].Content, provider.calls[1][0].Content
-	provider.mu.Unlock()
+	requests := provider.Requests()
+	branded, stock := requests[0].Messages[0].Content, requests[1].Messages[0].Content
 	if !strings.HasPrefix(branded, "You are Ada, the librarian of a demarkus library") ||
 		!strings.HasSuffix(branded, "Speak plainly.") {
 		t.Errorf("branded system prompt = %q", branded)
@@ -575,7 +573,7 @@ func TestAsk_LogsUsageWithoutTheSessionKey(t *testing.T) {
 	var mu sync.Mutex
 	ports := newFakePorts()
 	l, err := New(Config{
-		Provider: &scriptedProvider{}, Reader: ports, Catalog: ports, Graph: ports, Map: ports,
+		Provider: answers(1), Reader: ports, Catalog: ports, Graph: ports, Map: ports,
 		Logger: slog.New(slog.NewTextHandler(&lockedWriter{mu: &mu, w: &logs}, nil)),
 	})
 	if err != nil {
@@ -586,7 +584,7 @@ func TestAsk_LogsUsageWithoutTheSessionKey(t *testing.T) {
 	mu.Lock()
 	line := logs.String()
 	mu.Unlock()
-	if !strings.Contains(line, `msg="librarian ask"`) || !strings.Contains(line, "outcome=answered") {
+	if !strings.Contains(line, `msg="librarian ask"`) || !strings.Contains(line, "outcome=answered") || !strings.Contains(line, "turns=1") {
 		t.Errorf("usage line = %q", line)
 	}
 	if strings.Contains(line, "secret-session-cookie") {
@@ -648,11 +646,9 @@ func TestAsk_RunOutlivesSubscription(t *testing.T) {
 func TestAsk_AbandonedAfterGrace(t *testing.T) {
 	t.Parallel()
 
-	release := make(chan struct{})
-	defer close(release)
 	ports := newFakePorts()
 	l, err := New(Config{
-		Provider: &blockingProvider{release: release}, Reader: ports, Catalog: ports, Graph: ports, Map: ports,
+		Provider: llmtest.Blocking(), Reader: ports, Catalog: ports, Graph: ports, Map: ports,
 		ReconnectGrace: 20 * time.Millisecond,
 	})
 	if err != nil {
@@ -679,11 +675,9 @@ func TestAsk_AbandonedAfterGrace(t *testing.T) {
 func TestAsk_RunTimeoutIsNarrated(t *testing.T) {
 	t.Parallel()
 
-	release := make(chan struct{})
-	defer close(release)
 	ports := newFakePorts()
 	l, err := New(Config{
-		Provider: &blockingProvider{release: release}, Reader: ports, Catalog: ports, Graph: ports, Map: ports,
+		Provider: llmtest.Blocking(), Reader: ports, Catalog: ports, Graph: ports, Map: ports,
 		RunTimeout: 20 * time.Millisecond,
 	})
 	if err != nil {
@@ -737,7 +731,7 @@ func TestAttach_ReplaysThenFollows(t *testing.T) {
 func TestAttach_MatchesOnlyTheAsk(t *testing.T) {
 	t.Parallel()
 
-	l := newTestLibrarian(t, &scriptedProvider{}, newFakePorts())
+	l := newTestLibrarian(t, answers(2), newFakePorts())
 	ask := func(id string) {
 		ch, err := l.Ask(context.Background(), domain.LibrarianAsk{ID: id, Conversation: "conv-1", Question: "q " + id})
 		if err != nil {
@@ -776,7 +770,7 @@ func TestAttach_MatchesOnlyTheAsk(t *testing.T) {
 func TestAcquire_PublishesACompleteRun(t *testing.T) {
 	t.Parallel()
 
-	l := newTestLibrarian(t, &scriptedProvider{}, newFakePorts())
+	l := newTestLibrarian(t, llmtest.NewScripted(), newFakePorts())
 	conv, err := l.acquire(domain.LibrarianAsk{ID: "ask-1", Conversation: "conv-1", Question: "q"}, func() {})
 	if err != nil {
 		t.Fatalf("acquire: %v", err)

@@ -36,7 +36,7 @@ func (t *lookupTool) Definition() llm.ToolDef {
 			"tag":       {Type: "string", Description: "only documents carrying this tag"},
 			"world":     {Type: "string", Description: "restrict to one world (default: all worlds)"},
 			"full_text": {Type: "boolean", Description: "search section text rather than tags and titles"},
-		}, Required: []string{}},
+		}},
 	}}
 }
 

@@ -101,9 +101,7 @@ func (t *worldsTool) Definition() llm.ToolDef {
 	return llm.ToolDef{Type: "function", Function: llm.FunctionDef{
 		Name:        "worlds",
 		Description: "List the universe's worlds and each world's most important documents. Call this first to orient before searching.",
-		// Required must be non-nil: strict OpenAI-compatible validators
-		// reject "required": null (nib sets []string{} on every tool).
-		Parameters: llm.FunctionParams{Type: "object", Properties: map[string]llm.FunctionParam{}, Required: []string{}},
+		Parameters:  llm.FunctionParams{Type: "object"},
 	}}
 }
 

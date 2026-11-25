@@ -25,7 +25,6 @@ import (
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
 	"github.com/latebit-io/nib/ai/llm"
 	"github.com/latebit-io/nib/ai/llmconfig"
-	niboauth "github.com/latebit-io/nib/ai/oauth"
 )
 
 // evalDoc is one fixture document.
@@ -138,13 +137,8 @@ func evalProvider(t *testing.T) llm.Provider {
 		t.Skip("set LIBRARIAN_EVAL=1 to ask a real model the golden questions")
 	}
 	_, resolved := llmconfig.Resolve("")
-	if !resolved.HasProvider() {
-		if path, err := niboauth.DefaultKeyStorePath(); err == nil {
-			if ks, err := niboauth.NewKeyStore(path); err == nil {
-				llmconfig.WireStoredKey(resolved, ks)
-			}
-		}
-	}
+	// Best-effort: without a usable store the check below fails the eval.
+	_, _ = llmconfig.WireDefaultKeyStore(resolved)
 	if !resolved.HasProvider() {
 		t.Fatal("LIBRARIAN_EVAL set but no LLM provider resolves (llm.json, LLM_API_KEY, or the nib key store)")
 	}

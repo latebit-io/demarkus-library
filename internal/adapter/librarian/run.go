@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
+	nibagent "github.com/latebit-io/nib/agent"
 	nibevent "github.com/latebit-io/nib/agent/event"
-	"github.com/latebit-io/nib/ai/llm"
 )
 
 // run is one ask's working state: the trace and sources its exchange will
@@ -31,7 +31,6 @@ type run struct {
 	steps       []domain.LibrarianStep
 	sources     []domain.LibrarianSource
 	sentSources int // sources already published
-	stopped     bool
 
 	// log holds every published event but tokens; message is the message
 	// streaming now, and messages counts completed ones so a subscription
@@ -62,18 +61,6 @@ func runFrom(ctx context.Context) *run {
 	return r
 }
 
-func (r *run) markStopped() {
-	r.mu.Lock()
-	r.stopped = true
-	r.mu.Unlock()
-}
-
-func (r *run) isStopped() bool {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.stopped
-}
-
 // trace records step and publishes it.
 func (r *run) trace(step domain.LibrarianStep) {
 	r.mu.Lock()
@@ -83,7 +70,7 @@ func (r *run) trace(step domain.LibrarianStep) {
 	r.changedLocked()
 }
 
-// notice traces plain text; the provider's retry narration calls it.
+// notice traces a line of plain text, one that names no document.
 func (r *run) notice(text string) {
 	r.trace(domain.LibrarianStep{Text: text})
 }
@@ -110,7 +97,8 @@ func (r *run) unsentSources() []domain.LibrarianSource {
 }
 
 // exchange is the run as the transcript keeps it, owning its own slices.
-func (r *run) exchange(answer string) domain.LibrarianExchange {
+// stopped says the reader ended it.
+func (r *run) exchange(answer string, stopped bool) domain.LibrarianExchange {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return domain.LibrarianExchange{
@@ -118,7 +106,7 @@ func (r *run) exchange(answer string) domain.LibrarianExchange {
 		Answer:   answer,
 		Steps:    slices.Clone(r.steps),
 		Sources:  slices.Clone(r.sources),
-		Stopped:  r.stopped,
+		Stopped:  stopped,
 	}
 }
 
@@ -151,12 +139,16 @@ func (r *run) completeMessage(content string) {
 	r.changedLocked()
 }
 
-// messageText is the message in progress, cloned: the transcript keeps it
-// without pinning the builder's spare capacity.
-func (r *run) messageText() string {
+// lastAnswer is the text of the latest answer logged, "" before any.
+func (r *run) lastAnswer() string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return strings.Clone(r.message.String())
+	for _, ev := range slices.Backward(r.log) {
+		if ev.Kind == domain.LibrarianAnswer {
+			return ev.Text
+		}
+	}
+	return ""
 }
 
 // finish marks the run done: subscriptions deliver LibrarianDone and close.
@@ -267,38 +259,11 @@ func (r *run) detach() {
 	r.abandon = time.AfterFunc(r.grace, r.cancel)
 }
 
-// usageTally sums one run's provider-reported usage for the log line.
-type usageTally struct {
-	turns, toolCalls, prompt, completion, cached int
-}
-
-// addTurn counts a turn made outside nib's loop (the cap's final word).
-func (u *usageTally) addTurn(usage *llm.Usage) {
-	u.turns++
-	if usage != nil {
-		u.prompt += usage.PromptTokens
-		u.completion += usage.CompletionTokens
-		u.cached += usage.CachedTokens
-	}
-}
-
-func (u *usageTally) add(e nibevent.TurnUsage) {
-	u.turns++
-	u.toolCalls += e.ToolCalls
-	u.prompt += e.PromptTokens
-	u.completion += e.CompletionTokens
-	u.cached += e.CachedTokens
-}
-
 // translate drains one run's nib events into its log and owns its end:
-// AgentParked aborts (asks are one-shot), AgentEnd records the exchange and
-// finish releases the subscriptions. ctx is the run's own, never a reader's.
-func (l *Librarian) translate(ctx context.Context, conv *conversation, current *run) {
+// AgentEnd records the exchange and finish releases the subscriptions.
+func (l *Librarian) translate(conv *conversation, current *run) {
 	defer current.cancel()
 	defer l.release(conv, current) // frees the slot should the loop ever exit early
-
-	var usage usageTally
-	outcome := "answered"
 
 	for ev := range conv.events {
 		switch e := ev.(type) {
@@ -314,85 +279,70 @@ func (l *Librarian) translate(ctx context.Context, conv *conversation, current *
 			current.trace(l.describe(e.Name, e.Args))
 		case nibevent.ToolEnd:
 			if e.IsError {
-				current.trace(domain.LibrarianStep{Text: "⚠ " + firstLine(e.Result)})
+				current.notice("⚠ " + firstLine(e.Result))
 			}
 			for _, src := range current.unsentSources() {
 				current.publish(domain.LibrarianEvent{Kind: domain.LibrarianSourceOpened, Text: src.Title, Ref: src.Ref})
 			}
-		case nibevent.TurnUsage:
-			usage.add(e)
 		case nibevent.MaxTurnsReached:
-			outcome = "capped"
-			current.trace(domain.LibrarianStep{Text: fmt.Sprintf("stopped at the turn cap (%d turns) — answering with what I have", e.Turns)})
+			current.notice(fmt.Sprintf("stopped at the turn cap (%d turns) — answering with what I have", e.Turns))
 		case nibevent.Error:
-			outcome = "error"
 			current.publish(domain.LibrarianEvent{Kind: domain.LibrarianError, Text: e.Err})
-		case nibevent.AgentParked:
-			// The answer is complete; the librarian doesn't hold parked
-			// runs — unwind so AgentEnd delivers the transcript.
-			conv.agent.Abort()
 		case nibevent.AgentEnd:
-			answer := finalAnswer(e.Messages)
-			switch {
-			case current.isStopped():
-				outcome = "stopped"
-				if partial := current.messageText(); partial != "" {
-					answer = partial
-				}
-				current.trace(domain.LibrarianStep{Text: "stopped at your request"})
-			case errors.Is(ctx.Err(), context.DeadlineExceeded):
-				outcome = "timed out"
-				current.trace(domain.LibrarianStep{Text: "stopped: this answer ran past its time limit"})
-			case ctx.Err() != nil:
-				outcome = "abandoned"
-			case outcome == "capped":
-				answer = l.finalWord(withRun(ctx, current), e.Messages, &usage)
+			// FinalText is the answer, or what had streamed of it when the
+			// run broke off; cloned so it does not pin nib's builder.
+			answer := strings.Clone(e.FinalText)
+			// A turn that broke off got no MessageEnd: settle its text here,
+			// or subscriptions keep only the droppable tokens of it.
+			if answer != current.lastAnswer() {
+				current.completeMessage(answer)
+			}
+			outcome, note := endOutcome(e)
+			if note != "" {
+				current.notice(note)
+			}
+			// The exchange is all a later ask needs: drop the agent's copy of
+			// the transcript, tool results included, while it sits idle.
+			if err := conv.agent.ReplaceMessages(nil); err != nil {
+				l.cfg.Logger.Warn("librarian: release transcript", "conversation", conversationTag(conv.key), "err", err)
 			}
 			l.mu.Lock()
-			conv.exchanges = append(conv.exchanges, current.exchange(answer))
+			conv.exchanges = append(conv.exchanges, current.exchange(answer, outcome == outcomeStopped))
 			conv.lastAskID = current.id
 			l.releaseLocked(conv, current)
 			l.mu.Unlock()
 			l.cfg.Logger.Info("librarian ask",
 				"conversation", conversationTag(conv.key), "outcome", outcome,
-				"turns", usage.turns, "tool_calls", usage.toolCalls,
-				"prompt_tokens", usage.prompt, "completion_tokens", usage.completion,
-				"cached_tokens", usage.cached, "duration_ms", l.now().Sub(current.started).Milliseconds())
+				"turns", e.Usage.Turns, "tool_calls", e.Usage.ToolCalls,
+				"prompt_tokens", e.Usage.PromptTokens, "completion_tokens", e.Usage.CompletionTokens,
+				"cached_tokens", e.Usage.CachedTokens, "cache_write_tokens", e.Usage.CacheWriteTokens,
+				"duration_ms", l.now().Sub(current.started).Milliseconds())
 			current.finish()
 			return
 		}
 	}
 }
 
-// capNudge asks a capped run for its answer.
-const capNudge = "You have used your tool budget for this question. Answer now from what you found, citing what you opened, and say plainly what you could not find."
+// outcomeStopped is the usage line's word for a run its reader ended.
+const outcomeStopped = "stopped"
 
-// finalWord makes the turn cap's promise good: one more model turn without
-// tools, streamed like any answer, so a capped run never ends with a trace
-// and no answer. Returns the answer, "" if the turn failed.
-func (l *Librarian) finalWord(ctx context.Context, msgs []llm.Message, usage *usageTally) string {
-	current := runFrom(ctx)
-	msgs = append(slices.Clone(msgs), llm.Message{Role: "user", Content: capNudge})
-	stream, err := l.cfg.Provider.Stream(ctx, msgs, nil)
-	if err != nil {
-		l.cfg.Logger.Warn("librarian final answer failed", "err", err)
-		return ""
+// endOutcome names how the run ended for the usage line, with the word a
+// reader is owed about it, if any. An aborted run's Err is the cause its ctx
+// was cancelled with; a bare cancel is the grace countdown's.
+func endOutcome(end nibevent.AgentEnd) (outcome, note string) {
+	switch {
+	case end.Reason == nibevent.EndCompleted:
+		return "answered", ""
+	case end.Reason == nibevent.EndMaxTurns:
+		return "capped", ""
+	case end.Reason != nibevent.EndAborted:
+		return string(end.Reason), "" // error, truncated
+	case errors.Is(end.Err, nibagent.ErrAborted):
+		return outcomeStopped, "stopped at your request"
+	case errors.Is(end.Err, context.DeadlineExceeded):
+		return "timed out", "stopped: this answer ran past its time limit"
 	}
-	for ev := range stream {
-		if ev.Done {
-			usage.addTurn(ev.Usage)
-		}
-		if ev.Err != nil {
-			l.cfg.Logger.Warn("librarian final answer failed", "err", ev.Err)
-			continue // drain: the provider closes the channel after its terminal event
-		}
-		if ev.Token != "" {
-			current.publish(domain.LibrarianEvent{Kind: domain.LibrarianToken, Text: ev.Token})
-		}
-	}
-	answer := current.messageText()
-	current.completeMessage(answer)
-	return answer
+	return "abandoned", ""
 }
 
 // release frees the conversation's run slot if r still holds it.
@@ -408,21 +358,6 @@ func (l *Librarian) releaseLocked(conv *conversation, r *run) {
 	if conv.run == r {
 		conv.run = nil
 	}
-}
-
-// finalAnswer is the last non-empty assistant message after the question:
-// intermediate assistant turns narrate tool use and are superseded.
-func finalAnswer(msgs []llm.Message) string {
-	answer := ""
-	for _, m := range msgs {
-		switch {
-		case m.Role == "user":
-			answer = ""
-		case m.Role == "assistant" && m.Content != "":
-			answer = m.Content
-		}
-	}
-	return answer
 }
 
 // conversationTag correlates a conversation's log lines without logging its

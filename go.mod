@@ -8,8 +8,8 @@ require (
 	github.com/labstack/echo/v5 v5.1.1
 	github.com/latebit-io/demarkus/client v0.81.2
 	github.com/latebit-io/demarkus/protocol v0.38.0
-	github.com/latebit-io/nib/agent v0.1.0
-	github.com/latebit-io/nib/ai v0.1.0
+	github.com/latebit-io/nib/agent v0.10.0
+	github.com/latebit-io/nib/ai v0.10.0
 	github.com/mark3labs/mcp-go v1.5.0
 	github.com/microcosm-cc/bluemonday v1.0.27
 	github.com/yuin/goldmark v1.8.7

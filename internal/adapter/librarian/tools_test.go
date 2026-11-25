@@ -12,11 +12,11 @@ import (
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
 	nibagent "github.com/latebit-io/nib/agent"
 	"github.com/latebit-io/nib/ai/llm"
+	"github.com/latebit-io/nib/ai/llmtest"
 )
 
 func call(name, args string) llm.ToolCall {
-	return llm.ToolCall{ID: "t1", Type: "function",
-		Function: llm.FunctionCall{Name: name, Arguments: args}}
+	return llmtest.Call("t1", name, args)
 }
 
 func TestFindTool_FiltersAndScopes(t *testing.T) {
@@ -308,7 +308,7 @@ func TestOpenTool_RecordsSourceForTheRun(t *testing.T) {
 func TestDescribe_NarratesToolCalls(t *testing.T) {
 	t.Parallel()
 
-	l := newTestLibrarian(t, &scriptedProvider{}, newFakePorts())
+	l := newTestLibrarian(t, llmtest.NewScripted(), newFakePorts())
 	deploy := domain.Ref{World: "root", Path: "/ops/deploy.md"}
 	tests := []struct {
 		name, tool, args string

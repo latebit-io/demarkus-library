@@ -1,6 +1,7 @@
 package librarian
 
 import (
+	"context"
 	"strings"
 
 	"github.com/latebit-io/demarkus-library/internal/core/domain"
@@ -36,6 +37,15 @@ reader currently has open (their trail) and the text of the document they are
 focused on. That is what the reader is LOOKING AT right now — use it to
 resolve "this"/"here" and to skip redundant lookups — but it is a view, not
 the catalog: verify anything load-bearing with your tools.`
+
+// capNudge asks a capped run for its answer.
+const capNudge = "You have used your tool budget for this question. Answer now from what you found, citing what you opened, and say plainly what you could not find."
+
+// capAnswer is nib's OnMaxTurns hook: the nudge buys a capped run one turn
+// without tools, so it ends on an answer and not on a bare trace.
+func capAnswer(context.Context) ([]llm.Message, error) {
+	return []llm.Message{{Role: "user", Content: capNudge}}, nil
+}
 
 // systemPrompt introduces the librarian as the room presents it (ADR 0008),
 // then the doctrine, then any house instructions — which shape voice and
