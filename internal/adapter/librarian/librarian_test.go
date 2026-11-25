@@ -214,6 +214,43 @@ func TestAsk_TurnCapTracedAndDone(t *testing.T) {
 	}
 }
 
+func TestAsk_BrokenClosingTurnReconcilesItsText(t *testing.T) {
+	t.Parallel()
+
+	// The cap's closing turn streams text and then fails: nib sends no
+	// MessageEnd for it, so the run's end must settle the text.
+	provider := llmtest.NewScripted(
+		llmtest.ToolCalls(llmtest.Call("c1", "worlds", "{}")),
+		[]llm.StreamEvent{{Token: "From what I found: "}, {Done: true, Err: errors.New("connection reset")}},
+	)
+	ports := newFakePorts()
+	l, err := New(Config{
+		Provider: provider, Reader: ports, Catalog: ports, Graph: ports, Map: ports,
+		DefaultWorld: "root", MaxTurns: 1,
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	evs := collect(t, mustAsk(t, l, "conv-1", "loop forever"))
+
+	var answers []string
+	for _, ev := range evs {
+		if ev.Kind == domain.LibrarianAnswer {
+			answers = append(answers, ev.Text)
+		}
+	}
+	if !slices.Equal(answers, []string{"From what I found: "}) {
+		t.Errorf("answers = %q; want the broken turn's text settled once (events: %+v)", answers, evs)
+	}
+	if !slices.Contains(kinds(evs), domain.LibrarianError) || evs[len(evs)-1].Kind != domain.LibrarianDone {
+		t.Errorf("events = %+v; want the failure surfaced, then done", evs)
+	}
+	if hist := l.History("conv-1"); len(hist) != 1 || hist[0].Answer != "From what I found: " {
+		t.Errorf("History = %+v; want the same text kept", hist)
+	}
+}
+
 func TestAsk_EmptyQuestionRejected(t *testing.T) {
 	t.Parallel()
 

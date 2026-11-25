@@ -139,6 +139,18 @@ func (r *run) completeMessage(content string) {
 	r.changedLocked()
 }
 
+// lastAnswer is the text of the latest answer logged, "" before any.
+func (r *run) lastAnswer() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, ev := range slices.Backward(r.log) {
+		if ev.Kind == domain.LibrarianAnswer {
+			return ev.Text
+		}
+	}
+	return ""
+}
+
 // finish marks the run done: subscriptions deliver LibrarianDone and close.
 func (r *run) finish() {
 	r.mu.Lock()
@@ -277,6 +289,14 @@ func (l *Librarian) translate(conv *conversation, current *run) {
 		case nibevent.Error:
 			current.publish(domain.LibrarianEvent{Kind: domain.LibrarianError, Text: e.Err})
 		case nibevent.AgentEnd:
+			// FinalText is the answer, or what had streamed of it when the
+			// run broke off; cloned so it does not pin nib's builder.
+			answer := strings.Clone(e.FinalText)
+			// A turn that broke off got no MessageEnd: settle its text here,
+			// or subscriptions keep only the droppable tokens of it.
+			if answer != current.lastAnswer() {
+				current.completeMessage(answer)
+			}
 			outcome, note := endOutcome(e)
 			if note != "" {
 				current.notice(note)
@@ -287,9 +307,7 @@ func (l *Librarian) translate(conv *conversation, current *run) {
 				l.cfg.Logger.Warn("librarian: release transcript", "conversation", conversationTag(conv.key), "err", err)
 			}
 			l.mu.Lock()
-			// FinalText is the answer, or what had streamed of it when the
-			// run broke off; cloned so it does not pin nib's builder.
-			conv.exchanges = append(conv.exchanges, current.exchange(strings.Clone(e.FinalText), outcome == outcomeStopped))
+			conv.exchanges = append(conv.exchanges, current.exchange(answer, outcome == outcomeStopped))
 			conv.lastAskID = current.id
 			l.releaseLocked(conv, current)
 			l.mu.Unlock()
