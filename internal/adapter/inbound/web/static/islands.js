@@ -255,10 +255,13 @@
   }
   // Same-document hash changes (in-page links, back/forward, the address bar)
   // to a section skip the browser's jump; "#", "#top" or an unknown id keep it.
-  // Without the Navigation API every jump is the browser's.
+  // Enter on the current URL jumps too, with no hash change. Without the
+  // Navigation API every jump is the browser's.
   if (window.navigation) {
     navigation.addEventListener("navigate", function (e) {
-      var id = e.hashChange && e.canIntercept && new URL(e.destination.url).hash.slice(1);
+      var url = new URL(e.destination.url);
+      var id = e.canIntercept && e.destination.sameDocument &&
+        (e.hashChange || url.href === location.href) && url.hash.slice(1);
       if (!sectionTarget(id)) return;
       e.intercept({ scroll: "manual", handler: function () { showSection(id); } });
     });

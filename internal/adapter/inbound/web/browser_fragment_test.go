@@ -58,6 +58,20 @@ func TestBrowserFragmentScrollsOnlyTheFocusedPane(t *testing.T) {
 			b.eval(t, `location.hash = "initiatives"`)
 			b.waitFor(t, `document.querySelector('.pane.focused').scrollTop > 0`)
 		}},
+		{"on Enter in the address bar", func(t *testing.T) {
+			url := srv.URL + trail("enter.io") + "#initiatives"
+			b.navigate(t, url)
+			// The same URL again is a fragment navigation with no hash change.
+			b.eval(t, `window.__from = navigation.currentEntry.key`)
+			b.call(t, "Page.navigate", map[string]any{"url": url})
+			b.waitFor(t, `navigation.currentEntry.key !== window.__from`)
+		}},
+		{"on reload", func(t *testing.T) {
+			b.navigate(t, srv.URL+trail("reload.io")+"#initiatives")
+			// The same URL too, but a new document: the reload must not be swallowed.
+			b.eval(t, `window.__stale = true; location.reload()`)
+			b.waitFor(t, `!window.__stale && document.readyState === "complete" && window.htmx`)
+		}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
