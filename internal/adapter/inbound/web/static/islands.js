@@ -237,24 +237,30 @@
     try { id = decodeURIComponent(id); } catch (_) { /* malformed escape: match raw */ }
     return scope.querySelector("#" + CSS.escape(id));
   }
+  function sectionTarget(id) {
+    var reader = document.querySelector(".reader-backdrop:not(.meta-backdrop) .reader-panel");
+    return fragmentTarget(reader || document.querySelector(".pane.focused"), id);
+  }
   // The scroller is the reader's backdrop, a pane-scroll room's pane, or the
   // page. A pane's sticky head covers its top, so the heading lands below it.
   function showSection(id) {
-    var reader = document.querySelector(".reader-backdrop:not(.meta-backdrop)");
-    var scope = reader ? reader.querySelector(".reader-panel") : document.querySelector(".pane.focused");
-    var target = fragmentTarget(scope, id);
+    var target = sectionTarget(id);
     if (!target) return;
-    var scroller = reader || (document.body.classList.contains("pane-scroll") ? scope : document.scrollingElement);
-    var head = scroller === scope && scope.querySelector(":scope > .pane-head");
+    var pane = target.closest(".pane");
+    var scroller = target.closest(".reader-backdrop") ||
+      (document.body.classList.contains("pane-scroll") ? pane : document.scrollingElement);
+    var head = scroller === pane && pane.querySelector(":scope > .pane-head");
     scroller.scrollTop += target.getBoundingClientRect().top - (head ? head.getBoundingClientRect().bottom : 0) -
       parseFloat(getComputedStyle(target).scrollMarginTop);
   }
   // Same-document hash changes (in-page links, back/forward, the address bar)
-  // skip the browser's jump. Without the Navigation API they keep it.
+  // to a section skip the browser's jump; "#", "#top" or an unknown id keep it.
+  // Without the Navigation API every jump is the browser's.
   if (window.navigation) {
     navigation.addEventListener("navigate", function (e) {
-      if (!e.hashChange || !e.canIntercept) return;
-      e.intercept({ scroll: "manual", handler: function () { showSection(new URL(e.destination.url).hash.slice(1)); } });
+      var id = e.hashChange && e.canIntercept && new URL(e.destination.url).hash.slice(1);
+      if (!sectionTarget(id)) return;
+      e.intercept({ scroll: "manual", handler: function () { showSection(id); } });
     });
   }
   // A boosted link with a #fragment: htmx scrolls its anchor into view right

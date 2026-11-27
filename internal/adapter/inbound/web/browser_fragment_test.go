@@ -68,3 +68,18 @@ func TestBrowserFragmentScrollsOnlyTheFocusedPane(t *testing.T) {
 		})
 	}
 }
+
+// An empty fragment ("#") names no section: the browser keeps its own jump to
+// the top of the document. The classic room, where the page itself scrolls.
+func TestBrowserEmptyFragmentReturnsToTheTop(t *testing.T) {
+	long := strings.Repeat("<p>"+strings.Repeat("word ", 120)+"</p>", 20)
+	svc := &fakeReading{docs: map[string]domain.Document{
+		"/a.md": {Title: "a", Path: "/a.md", HTML: long + `<h2 id="initiatives">Initiatives</h2>` + long},
+	}}
+	srv := browserServer(t, readingApp(t, svc))
+	b := launchBrowser(t)
+	b.navigate(t, srv.URL+"/t/w.io/d/a.md#initiatives")
+	b.waitFor(t, `document.scrollingElement.scrollTop > 0`)
+	b.eval(t, `location.hash = ""`)
+	b.waitFor(t, `location.href.endsWith("#") && document.scrollingElement.scrollTop === 0`)
+}
