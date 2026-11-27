@@ -161,10 +161,9 @@
     var text = button.getAttribute("data-copy") || "";
     // The pane's own button carries a #fragment along when it lands in
     // the same pane, so a pasted address opens on the section being read.
-    if (!button.classList.contains("copy-anchor")) {
-      var id = location.hash.slice(1), scope = button.closest(".pane, .reader-panel") || document;
-      try { id = decodeURIComponent(id); } catch (_) { /* malformed escape: match raw */ }
-      if (id && scope.querySelector("#" + CSS.escape(id))) text += location.hash;
+    if (!button.classList.contains("copy-anchor") &&
+        fragmentTarget(button.closest(".pane, .reader-panel") || document, location.hash.slice(1))) {
+      text += location.hash;
     }
     function done(state) {
       var label = button.querySelector(".copy-label");
@@ -228,6 +227,44 @@
     if (pr.right > cr.right) canvas.scrollLeft += pr.right - cr.right;
     if (pr.left < cr.left) canvas.scrollLeft -= cr.left - pr.left;
   }
+
+  // --- section fragments (#123) ------------------------------------------
+  // A #fragment names a section of the reader, else the focused pane. Heading
+  // ids repeat across panes, and the browser's jump (and htmx's) scrolls every
+  // ancestor of the first one, page included; here only its own scroller moves.
+  function fragmentTarget(scope, id) {
+    if (!scope || !id) return null;
+    try { id = decodeURIComponent(id); } catch (_) { /* malformed escape: match raw */ }
+    return scope.querySelector("#" + CSS.escape(id));
+  }
+  // The scroller is the reader's backdrop, a pane-scroll room's pane, or the
+  // page. A pane's sticky head covers its top, so the heading lands below it.
+  function showSection(id) {
+    var reader = document.querySelector(".reader-backdrop:not(.meta-backdrop)");
+    var scope = reader ? reader.querySelector(".reader-panel") : document.querySelector(".pane.focused");
+    var target = fragmentTarget(scope, id);
+    if (!target) return;
+    var scroller = reader || (document.body.classList.contains("pane-scroll") ? scope : document.scrollingElement);
+    var head = scroller === scope && scope.querySelector(":scope > .pane-head");
+    scroller.scrollTop += target.getBoundingClientRect().top - (head ? head.getBoundingClientRect().bottom : 0) -
+      parseFloat(getComputedStyle(target).scrollMarginTop);
+  }
+  // Same-document hash changes (in-page links, back/forward, the address bar)
+  // skip the browser's jump. Without the Navigation API they keep it.
+  if (window.navigation) {
+    navigation.addEventListener("navigate", function (e) {
+      if (!e.hashChange || !e.canIntercept) return;
+      e.intercept({ scroll: "manual", handler: function () { showSection(new URL(e.destination.url).hash.slice(1)); } });
+    });
+  }
+  // A boosted link with a #fragment: htmx scrolls its anchor into view right
+  // after after:swap. History already holds the anchor, so take it from htmx.
+  document.addEventListener("htmx:after:swap", function (e) {
+    var req = e.detail && e.detail.ctx && e.detail.ctx.request;
+    if (!req || !req.anchor) return;
+    showSection(req.anchor);
+    req.anchor = "";
+  });
 
   // Page navigation cross-fades; camera and graph exploration stay immediate.
   document.addEventListener("htmx:config:request", function (e) {
@@ -310,8 +347,9 @@
   }
   function restorePositions() {
     scrollPanes().forEach(function (p) {
+      // Zero too: on load the browser's fragment jump may have moved a pane.
       var reading = positions[paneKey(p)];
-      if (reading && reading.top) p.scrollTop = reading.top;
+      p.scrollTop = (reading && reading.top) || 0;
     });
   }
   // E-reader furniture: a document pane's head reads "38% · 6 min left".
@@ -1569,8 +1607,19 @@
     showAllProgress();
     showSpineProgress();
     scan(document.body);
-    showFocusedPane();
+    showFocus();
   });
+  // The browser's own jump to a loaded #fragment lands by the load event
+  // (in Chrome, after DOMContentLoaded): put the panes back, then the section.
+  window.addEventListener("load", function () {
+    if (!location.hash) return;
+    restorePositions();
+    showFocus();
+  });
+  function showFocus() {
+    showFocusedPane();
+    showSection(location.hash.slice(1));
+  }
   // htmx fragment swaps (hx-boost navigation) land after settle; rescan
   // just the swapped subtree, and re-center the canvas only when the swap
   // actually re-rendered panes. after:settle fires for EVERY swap — hover

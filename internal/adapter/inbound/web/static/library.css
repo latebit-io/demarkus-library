@@ -90,6 +90,8 @@ a:hover { text-decoration-color: currentColor; }
 /* A thematic break is a scene break: set it as a book does. */
 .doc-body hr { border: 0; margin: 2rem 0; text-align: center; line-height: 1; }
 .doc-body hr::before { content: "⁂"; color: var(--muted); font-size: 1.1rem; }
+/* A section opened by #fragment lands with air above it (islands.js reads this). */
+.doc-body :is(h1, h2, h3, h4, h5, h6)[id] { scroll-margin-top: .6rem; }
 
 /* ── Pinned metadata block: the trust signals, sticky at margin top.
       Solid paper background + z-index so floated sidenotes slide under
@@ -355,6 +357,9 @@ body.pane-scroll .pane { overflow-y: auto; overscroll-behavior-y: contain;
                    scrollbar-width: thin;
                    scrollbar-color: transparent transparent; }
 body.pane-scroll .pane:hover { scrollbar-color: var(--rule) transparent; }
+/* A containing block too: an absolute descendant (an sr-only label) would
+   escape the pane's clip, stretch the page, and let the fixed room scroll. */
+body.pane-scroll .pane:not(.spine) { position: relative; }
 /* Column rules: with every pane a full-height scroller, adjacent text
    columns need a boundary the gap alone no longer provides. Interior
    edges only; spines carry their own border box. */
